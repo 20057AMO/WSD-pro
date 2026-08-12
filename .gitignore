@@ -2,17 +2,45 @@
 node_modules/
 dist/
 *.log
+npm-debug.log*
 
-# ── Environment / secrets ───────────────────────
+# ── Environment / secrets ────────────────────────
 .env
 .env.*
 !.env.example
 
-# ── Runtime data (passwords hashes, workspaces) ─
+# ── Runtime data (user data, workspaces) ─────────
 backend/data/
 workspaces/
 
-# ── OS / editor ─────────────────────────────────
+# ── Backup / temporary config files ──────────────
+# (may contain private domain names, IPs, or tokens)
+docs/*.bak
+docs/*.backup
+*.bak
+*.backup
+
+# ── TLS / Certificates / Private keys ────────────
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+# Caddy automatic HTTPS data
+caddy_data/
+.caddy/
+/data/caddy/
+
+# ── Session / auth keys ───────────────────────────
+session.key
+*.secret
+
+# ── Docker credentials ────────────────────────────
+.docker/
+
+# ── OS / editor ──────────────────────────────────
 .DS_Store
 Thumbs.db
 *.swp
