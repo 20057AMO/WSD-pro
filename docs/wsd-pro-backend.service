@@ -1,0 +1,27 @@
+[Unit]
+Description=WSD-Pro Backend — Docker Workspace Command Center
+After=docker.service network.target
+Wants=docker.service
+
+[Service]
+Type=simple
+User=ahmedali
+Group=ahmedali
+WorkingDirectory=/home/ahmedali/wsd-pro/backend
+ExecStart=/home/ahmedali/wsd-pro/backend/run.sh
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOST=0.0.0.0
+Environment=WSD_PROJECTS_DIR=/home/ahmedali/wsd-pro/workspaces
+# Give node access to docker socket (group docker)
+SupplementaryGroups=docker
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

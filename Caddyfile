@@ -1,0 +1,32 @@
+# ─────────────────────────────────────────────
+# WSD-Pro — Caddy configuration (LAN + HTTPS)
+#
+#  https://192.168.0.110  →  WSD-Pro (127.0.0.1:3000)   [self-signed TLS]
+#  http://192.168.0.110   →  308 redirect to HTTPS
+#  https://localhost      →  WSD-Pro (127.0.0.1:3000)   [self-signed TLS]
+#
+# a-ws.duckdns.org deliberately OMITTED — SSL for the domain is deferred.
+# ─────────────────────────────────────────────
+
+{
+    # Local CA — issues self-signed certs instantly, no ACME/Let's Encrypt
+    # (no public IP needed; works for LAN/Tailscale addresses)
+    local_certs
+}
+
+# LAN access over HTTPS (browser HTTPS-First mode compatible)
+https://192.168.0.110 {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:3000
+}
+
+# Force HTTPS on the LAN IP
+http://192.168.0.110 {
+    redir https://192.168.0.110{uri} permanent
+}
+
+# Local machine access over HTTPS
+https://localhost {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:3000
+}
