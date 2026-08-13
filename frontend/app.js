@@ -12,6 +12,17 @@ let activeAgent = null;
 let agentPollTimer = null;
 let projectsCache = [];
 
+/* Terminal (xterm + WS) state */
+let term = null;
+let termFit = null;
+let termWs = null;
+
+/* Agent chat (WS streaming) state */
+let chatWs = null;
+let chatWsChatId = null;
+let chatStreamEl = null;
+let chatProject = null;
+
 /* ── Helpers ── */
 async function api(path, opts = {}) {
   const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
@@ -60,6 +71,11 @@ el('loginForm').addEventListener('submit', async (e) => {
 function logout() {
   TOKEN = '';
   localStorage.removeItem('wsd_token');
+  closeTerminal();
+  if (portsTimer) { clearInterval(portsTimer); portsTimer = null; }
+  if (chatWs) { try { chatWs.close(); } catch {} }
+  chatWs = null;
+  chatWsChatId = null;
   el('appView').style.display = 'none';
   el('authView').style.display = 'flex';
   el('loginPass').value = '';
@@ -73,9 +89,24 @@ async function enterApp() {
   el('authView').style.display = 'none';
   el('appView').style.display = 'flex';
   await refreshSystemStatus();
+  await loadServerInfo();
   if (!location.hash || location.hash === '#/login') location.hash = '#/projects';
   route();
   await loadProjects();
+}
+
+/* ── Server info + Web IDE ── */
+let SERVER = { idePort: 8100, lanIp: null, tailscaleIp: null };
+
+async function loadServerInfo() {
+  try {
+    SERVER = await api('/api/server/info');
+  } catch { /* keep defaults */ }
+}
+
+function openIde() {
+  const port = SERVER.idePort || 8100;
+  window.open(`${location.protocol}//${location.hostname}:${port}`, '_blank');
 }
 
 /* ── System status (sidebar) ── */
@@ -232,7 +263,9 @@ function renderDetail(p) {
 
   // Reset tabs & terminal
   showTab('overview');
-  el('terminalOutput').innerHTML = '<div class="terminal-line dim">WSD-Pro terminal — workspace /workspace</div>';
+  closeTerminal();
+  el('termTitle').textContent = 'bash — /workspace';
+  startPortsPoll(p.slug);
   currentFileDir = '.';
   currentFileStack = ['.'];
   el('fileNav').innerHTML = '<span class="file-path">/workspace</span>';
@@ -271,39 +304,88 @@ function showTab(name) {
   if (btn) btn.classList.add('active');
   const pane = el('tab' + name.charAt(0).toUpperCase() + name.slice(1));
   if (pane) pane.classList.add('active');
-  if (name === 'terminal') el('terminalInput').focus();
+  if (name === 'terminal' && currentProject) termOpen(currentProject.slug);
   if (name === 'files') loadFiles();
   if (name === 'logs') loadLogs();
 }
 
-/* ── Terminal ── */
-el('terminalInput').addEventListener('keydown', async (e) => {
-  if (e.key !== 'Enter') return;
-  const input = el('terminalInput');
-  const cmd = input.value.trim();
-  if (!cmd || !currentProject) return;
-  input.value = '';
-  appendTermLine('$ ' + cmd, 't-cmd');
+/* ── Terminal (xterm + WebSocket) ── */
+function termStatus(text) {
+  const s = el('termStatus');
+  if (s) s.innerHTML = '<span class="dot"></span> ' + esc(text);
+}
+
+function closeTerminal() {
+  if (termWs) { try { termWs.close(); } catch {} }
+  termWs = null;
+  if (term) { try { term.dispose(); } catch {} }
+  term = null;
+  termFit = null;
+}
+
+async function termOpen(slug) {
+  const container = el('xtermContainer');
+  if (!container || !TOKEN) return;
+  closeTerminal();
+  term = new Terminal({
+    cursorBlink: true,
+    fontSize: 13,
+    fontFamily: "'JetBrains Mono', 'SF Mono', Consolas, monospace",
+    theme: { background: '#0b0c10', foreground: '#d4d7dd', cursor: '#e8e9ea', selectionBackground: '#2e3138' },
+    scrollback: 5000,
+  });
+  termFit = new FitAddon.FitAddon();
+  term.loadAddon(termFit);
+  term.open(container);
+  try { termFit.fit(); } catch {}
+  el('termTitle').textContent = `bash — wsd-${slug} · /workspace`;
+  termStatus('connecting…');
+
   try {
-    const { output, exitCode } = await api(`/api/projects/${currentProject.slug}/exec`, {
-      method: 'POST',
-      body: JSON.stringify({ cmd: ['bash', '-c', cmd] }),
-    });
-    if (output && output.trim()) appendTermLine(output, exitCode === 0 ? 't-out' : 't-err');
-    appendTermLine(`[exit ${exitCode}]`, exitCode === 0 ? 't-ok' : 't-err');
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws/terminal/${encodeURIComponent(slug)}?token=${encodeURIComponent(TOKEN)}`);
+    ws.binaryType = 'arraybuffer';
+    termWs = ws;
+    ws.onopen = () => { termStatus('connected'); setTimeout(() => term && term.focus(), 50); };
+    ws.onmessage = (ev) => {
+      if (!term) return;
+      if (ev.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(ev.data));
+      } else {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'ready') termStatus('connected');
+          else if (msg.type === 'exit') { termStatus('closed'); term.write('\r\n\x1b[90m[process exited]\x1b[0m\r\n'); }
+          else if (msg.type === 'error') termStatus('error: ' + msg.message);
+        } catch { /* non-JSON frame */ }
+      }
+    };
+    ws.onclose = () => { if (termWs === ws) termStatus('disconnected'); };
+    ws.onerror = () => termStatus('connection error');
+    term.onData((data) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data })); });
+    term.onResize(({ cols, rows }) => { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows })); });
   } catch (err) {
-    appendTermLine('error: ' + err.message, 't-err');
+    termStatus('failed');
   }
-  el('terminalOutput').scrollTop = el('terminalOutput').scrollHeight;
+}
+
+window.addEventListener('resize', () => {
+  if (termFit) { try { termFit.fit(); } catch {} }
 });
 
-function appendTermLine(text, cls = '') {
-  const box = el('terminalOutput');
-  const div = document.createElement('div');
-  div.className = 'terminal-line ' + cls;
-  div.textContent = text;
-  box.appendChild(div);
-  box.scrollTop = box.scrollHeight;
+function termClear() {
+  if (term) { term.clear(); termStatus('cleared'); }
+}
+
+function termCopy() {
+  if (term && term.hasSelection()) {
+    const sel = term.getSelection();
+    navigator.clipboard?.writeText(sel)
+      .then(() => termStatus('copied'))
+      .catch(() => termStatus('copy failed'));
+  } else {
+    termStatus('nothing selected');
+  }
 }
 
 /* ── Files ── */
@@ -351,6 +433,58 @@ function upDir() {
     currentFileStack = ['.'];
   }
   loadFiles();
+}
+
+/* ── Live port discovery (preview links, Remote-style) ── */
+let portsTimer = null;
+
+function startPortsPoll(slug) {
+  if (portsTimer) clearInterval(portsTimer);
+  const tick = async () => {
+    if (!currentProject || currentProject.slug !== slug) return;
+    try {
+      const { ports } = await api(`/api/projects/${slug}/ports`);
+      const published = Object.keys(currentProject.hostPorts || {});
+      const all = [...new Set([...published, ...ports])].sort((a, b) => a - b);
+      const host = location.hostname;
+      const elOv = el('ovPorts');
+      if (elOv) {
+        elOv.innerHTML = all.length
+          ? all.map(p => `<a class="port-link" href="http://${host}:${p}" target="_blank" title="Open :${p} (live preview)">
+              <span><span class="p-label">preview</span> :${p}</span>
+              <span><span class="p-label">→ host</span> <span class="p-val">:${p}</span></span>
+            </a>`).join('')
+          : '<div style="color:var(--text-3);font-size:0.78rem;">No open ports detected — start your app inside the terminal.</div>';
+      }
+    } catch { /* container stopped */ }
+  };
+  tick();
+  portsTimer = setInterval(tick, 5000);
+}
+
+/* ── Git inside the project ── */
+async function gitAction(type) {
+  if (!currentProject) return;
+  const box = el('gitBox');
+  box.textContent = 'Running…';
+  try {
+    if (type === 'commit') {
+      const input = el('gitCommitMsg');
+      const msg = input.value.trim();
+      if (!msg) { box.textContent = 'Enter a commit message first.'; return; }
+      const { output } = await api(`/api/projects/${currentProject.slug}/git/commit`, {
+        method: 'POST',
+        body: JSON.stringify({ message: msg }),
+      });
+      box.textContent = output || 'Commit done.';
+      input.value = '';
+    } else {
+      const { output } = await api(`/api/projects/${currentProject.slug}/git/${type}`);
+      box.textContent = output || '(empty)';
+    }
+  } catch (err) {
+    box.textContent = 'error: ' + err.message;
+  }
 }
 
 /* ── Logs ── */
@@ -403,6 +537,10 @@ async function agentAuth(name) {
 
 function openAgentChat(name) {
   activeAgent = name;
+  if (chatWs) { try { chatWs.close(); } catch {} }
+  chatWs = null;
+  chatWsChatId = null;
+  chatStreamEl = null;
   document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('active'));
   const card = el('agentCard-' + name);
   if (card) card.classList.add('active');
@@ -430,6 +568,7 @@ async function loadAgentTasks() {
           <span class="task-status">${esc(t.status)}</span>
           <span class="task-project">${esc(t.project)}</span>
           ${t.status === 'running' || t.status === 'queued' ? `<button class="btn-ghost sm" onclick="stopAgentTask('${t.id}')">■ Stop</button>` : ''}
+          <button class="btn-ghost sm" onclick="replayChat('${t.id}','${esc(t.project)}')">↻ Replay</button>
         </div>
         <div class="task-prompt">${esc(t.prompt)}</div>
         <details class="task-output"><summary>output · ${(t.output || '').length} chars</summary><pre>${esc((t.output || t.error || '').slice(-4000))}</pre></details>
@@ -444,29 +583,91 @@ async function stopAgentTask(id) {
   } catch { /* ignore */ }
 }
 
-async function sendAgentPrompt() {
+/* ── Agent chat (WS streaming, Remote-style) ── */
+function handleChatEvent(evt) {
+  if (!chatStreamEl) return;
+  if (evt.type === 'agent_chunk' || evt.type === 'agent_done') {
+    chatStreamEl.textContent += evt.content;
+  } else if (evt.type === 'user_message') {
+    chatStreamEl.textContent += `\n\u2500 you \u2500\n${evt.content}\n`;
+  } else if (evt.type === 'agent_error') {
+    chatStreamEl.textContent += `\n\u274c [error] ${evt.content}\n`;
+  }
+  const body = el('agentChatBody');
+  if (body) body.scrollTop = body.scrollHeight;
+}
+
+function openChatWS(chatId, streamEl, projectSlug) {
+  chatStreamEl = streamEl;
+  if (chatWs && chatWsChatId === chatId) return;
+  if (chatWs) { try { chatWs.close(); } catch {} }
+  chatWsChatId = chatId;
+  chatProject = projectSlug;
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws/chat/${encodeURIComponent(projectSlug)}/${encodeURIComponent(chatId)}?token=${encodeURIComponent(TOKEN)}`);
+  chatWs = ws;
+  const append = (t) => {
+    if (chatStreamEl) { chatStreamEl.textContent += t; const b = el('agentChatBody'); if (b) b.scrollTop = b.scrollHeight; }
+  };
+  ws.onopen = () => {};
+  ws.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type === 'replay') {
+      for (const evt of msg.events) handleChatEvent(evt);
+    } else if (msg.type === 'event') {
+      handleChatEvent(msg.event);
+    } else if (msg.type === 'error') {
+      append('\n[error] ' + msg.message + '\n');
+    }
+  };
+  ws.onerror = () => append('\n[connection error]\n');
+}
+
+/** Replay a past conversation into the chat panel (and continue it). */
+function replayChat(chatId, projectSlug) {
+  const body = el('agentChatBody');
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-msg agent';
+  bubble.innerHTML = `<span class="agent-badge"><b>replay</b> · ${esc(projectSlug)} · ${esc(chatId)}</span>`;
+  const stream = document.createElement('pre');
+  stream.className = 'agent-stream';
+  bubble.appendChild(stream);
+  body.appendChild(bubble);
+  body.scrollTop = body.scrollHeight;
+  openChatWS(chatId, stream, projectSlug);
+}
+
+function sendAgentPrompt() {
   const input = el('agentPrompt');
   const projectSel = el('agentProjectSel');
   const prompt = input.value.trim();
   const project = projectSel.value;
-  if (!prompt) return;
+  if (!prompt) { input.focus(); return; }
   if (!activeAgent) { alert('Select an agent first'); return; }
   if (!project) { alert('Select a project first'); return; }
   input.value = '';
   const body = el('agentChatBody');
   body.insertAdjacentHTML('beforeend', `<div class="chat-msg user"><span><b>You → ${esc(activeAgent)}</b> · ${esc(project)}</span><div>${esc(prompt)}</div></div>`);
   body.scrollTop = body.scrollHeight;
-  try {
-    const { task } = await api(`/api/agents/${activeAgent}/run`, {
-      method: 'POST',
-      body: JSON.stringify({ project, prompt }),
-    });
-    body.insertAdjacentHTML('beforeend', `<div class="chat-msg system">⚙️ Task <b>${esc(task.id)}</b> queued — <span class="task-status">${esc(task.status)}</span></div>`);
-    body.scrollTop = body.scrollHeight;
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-msg agent';
+  bubble.innerHTML = `<span class="agent-badge"><b>${esc(activeAgent)}</b> working…</span>`;
+  const stream = document.createElement('pre');
+  stream.className = 'agent-stream';
+  bubble.appendChild(stream);
+  body.appendChild(bubble);
+  body.scrollTop = body.scrollHeight;
+  const chatId = 'chat-' + Date.now();
+  openChatWS(chatId, stream, project);
+  // Let the socket open, then fire the prompt
+  const fire = () => {
+    const ws = chatWs;
+    if (!ws || ws.readyState !== WebSocket.OPEN) { setTimeout(fire, 120); return; }
+    ws.send(JSON.stringify({ type: 'prompt', agent: activeAgent, text: prompt }));
     loadAgentTasks();
-  } catch (err) {
-    body.insertAdjacentHTML('beforeend', `<div class="chat-msg system err">❌ ${esc(err.message)}</div>`);
-  }
+  };
+  setTimeout(fire, 120);
 }
 
 el('agentPrompt').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendAgentPrompt(); });

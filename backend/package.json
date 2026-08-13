@@ -1,6 +1,6 @@
 {
   "name": "wsd-pro-backend",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "WSD-Pro — Work Space Development Pro backend. Docker-based isolated workspaces for AI agents.",
   "main": "dist/index.js",
   "scripts": {
@@ -37,6 +37,7 @@
     "@types/helmet": "^0.0.48",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.2.0",
+    "@types/ws": "^8.18.1",
     "ts-node": "^10.9.2",
     "typescript": "^7.0.2"
   }

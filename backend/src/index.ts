@@ -11,6 +11,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
+import http from 'http';
 
 import {
   createProject,
@@ -23,8 +24,13 @@ import {
   projectLogs,
   WORKSPACES_ROOT,
 } from './services/docker-manager';
-import { ensureAdmin, login, requireAuth } from './services/auth';
+import { ensureAdmin, login, requireAuth, loginRateLimit, resetLoginAttempts } from './services/auth';
 import { getAgents, checkAgentAuth, runAgent, listTasks, getTask, stopTask } from './services/agents-manager';
+import { attachWebSockets } from './ws/ws-server';
+import { detectIp } from './services/server-info';
+import { getIdeStatus, startIde, stopIde } from './services/ide-service';
+import { scanProjectPorts } from './services/port-scanner';
+import { gitStatus, gitLog, gitDiff, gitCommit } from './services/git-service';
 
 dotenv.config();
 
@@ -53,7 +59,7 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 // ── Auth ─────────────────────────────────────────────────────
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginRateLimit, async (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!username || !password) {
@@ -61,6 +67,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
     const result = await login(username, password);
     if (!result) return res.status(401).json({ error: 'Invalid credentials' });
+    resetLoginAttempts(req.ip || 'unknown');
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -76,7 +83,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'WSD-Pro',
-    version: '0.1.0',
+    version: '0.2.0',
     timestamp: new Date().toISOString(),
   });
 });
@@ -328,6 +335,97 @@ app.post('/api/projects/:slug/file/rename', requireAuth, (req, res) => {
   }
 });
 
+// ── Server info / networking ─────────────────────────────────
+app.get('/api/server/info', requireAuth, (_req, res) => {
+  const ips = detectIp();
+  res.json({
+    version: '0.2.0',
+    lanIp: ips.lanIp,
+    tailscaleIp: ips.tailscaleIp,
+    idePort: Number(process.env.WSD_IDE_PORT) || 8100,
+    basePort: PORT,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ── Live port discovery (preview links) ──────────────────────
+app.get('/api/projects/:slug/ports', requireAuth, async (req, res) => {
+  try {
+    const fresh = req.query.fresh === '1';
+    const ports = await scanProjectPorts(req.params.slug, fresh);
+    res.json({ slug: req.params.slug, ports });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Git inside project workspace ─────────────────────────────
+app.get('/api/projects/:slug/git/status', requireAuth, async (req, res) => {
+  try {
+    res.json({ slug: req.params.slug, output: await gitStatus(req.params.slug) });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.get('/api/projects/:slug/git/log', requireAuth, async (req, res) => {
+  try {
+    const count = Math.min(100, Number(req.query.count) || 20);
+    res.json({ slug: req.params.slug, output: await gitLog(req.params.slug, count) });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.get('/api/projects/:slug/git/diff', requireAuth, async (req, res) => {
+  try {
+    const output = await gitDiff(req.params.slug, req.query.staged === '1');
+    res.json({ slug: req.params.slug, output });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.post('/api/projects/:slug/git/commit', requireAuth, async (req, res) => {
+  try {
+    const { message } = req.body || {};
+    if (!message || !String(message).trim()) {
+      return res.status(400).json({ error: 'commit message required' });
+    }
+    const output = await gitCommit(req.params.slug, String(message));
+    res.json({ slug: req.params.slug, output });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// ── Shared Web IDE (code-server on :WSD_IDE_PORT) ────────────
+app.get('/api/ide/status', requireAuth, async (_req, res) => {
+  try {
+    res.json({ ide: await getIdeStatus() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ide/start', requireAuth, async (_req, res) => {
+  try {
+    const ide = await startIde();
+    res.json({ ide });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/ide/stop', requireAuth, async (_req, res) => {
+  try {
+    const ide = await stopIde();
+    res.json({ ide });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Agent Bridge API ─────────────────────────────────────────
 app.get('/api/agents', requireAuth, async (_req, res) => {
   try {
@@ -393,13 +491,19 @@ if (fs.existsSync(frontendDist)) {
 }
 
 // ── Start ────────────────────────────────────────────────────
-ensureAdmin().then(() => {
-  app.listen(PORT, HOST, () => {
-    console.log(`[WSD-Pro] Command center listening on http://${HOST}:${PORT}`);
-    console.log(`[WSD-Pro] Workspaces root: ${WORKSPACES_ROOT}`);
-    console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
+const server = http.createServer(app);
+attachWebSockets(server);
+
+ensureAdmin()
+  .then(() => {
+    server.listen(PORT, HOST, () => {
+      console.log(`[WSD-Pro] Command center listening on http://${HOST}:${PORT}`);
+      console.log(`[WSD-Pro] WebSocket hub on ws://${HOST}:${PORT}/ws`);
+      console.log(`[WSD-Pro] Workspaces root: ${WORKSPACES_ROOT}`);
+      console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
+    });
+  })
+  .catch((err: any) => {
+    console.error('[WSD-Pro] Startup failed:', err);
+    process.exit(1);
   });
-}).catch((err: any) => {
-  console.error('[WSD-Pro] Startup failed:', err);
-  process.exit(1);
-});

@@ -254,6 +254,47 @@ export async function execInProject(
   });
 }
 
+export interface ExecSession {
+  id: string;
+  exec: any;
+  stream: any;
+}
+
+/**
+ * Start an interactive bash session inside a project container.
+ * Uses a TTY exec (raw output — no 8-byte demux headers), returns a
+ * full-duplex hijacked stream for reading output and writing input.
+ */
+export async function startInteractiveShell(slug: string): Promise<ExecSession> {
+  await requireContainer(slug);
+  const container = docker.getContainer(`wsd-${slug}`);
+  const exec = await container.exec({
+    Cmd: ['/bin/bash', '-l'],
+    Tty: true,
+    AttachStdin: true,
+    AttachStdout: true,
+    AttachStderr: true,
+    Env: ['TERM=xterm-256color', 'COLORTERM=truecolor', 'LANG=C.UTF-8'],
+  });
+  const stream: any = await new Promise((resolve, reject) => {
+    exec.start({ hijack: true, stdin: true }, (err: any, s: any) => {
+      if (err) return reject(err);
+      resolve(s);
+    });
+  });
+  return { id: exec.id, exec, stream };
+}
+
+/** Resize the TTY of an interactive exec session (cols/rows). */
+export function resizeExecSession(session: ExecSession, cols: number, rows: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    session.exec.resize({ h: rows, w: cols }, (err: any) => {
+      if (err) return reject(err);
+      resolve();
+    });
+  });
+}
+
 /**
  * Get a project container's logs.
  */

@@ -66,6 +66,10 @@
       </nav>
 
       <div class="sidebar-footer">
+        <button class="nav-btn" onclick="openIde()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          <span>Open IDE</span>
+        </button>
         <div class="sys-row">
           <span class="sys-dot" id="sysDot"></span>
           <span id="sysLabel">checking…</span>
@@ -138,6 +142,7 @@
           <button class="tab-btn active" data-tab="overview" onclick="showTab('overview')">Overview</button>
           <button class="tab-btn" data-tab="terminal" onclick="showTab('terminal')">Terminal</button>
           <button class="tab-btn" data-tab="files" onclick="showTab('files')">Files</button>
+          <button class="tab-btn" data-tab="git" onclick="showTab('git')">Git</button>
           <button class="tab-btn" data-tab="logs" onclick="showTab('logs')">Logs</button>
         </div>
 
@@ -186,6 +191,18 @@
         <div class="tab-pane" id="tabFiles">
           <div class="file-nav" id="fileNav"><span class="file-path">/workspace</span></div>
           <div class="file-list" id="fileList"></div>
+        </div>
+
+        <!-- Git Tab -->
+        <div class="tab-pane" id="tabGit">
+          <div class="git-toolbar">
+            <button class="btn-ghost sm" onclick="gitAction('status')">Status</button>
+            <button class="btn-ghost sm" onclick="gitAction('log')">Log</button>
+            <button class="btn-ghost sm" onclick="gitAction('diff')">Diff</button>
+            <input type="text" id="gitCommitMsg" class="modern-input git-commit-input" placeholder="commit message…" autocomplete="off" />
+            <button class="btn-primary sm" onclick="gitAction('commit')">Commit</button>
+          </div>
+          <pre class="logs-box" id="gitBox">Select a git command above — runs inside the project container.</pre>
         </div>
 
         <!-- Logs Tab -->

@@ -1,15 +1,16 @@
 /**
  * agents-manager.ts
- * WSD-Pro — Agent Bridge
- * Orchestrates AI coding agents (Codex, Claude Code, Kimi) inside
- * project workspaces. Each task runs the agent CLI as a child process
- * with cwd = the project's workspace dir (bind-mounted into the container).
+ * WSD-Pro — Agent Bridge (free-only)
+ * Orchestrates AI coding agents (local Ollama ReAct) inside project
+ * workspaces. Every run is streamed chunk-by-chunk to the caller.
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, execFileSync, ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { WORKSPACES_ROOT } from './docker-manager';
+
+const OLLAMA_URL = process.env.OLLAMA_HOST || 'http://localhost:11434';
 
 export interface AgentDef {
   name: string;
@@ -36,6 +37,17 @@ export interface AgentTask {
   exitCode?: number;
 }
 
+export interface StreamHandlers {
+  onChunk: (text: string) => void;
+  onDone: (final: string) => void;
+  onError: (error: string) => void;
+}
+
+interface RunControl {
+  cancelled: boolean;
+  kill: (() => void) | null;
+}
+
 /** Read the Ollama Cloud API key from env or ~/.hermes/.env (free agents) */
 function readOllamaKey(): string | null {
   if (process.env.OLLAMA_API_KEY) return process.env.OLLAMA_API_KEY;
@@ -50,8 +62,7 @@ function readOllamaKey(): string | null {
 /** Check if local Ollama server is up */
 function localOllamaUp(): boolean {
   try {
-    const { execSync } = require('child_process');
-    execSync('curl -s http://localhost:11434/api/tags', { timeout: 3000, stdio: 'pipe' });
+    execFileSync('curl', ['-s', '--max-time', '3', `${OLLAMA_URL}/api/tags`], { stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -59,12 +70,62 @@ function localOllamaUp(): boolean {
 }
 
 /**
- * Local Agent — simple ReAct loop against the local Ollama model.
+ * Streaming chat completion against Ollama.
+ * Resolves with the FULL assistant reply; each delta is emitted via onDelta.
+ */
+function ollamaStreamChat(
+  model: string,
+  messages: { role: string; content: string }[],
+  onDelta: (delta: string) => void,
+  control: RunControl
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({ model, messages, stream: true, options: { temperature: 0.2 } });
+    const proc = spawn('curl', ['-s', '-N', '-X', 'POST', `${OLLAMA_URL}/api/chat`, '-H', 'Content-Type: application/json', '-d', body], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    control.kill = () => proc.kill('SIGTERM');
+    let full = '';
+    let buf = '';
+    proc.stdout?.on('data', (d: Buffer) => {
+      buf += d.toString('utf8');
+      let idx: number;
+      while ((idx = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (!line) continue;
+        try {
+          const parsed = JSON.parse(line);
+          const delta: string = parsed?.message?.content || '';
+          if (delta) {
+            full += delta;
+            onDelta(delta);
+          }
+        } catch { /* skip malformed line */ }
+      }
+    });
+    proc.on('error', (err) => reject(err));
+    proc.on('close', (code) => {
+      control.kill = null;
+      if (control.cancelled) return reject(new Error('Agent task stopped'));
+      if (code !== 0) return reject(new Error(`Ollama request failed (curl exited ${code})`));
+      resolve(full);
+    });
+  });
+}
+
+/**
+ * Local Agent — streaming ReAct loop against the local Ollama model.
  * The model outputs shell commands in ```bash blocks; we execute them
  * in the workspace and feed output back, until the model says DONE.
  */
-export async function runLocalAgent(projectDir: string, prompt: string, model = 'qwen2.5-coder:3b'): Promise<string> {
-  const { execFileSync } = await import('child_process');
+export async function runLocalAgentStream(
+  projectDir: string,
+  prompt: string,
+  model: string,
+  handlers: StreamHandlers,
+  control: RunControl
+): Promise<string> {
   const messages = [
     {
       role: 'system',
@@ -78,19 +139,15 @@ export async function runLocalAgent(projectDir: string, prompt: string, model = 
   ];
   const maxRounds = 10;
   for (let round = 0; round < maxRounds; round++) {
-    const body = JSON.stringify({ model, messages, stream: false, options: { temperature: 0.2 } });
-    const resp = execFileSync('curl', ['-s', '-X', 'POST', 'http://localhost:11434/api/chat', '-H', 'Content-Type: application/json', '-d', body], {
-      timeout: 300000,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    if (control.cancelled) throw new Error('Agent task stopped');
     let reply = '';
     try {
-      reply = JSON.parse(resp)?.message?.content || '';
-    } catch {
-      return `Local agent error: bad Ollama response — ${resp.slice(0, 200)}`;
+      reply = await ollamaStreamChat(model, messages, handlers.onChunk, control);
+    } catch (err: any) {
+      throw new Error(`Local agent error: ${err.message || err}`);
     }
-    if (/^DONE\b/i.test(reply.trim()) || reply.trim() === 'DONE') return reply;
+    if (/^DONE\b/i.test(reply.trim())) return reply;
+
     const bashMatch = reply.match(/```(?:bash)?\s*\n([\s\S]*?)```/);
     if (bashMatch) {
       const cmd = bashMatch[1].trim();
@@ -100,6 +157,7 @@ export async function runLocalAgent(projectDir: string, prompt: string, model = 
       } catch (e: any) {
         output = `EXIT ${e.status ?? '?'}: ${e.stderr || e.message || ''}`.slice(0, 2000);
       }
+      handlers.onChunk(`\n$ ${cmd}\n${output}\n`);
       messages.push({ role: 'assistant', content: reply });
       messages.push({ role: 'user', content: `Command output:\n${output.slice(0, 4000)}` });
       // If model indicates completion after running the command, accept it
@@ -157,7 +215,7 @@ const AGENTS: AgentDef[] = [
 
 /** in-memory task store (single-instance; survives via systemd) */
 const tasks = new Map<string, AgentTask>();
-const running = new Map<string, ChildProcess>();
+const controls = new Map<string, RunControl>();
 
 export function getAgents(): { name: string; displayName: string; description: string; color: string }[] {
   return AGENTS.map(({ name, displayName, description, color }) => ({ name, displayName, description, color }));
@@ -179,35 +237,107 @@ export function getTask(id: string): AgentTask | undefined {
 }
 
 export function stopTask(id: string): boolean {
-  const proc = running.get(id);
+  const control = controls.get(id);
   const task = tasks.get(id);
-  if (proc) {
-    proc.kill('SIGTERM');
-    running.delete(id);
+  if (control) {
+    control.cancelled = true;
+    if (control.kill) control.kill();
+    controls.delete(id);
   }
   if (task && (task.status === 'queued' || task.status === 'running')) {
     task.status = 'stopped';
     task.finishedAt = Date.now();
   }
-  return !!proc || !!task;
+  return !!control || !!task;
 }
 
-export async function runAgent(
+function launchTask(task: AgentTask, agent: AgentDef, projectDir: string, handlers: StreamHandlers): void {
+  const control: RunControl = { cancelled: false, kill: null };
+  controls.set(task.id, control);
+
+  const emit = {
+    onChunk: (text: string) => {
+      task.output += text;
+      if (task.output.length > 200_000) task.output = task.output.slice(-200_000);
+      handlers.onChunk(text);
+    },
+    onDone: (final: string) => {
+      task.status = 'done';
+      task.finishedAt = Date.now();
+      controls.delete(task.id);
+      handlers.onDone(final);
+    },
+    onError: (error: string) => {
+      task.status = 'failed';
+      task.error = error;
+      task.finishedAt = Date.now();
+      controls.delete(task.id);
+      handlers.onError(error);
+    },
+  };
+
+  task.status = 'running';
+
+  if (agent.name === 'local' || agent.name === 'codex' || agent.name === 'gemma') {
+    const model = 'qwen2.5-coder:3b'; // fast on this machine (7b is too slow on CPU)
+    runLocalAgentStream(projectDir, task.prompt, model, emit, control)
+      .then((output) => {
+        emit.onDone(output);
+      })
+      .catch((err) => {
+        emit.onError(err?.message || String(err));
+      });
+    return;
+  }
+
+  // Generic CLI agent path (future agents)
+  const args = agent.baseArgs(projectDir, task.prompt);
+  const env = { ...process.env };
+  const ollamaKey = readOllamaKey();
+  if (ollamaKey) {
+    env.OLLAMA_API_KEY = ollamaKey;
+    env.OPENAI_API_KEY = ollamaKey;
+  }
+  const proc: ChildProcess = spawn(agent.cli, args, {
+    cwd: projectDir,
+    env,
+    shell: false,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  control.kill = () => proc.kill('SIGTERM');
+
+  proc.stdout?.on('data', (d: Buffer) => emit.onChunk(d.toString()));
+  proc.stderr?.on('data', (d: Buffer) => emit.onChunk(d.toString()));
+  proc.on('error', (err) => emit.onError(err.message));
+  proc.on('close', (code) => {
+    control.kill = null;
+    if (control.cancelled) return emit.onError('Agent task stopped');
+    if (code === 0) emit.onDone(task.output);
+    else emit.onError(`Agent exited with code ${code}`);
+  });
+}
+
+/**
+ * Run an agent with full streaming. Creates + registers a task, returns it
+ * immediately; results flow through `handlers`.
+ */
+export function runAgentStreaming(
   agentName: string,
   projectSlug: string,
-  prompt: string
-): Promise<AgentTask> {
+  prompt: string,
+  handlers: StreamHandlers,
+  taskIdOverride?: string
+): AgentTask {
   const agent = AGENTS.find((a) => a.name === agentName);
   if (!agent) throw new Error(`Unknown agent: ${agentName}`);
 
-  // Resolve project workspace dir
   const projectDir = path.join(WORKSPACES_ROOT, projectSlug);
   if (!fs.existsSync(projectDir)) {
     throw new Error(`Project workspace not found: ${projectSlug} (expected ${projectDir})`);
   }
 
   const task: AgentTask = {
-    id: `${agentName}-${Date.now()}`,
+    id: taskIdOverride || `${agentName}-${Date.now()}`,
     agent: agentName,
     project: projectSlug,
     prompt,
@@ -217,72 +347,11 @@ export async function runAgent(
   };
   tasks.set(task.id, task);
 
-  // Run async — do not block the request
-  setTimeout(() => launch(task, agent, projectDir), 0);
+  setTimeout(() => launchTask(task, agent, projectDir, handlers), 0);
   return task;
 }
 
-function launch(task: AgentTask, agent: AgentDef, projectDir: string) {
-  task.status = 'running';
-
-  // Local agent path: ReAct loop against local Ollama (no CLI)
-  if (agent.name === 'local' || agent.name === 'codex' || agent.name === 'gemma') {
-    const model = 'qwen2.5-coder:3b'; // fast on this machine (7b is too slow on CPU)
-    runLocalAgent(projectDir, task.prompt, model)
-      .then((output) => {
-        task.status = 'done';
-        task.output = output;
-        task.finishedAt = Date.now();
-      })
-      .catch((err) => {
-        task.status = 'failed';
-        task.error = err?.message || String(err);
-        task.finishedAt = Date.now();
-      });
-    return;
-  }
-
-  const args = agent.baseArgs(projectDir, task.prompt);
-  // Inject Ollama Cloud key (free agents)
-  const env = { ...process.env };
-  const ollamaKey = readOllamaKey();
-  if (ollamaKey) {
-    env.OLLAMA_API_KEY = ollamaKey;
-    env.OPENAI_API_KEY = ollamaKey; // codex uses OPENAI_API_KEY for custom providers
-  }
-  const proc = spawn(agent.cli, args, {
-    cwd: projectDir,
-    env,
-    shell: false,
-    stdio: ['ignore', 'pipe', 'pipe'], // stdin closed → agents never wait for input
-  });
-  running.set(task.id, proc);
-
-  const MAX_OUTPUT = 200_000; // cap to avoid memory blowup
-  let chunk = '';
-  proc.stdout?.on('data', (d: Buffer) => {
-    chunk = d.toString();
-    task.output += chunk;
-    if (task.output.length > MAX_OUTPUT) task.output = task.output.slice(-MAX_OUTPUT);
-  });
-  proc.stderr?.on('data', (d: Buffer) => {
-    chunk = d.toString();
-    task.output += chunk;
-    if (task.output.length > MAX_OUTPUT) task.output = task.output.slice(-MAX_OUTPUT);
-  });
-  proc.on('error', (err) => {
-    task.status = 'failed';
-    task.error = err.message;
-    task.finishedAt = Date.now();
-    running.delete(task.id);
-  });
-  proc.on('close', (code) => {
-    task.exitCode = code ?? undefined;
-    task.status = code === 0 ? 'done' : 'failed';
-    if (code !== 0 && !task.error) {
-      task.error = `Agent exited with code ${code}`;
-    }
-    task.finishedAt = Date.now();
-    running.delete(task.id);
-  });
+/** Fire-and-forget variant used by the REST API (output lands in the task). */
+export async function runAgent(agentName: string, projectSlug: string, prompt: string): Promise<AgentTask> {
+  return runAgentStreaming(agentName, projectSlug, prompt, { onChunk: () => {}, onDone: () => {}, onError: () => {} });
 }

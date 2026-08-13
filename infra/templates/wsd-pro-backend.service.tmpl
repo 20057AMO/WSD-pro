@@ -5,10 +5,10 @@ Wants=docker.service
 
 [Service]
 Type=simple
-User=wsd-pro
-Group=wsd-pro
-WorkingDirectory=/opt/wsd-pro/app/backend
-EnvironmentFile=/var/lib/wsd-pro/env.conf
+User={{SERVICE_USER}}
+Group={{SERVICE_USER}}
+WorkingDirectory={{APP_DIR}}/backend
+EnvironmentFile={{DATA_DIR}}/env.conf
 ExecStart=/usr/bin/node dist/index.js
 Restart=always
 RestartSec=5
