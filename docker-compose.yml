@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wsd-pro
+    restart: unless-stopped
+    working_dir: /app
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      WSD_PROJECTS_DIR: /workspace-projects
+      WSD_BASE_IMAGE: wsd/workspace:latest
+      WSD_IDE_PORT: 8100
+      WSD_JWT_SECRET: change-me-secret
+      WSD_ADMIN_USER: admin
+      WSD_ADMIN_PASSWORD: admin123
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./workspaces:/workspace-projects
+      - ./backend/data:/app/backend/data
+    ports:
+      - "3000:3000"
+      - "8100:8100"
+    depends_on:
+      - workspace
+
+  workspace:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace
+    image: wsd/workspace:latest
+    container_name: wsd-workspace
+    restart: unless-stopped
+    command: [ "sleep", "infinity" ]
+    volumes:
+      - ./workspaces:/workspaces
