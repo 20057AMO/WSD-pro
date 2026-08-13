@@ -35,9 +35,7 @@ https://<IP>:<port> → Live preview of a project's published port
 - **Edge:** Caddy (local_certs), systemd services
 - **Containers:** Docker per-project workspaces + one `wsd/workspace` dev image (Node 22, Python, git, code-server)
 
-## Install (Linux only — clone method)
-
-> Requires Ubuntu 22.04+/Debian 12, root/sudo, ≥8 GB RAM (16 GB recommended for local models).
+## Install (CasaOS-style, one command)
 
 ```bash
 # 1. Get git + clone the repo (anywhere you like)
