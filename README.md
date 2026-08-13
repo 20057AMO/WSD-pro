@@ -2,7 +2,7 @@
 
 Self-hosted command center for AI coding agents, **Linux only**. Every project gets its own isolated Docker container with a durable workspace, a real-time terminal, files, logs, and free local AI agents (Ollama). A single shared **Web IDE (code-server / VS Code in the browser)** opens any project, and every project publishes its own ports for testing and live previews.
 
-> Inspired by [Remote](https://github.com/remote) (Go/LXC) but reimplemented as a lighter Node.js/Docker stack with **free-only agents**.
+> Inspired by [Remote](https://github.com/futrx-com/remote.futrx) (Go/LXC) but reimplemented as a lighter Node.js/Docker stack with **free-only agents**.
 
 ## What you get
 
