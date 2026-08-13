@@ -147,6 +147,20 @@ curl -fsSL https://raw.githubusercontent.com/20057AMO/WSD-pro/main/install.sh | 
 
 ---
 
+## الحالة الحالية للتنفيذ
+
+### الأولوية الحالية: منع تنفيذ أوامر AI على المضيف
+- تم البدء في إصلاح جوهري في [backend/src/services/agents-manager.ts](backend/src/services/agents-manager.ts):
+  - تم استبدال تنفيذ الأوامر مباشرة على المضيف بـ تنفيذ الأوامر داخل حاوية المشروع عبر Docker exec.
+  - تم تحديث رسالة نظام الـ agent لتوضيح أن كل أمر يتم داخل الحاوية فقط.
+- هذا التصحيح يحدّ من خطر RCE ويُحافظ على العزل المفترض بين المشاريع.
+
+### المرحلة التالية فوراً
+1. إضافة حماية إضافية على أسماء المشاريع والمنافذ في [backend/src/src/services/docker-manager.ts](backend/src/services/docker-manager.ts)
+2. تقييد CORS وإضافة rate limiting حقيقي في [backend/src/index.ts](backend/src/index.ts)
+3. مراجعة [frontend/app.js](frontend/app.js) لإزالة IPs الثابتة واستخدام server info الديناميكي
+4. إضافة CI + اختبار Smoke لاختبار الـ API
+
 ## الجدول الزمني
 
 ```

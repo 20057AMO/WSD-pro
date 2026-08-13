@@ -100,9 +100,16 @@ function garbageCollectAttempts(): void {
   }
 }
 
+function getClientIp(req: any): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
+  if (Array.isArray(forwarded) && forwarded.length > 0) return String(forwarded[0]).trim();
+  return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
 /** Express middleware: 429 after too many login attempts from one IP. */
 export function loginRateLimit(req: any, res: any, next: any): void {
-  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const ip = getClientIp(req);
   const now = Date.now();
   garbageCollectAttempts();
   const entry = attempts.get(ip);

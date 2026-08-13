@@ -8,7 +8,7 @@
 import { spawn, execFileSync, ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { WORKSPACES_ROOT } from './docker-manager';
+import { WORKSPACES_ROOT, execInProject } from './docker-manager';
 
 const OLLAMA_URL = process.env.OLLAMA_HOST || 'http://localhost:11434';
 
@@ -119,7 +119,18 @@ function ollamaStreamChat(
  * The model outputs shell commands in ```bash blocks; we execute them
  * in the workspace and feed output back, until the model says DONE.
  */
+async function runProjectCommandInContainer(projectSlug: string, cmd: string): Promise<string> {
+  try {
+    const { output, exitCode } = await execInProject(projectSlug, ['bash', '-lc', cmd], { stream: false });
+    if (exitCode === 0) return output;
+    return `EXIT ${exitCode}: ${output}`.slice(0, 2000);
+  } catch (err: any) {
+    return `EXIT ?: ${err?.message || String(err)}`.slice(0, 2000);
+  }
+}
+
 export async function runLocalAgentStream(
+  projectSlug: string,
   projectDir: string,
   prompt: string,
   model: string,
@@ -133,7 +144,8 @@ export async function runLocalAgentStream(
         'You are a coding agent inside a Linux workspace. ' +
         'To do anything, output a ```bash block containing a shell command. ' +
         'After each command you will see its output. ' +
-        'When the task is complete, reply with exactly DONE.',
+        'When the task is complete, reply with exactly DONE. ' +
+        'All commands are executed inside the project container, not on the host server.',
     },
     { role: 'user', content: prompt },
   ];
@@ -153,9 +165,9 @@ export async function runLocalAgentStream(
       const cmd = bashMatch[1].trim();
       let output = '';
       try {
-        output = execFileSync('/bin/bash', ['-c', cmd], { cwd: projectDir, timeout: 120000, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-      } catch (e: any) {
-        output = `EXIT ${e.status ?? '?'}: ${e.stderr || e.message || ''}`.slice(0, 2000);
+        output = await runProjectCommandInContainer(projectSlug, cmd);
+      } catch (err: any) {
+        output = `EXIT ?: ${err?.message || String(err)}`.slice(0, 2000);
       }
       handlers.onChunk(`\n$ ${cmd}\n${output}\n`);
       messages.push({ role: 'assistant', content: reply });
@@ -280,7 +292,7 @@ function launchTask(task: AgentTask, agent: AgentDef, projectDir: string, handle
 
   if (agent.name === 'local' || agent.name === 'codex' || agent.name === 'gemma') {
     const model = 'qwen2.5-coder:3b'; // fast on this machine (7b is too slow on CPU)
-    runLocalAgentStream(projectDir, task.prompt, model, emit, control)
+    runLocalAgentStream(task.project, projectDir, task.prompt, model, emit, control)
       .then((output) => {
         emit.onDone(output);
       })
@@ -353,5 +365,5 @@ export function runAgentStreaming(
 
 /** Fire-and-forget variant used by the REST API (output lands in the task). */
 export async function runAgent(agentName: string, projectSlug: string, prompt: string): Promise<AgentTask> {
-  return runAgentStreaming(agentName, projectSlug, prompt, { onChunk: () => {}, onDone: () => {}, onError: () => {} });
+  return runAgentStreaming(agentName, projectSlug, prompt, { onChunk: () => { }, onDone: () => { }, onError: () => { } });
 }

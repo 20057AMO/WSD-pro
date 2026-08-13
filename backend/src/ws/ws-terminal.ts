@@ -8,6 +8,53 @@
 import { WebSocket } from 'ws';
 import { startInteractiveShell, resizeExecSession, ExecSession } from '../services/docker-manager';
 
+const MAX_TERMINAL_PAYLOAD = 65536;
+
+function normalizeTerminalMessage(raw: unknown): { type: 'input' | 'resize'; value?: string; cols?: number; rows?: number } | null {
+  let text: string;
+
+  if (typeof raw === 'string') {
+    text = raw;
+  } else if (Buffer.isBuffer(raw)) {
+    text = raw.toString('utf8');
+  } else if (raw instanceof ArrayBuffer) {
+    text = Buffer.from(raw).toString('utf8');
+  } else if (Array.isArray(raw)) {
+    text = Buffer.concat(raw.map((part) => Buffer.isBuffer(part) ? part : Buffer.from(String(part)))).toString('utf8');
+  } else if (raw && typeof raw === 'object' && 'byteLength' in raw && 'slice' in raw) {
+    const view = raw as Uint8Array;
+    text = Buffer.from(view.buffer, view.byteOffset, view.byteLength).toString('utf8');
+  } else {
+    return null;
+  }
+
+  if (!text || text.length > MAX_TERMINAL_PAYLOAD) return null;
+
+  try {
+    const msg = JSON.parse(text);
+    if (!msg || typeof msg !== 'object') return null;
+
+    if (msg.type === 'resize') {
+      const cols = Number(msg.cols);
+      const rows = Number(msg.rows);
+      if (!Number.isFinite(cols) || !Number.isFinite(rows)) return null;
+      return {
+        type: 'resize',
+        cols: Math.max(2, Math.min(400, cols || 80)),
+        rows: Math.max(1, Math.min(200, rows || 24)),
+      };
+    }
+
+    if (msg.type === 'input' && typeof msg.data === 'string') {
+      return { type: 'input', value: msg.data.slice(0, MAX_TERMINAL_PAYLOAD) };
+    }
+
+    return null;
+  } catch {
+    return { type: 'input', value: text.slice(0, MAX_TERMINAL_PAYLOAD) };
+  }
+}
+
 export async function handleTerminalSocket(ws: WebSocket, slug: string): Promise<void> {
   let session: ExecSession | null = null;
   try {
@@ -33,21 +80,21 @@ export async function handleTerminalSocket(ws: WebSocket, slug: string): Promise
     ws.close();
   });
 
-  ws.on('message', (data) => {
+  ws.on('message', (data: unknown) => {
     if (!session) return;
-    const raw = data.toString('utf8');
-    try {
-      const msg = JSON.parse(raw);
-      if (msg.type === 'resize') {
-        const cols = Math.max(2, Math.min(400, Number(msg.cols) || 80));
-        const rows = Math.max(1, Math.min(200, Number(msg.rows) || 24));
-        resizeExecSession(session, cols, rows).catch(() => {});
-      } else if (msg.type === 'input' && typeof msg.data === 'string') {
-        session.stream.write(msg.data);
-      }
-    } catch {
-      // not JSON → treat as raw input
-      session.stream.write(raw);
+    const parsed = normalizeTerminalMessage(data);
+    if (!parsed) {
+      sendJson(ws, { type: 'error', message: 'Invalid terminal payload' });
+      return;
+    }
+
+    if (parsed.type === 'resize' && typeof parsed.cols === 'number' && typeof parsed.rows === 'number') {
+      resizeExecSession(session, parsed.cols, parsed.rows).catch(() => { });
+      return;
+    }
+
+    if (parsed.type === 'input' && typeof parsed.value === 'string') {
+      session.stream.write(parsed.value);
     }
   });
 
@@ -67,6 +114,10 @@ function sendJson(ws: WebSocket, obj: unknown): void {
 
 function cleanup(session: ExecSession | null): void {
   try {
-    if (session) session.stream.destroy();
+    if (session) {
+      if (session.stream && typeof session.stream.destroy === 'function') {
+        session.stream.destroy();
+      }
+    }
   } catch { /* ignore */ }
 }

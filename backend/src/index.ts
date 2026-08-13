@@ -35,6 +35,8 @@ import { gitStatus, gitLog, gitDiff, gitCommit } from './services/git-service';
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -55,8 +57,31 @@ app.use(helmet({
     },
   },
 }));
-app.use(cors());
+const allowedOrigins = (process.env.WSD_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('CORS policy: origin not allowed'));
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '10mb' }));
+
+app.use((err: any, _req: any, res: any, next: any) => {
+  if (err && err.message === 'CORS policy: origin not allowed') {
+    return res.status(403).json({ error: 'CORS policy: origin not allowed' });
+  }
+  if (res.headersSent) return next(err);
+  console.error('[WSD-Pro] Unhandled error:', err?.stack || err);
+  res.status(500).json({ error: 'Internal server error' });
+});
 
 // ── Auth ─────────────────────────────────────────────────────
 app.post('/api/auth/login', loginRateLimit, async (req, res) => {
@@ -477,7 +502,7 @@ app.post('/api/agents/tasks/:id/stop', requireAuth, (req, res) => {
 // Prefer ../frontend (dev), fall back to ../public (legacy)
 const frontendDist =
   fs.existsSync(path.join(__dirname, '..', '..', 'frontend')) &&
-  fs.existsSync(path.join(__dirname, '..', '..', 'frontend', 'index.html'))
+    fs.existsSync(path.join(__dirname, '..', '..', 'frontend', 'index.html'))
     ? path.join(__dirname, '..', '..', 'frontend')
     : path.join(__dirname, '..', 'public');
 if (fs.existsSync(frontendDist)) {

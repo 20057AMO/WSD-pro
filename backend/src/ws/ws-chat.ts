@@ -11,76 +11,110 @@
  */
 import { WebSocket } from 'ws';
 import { chatStore, ChatEvent } from '../services/chat-store';
-import { runAgentStreaming } from '../services/agents-manager';
+import { getAgents, runAgentStreaming } from '../services/agents-manager';
 
+const MAX_PROMPT_CHARS = 20000;
 const active = new Map<string, boolean>();
 const subscribers = new Map<string, Set<WebSocket>>();
 
+function roomKey(slug: string, chatId: string): string {
+  return `${slug}:${chatId}`;
+}
+
+function normalizePrompt(raw: any): { agent: string; text: string } | null {
+  if (!raw || typeof raw !== 'object' || raw.type !== 'prompt') return null;
+
+  const agent = typeof raw.agent === 'string' ? raw.agent.trim() : '';
+  const text = typeof raw.text === 'string' ? raw.text.trim() : '';
+  if (!agent || !text) return null;
+  if (text.length > MAX_PROMPT_CHARS) return null;
+
+  const allowedAgents = new Set(getAgents().map((a) => a.name));
+  if (!allowedAgents.has(agent)) return null;
+
+  return { agent, text };
+}
+
 export function handleChatSocket(ws: WebSocket, slug: string, chatId: string): void {
+  const room = roomKey(slug, chatId);
   const events = chatStore.readEvents(slug, chatId);
   sendJson(ws, { type: 'replay', events });
 
-  if (!subscribers.has(chatId)) subscribers.set(chatId, new Set());
-  subscribers.get(chatId)!.add(ws);
+  if (!subscribers.has(room)) subscribers.set(room, new Set());
+  subscribers.get(room)!.add(ws);
 
   ws.on('message', (data) => {
     let msg: any;
     try {
       msg = JSON.parse(data.toString('utf8'));
     } catch {
+      sendJson(ws, { type: 'error', message: 'Invalid JSON payload' });
       return;
     }
-    if (msg.type !== 'prompt' || !msg.text || !msg.agent) return;
 
-    if (active.get(chatId)) {
+    const prompt = normalizePrompt(msg);
+    if (!prompt) {
+      sendJson(ws, { type: 'error', message: 'Invalid prompt payload' });
+      return;
+    }
+
+    if (active.get(room)) {
       sendJson(ws, { type: 'error', message: 'A run is already active in this chat. Wait for it to finish.' });
       return;
     }
-    active.set(chatId, true);
+    active.set(room, true);
 
-    const userEvent = chatStore.append(slug, chatId, 'user_message', msg.text);
-    broadcast(chatId, { type: 'event', event: userEvent });
+    const userEvent = chatStore.append(slug, chatId, 'user_message', prompt.text);
+    broadcast(room, { type: 'event', event: userEvent });
 
     try {
       const task = runAgentStreaming(
-        msg.agent,
+        prompt.agent,
         slug,
-        msg.text,
+        prompt.text,
         {
           onChunk: (text) => {
             const ev = chatStore.append(slug, chatId, 'agent_chunk', text);
-            broadcast(chatId, { type: 'event', event: ev });
+            broadcast(room, { type: 'event', event: ev });
           },
           onDone: (final) => {
             const ev = chatStore.append(slug, chatId, 'agent_done', final);
-            broadcast(chatId, { type: 'event', event: ev });
-            active.delete(chatId);
+            broadcast(room, { type: 'event', event: ev });
+            active.delete(room);
           },
           onError: (error) => {
             const ev = chatStore.append(slug, chatId, 'agent_error', error);
-            broadcast(chatId, { type: 'event', event: ev });
-            active.delete(chatId);
+            broadcast(room, { type: 'event', event: ev });
+            active.delete(room);
           },
         },
         chatId // task id == chat id → stories map 1:1 to Task History
       );
-      broadcast(chatId, { type: 'started', taskId: task.id });
+      broadcast(room, { type: 'started', taskId: task.id });
     } catch (err: any) {
-      active.delete(chatId);
+      active.delete(room);
       sendJson(ws, { type: 'error', message: err?.message || String(err) });
     }
   });
 
   ws.on('close', () => {
-    subscribers.get(chatId)?.delete(ws);
+    const set = subscribers.get(room);
+    if (set) {
+      set.delete(ws);
+      if (set.size === 0) subscribers.delete(room);
+    }
   });
   ws.on('error', () => {
-    subscribers.get(chatId)?.delete(ws);
+    const set = subscribers.get(room);
+    if (set) {
+      set.delete(ws);
+      if (set.size === 0) subscribers.delete(room);
+    }
   });
 }
 
-function broadcast(chatId: string, payload: unknown): void {
-  const set = subscribers.get(chatId);
+function broadcast(room: string, payload: unknown): void {
+  const set = subscribers.get(room);
   if (!set) return;
   const text = JSON.stringify(payload);
   for (const ws of set) {

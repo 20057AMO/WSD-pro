@@ -40,6 +40,13 @@ export interface ProjectInfo {
   createdAt?: string;
 }
 
+function validateProjectSlug(slug: string): string {
+  const value = String(slug ?? '').trim().toLowerCase();
+  const clean = value.replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
+  if (!clean) throw new HttpError(400, 'Project slug is invalid');
+  return clean;
+}
+
 function sanitizeSlug(name: string): string {
   return name
     .toLowerCase()
@@ -47,6 +54,36 @@ function sanitizeSlug(name: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 32) || `project-${Date.now()}`;
+}
+
+function validateProjectSpec(spec: ProjectSpec): { name: string; slug: string; description?: string; image?: string; ports?: number[] } {
+  const name = String(spec.name ?? '').trim();
+  if (!name) throw new HttpError(400, 'Project name is required');
+
+  const slugInput = spec.slug ? String(spec.slug).trim() : sanitizeSlug(name);
+  const slug = validateProjectSlug(slugInput);
+
+  const ports = Array.isArray(spec.ports) ? [...spec.ports] : [];
+  const seen = new Set<number>();
+  const cleanPorts: number[] = [];
+
+  for (const raw of ports) {
+    const port = Number(raw);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new HttpError(400, `Invalid port: ${raw} (must be 1-65535)`);
+    }
+    if (seen.has(port)) continue;
+    seen.add(port);
+    cleanPorts.push(port);
+  }
+
+  return {
+    name,
+    slug,
+    description: spec.description ? String(spec.description).trim() : undefined,
+    image: spec.image ? String(spec.image).trim() : undefined,
+    ports: cleanPorts,
+  };
 }
 
 /** Error with an HTTP status code — routes map this to the response. */
@@ -60,8 +97,9 @@ export class HttpError extends Error {
 
 /** Throw a 404 if no container exists for this slug. */
 async function requireContainer(slug: string) {
-  const info = await getProject(slug);
-  if (!info) throw new HttpError(404, `Project '${slug}' not found`);
+  const projectSlug = validateProjectSlug(slug);
+  const info = await getProject(projectSlug);
+  if (!info) throw new HttpError(404, `Project '${projectSlug}' not found`);
   return info;
 }
 
@@ -75,7 +113,13 @@ function ensureWorkspaceDir(slug: string): string {
  * Create a project: provision workspace dir + launch container.
  */
 export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
-  const slug = spec.slug || sanitizeSlug(spec.name);
+  const clean = validateProjectSpec(spec);
+  const existing = await getProject(clean.slug);
+  if (existing) {
+    throw new HttpError(409, `Project '${clean.slug}' already exists`);
+  }
+
+  const slug = clean.slug;
   const workDir = ensureWorkspaceDir(slug);
   const containerName = `wsd-${slug}`;
 
@@ -83,8 +127,8 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   const portBindings: Record<string, any> = {};
   const exposedPorts: Record<string, any> = {};
   const hostPorts: Record<string, string> = {};
-  if (spec.ports) {
-    for (const p of spec.ports) {
+  if (clean.ports) {
+    for (const p of clean.ports) {
       const key = `${p}/tcp`;
       exposedPorts[key] = {};
       portBindings[key] = [{ HostPort: String(p) }];
@@ -94,7 +138,7 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
 
   const container = await docker.createContainer({
     name: containerName,
-    Image: spec.image || BASE_IMAGE,
+    Image: clean.image || BASE_IMAGE,
     Cmd: ['/bin/bash', '-c', 'sleep infinity'],
     Tty: true,
     OpenStdin: true,
@@ -117,9 +161,9 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   // Label metadata on the container for future lookups
   const info: ProjectInfo = {
     id: container.id,
-    name: spec.name,
+    name: clean.name,
     slug,
-    description: spec.description,
+    description: clean.description,
     status: 'running',
     containerId: container.id,
     hostPorts,
@@ -164,18 +208,24 @@ export async function listProjects(): Promise<ProjectInfo[]> {
  * Get a single project by slug.
  */
 export async function getProject(slug: string): Promise<ProjectInfo | null> {
-  const projects = await listProjects();
-  return projects.find((p) => p.slug === slug) || null;
+  try {
+    const projectSlug = validateProjectSlug(slug);
+    const projects = await listProjects();
+    return projects.find((p) => p.slug === projectSlug) || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Start a stopped project container.
  */
 export async function startProject(slug: string): Promise<ProjectInfo> {
-  await requireContainer(slug);
-  const container = docker.getContainer(`wsd-${slug}`);
+  const projectSlug = validateProjectSlug(slug);
+  await requireContainer(projectSlug);
+  const container = docker.getContainer(`wsd-${projectSlug}`);
   await container.start();
-  const info = await getProject(slug);
+  const info = await getProject(projectSlug);
   if (!info) throw new HttpError(500, 'Project not found after start');
   info.status = 'running';
   return info;
@@ -185,10 +235,11 @@ export async function startProject(slug: string): Promise<ProjectInfo> {
  * Stop a running project container.
  */
 export async function stopProject(slug: string): Promise<ProjectInfo> {
-  await requireContainer(slug);
-  const container = docker.getContainer(`wsd-${slug}`);
+  const projectSlug = validateProjectSlug(slug);
+  await requireContainer(projectSlug);
+  const container = docker.getContainer(`wsd-${projectSlug}`);
   await container.stop();
-  const info = await getProject(slug);
+  const info = await getProject(projectSlug);
   if (!info) throw new HttpError(500, 'Project not found after stop');
   info.status = 'stopped';
   return info;
@@ -198,8 +249,9 @@ export async function stopProject(slug: string): Promise<ProjectInfo> {
  * Remove a project container entirely (keeps workspace dir).
  */
 export async function removeProject(slug: string): Promise<void> {
-  await requireContainer(slug);
-  const container = docker.getContainer(`wsd-${slug}`);
+  const projectSlug = validateProjectSlug(slug);
+  await requireContainer(projectSlug);
+  const container = docker.getContainer(`wsd-${projectSlug}`);
   await container.remove({ force: true });
 }
 
@@ -211,8 +263,12 @@ export async function execInProject(
   cmd: string[],
   opts: { stream?: boolean } = {}
 ): Promise<{ output: string; exitCode: number }> {
-  await requireContainer(slug);
-  const container = docker.getContainer(`wsd-${slug}`);
+  const projectSlug = validateProjectSlug(slug);
+  if (!Array.isArray(cmd) || cmd.length === 0 || cmd.some((part) => typeof part !== 'string' || part.length === 0)) {
+    throw new HttpError(400, 'Command must be a non-empty array of non-empty strings');
+  }
+  await requireContainer(projectSlug);
+  const container = docker.getContainer(`wsd-${projectSlug}`);
   const exec = await container.exec({
     Cmd: cmd,
     AttachStdout: true,
@@ -266,8 +322,9 @@ export interface ExecSession {
  * full-duplex hijacked stream for reading output and writing input.
  */
 export async function startInteractiveShell(slug: string): Promise<ExecSession> {
-  await requireContainer(slug);
-  const container = docker.getContainer(`wsd-${slug}`);
+  const projectSlug = validateProjectSlug(slug);
+  await requireContainer(projectSlug);
+  const container = docker.getContainer(`wsd-${projectSlug}`);
   const exec = await container.exec({
     Cmd: ['/bin/bash', '-l'],
     Tty: true,
@@ -299,8 +356,9 @@ export function resizeExecSession(session: ExecSession, cols: number, rows: numb
  * Get a project container's logs.
  */
 export async function projectLogs(slug: string, tail = 200): Promise<string> {
-  await requireContainer(slug);
-  const container = docker.getContainer(`wsd-${slug}`);
+  const projectSlug = validateProjectSlug(slug);
+  await requireContainer(projectSlug);
+  const container = docker.getContainer(`wsd-${projectSlug}`);
   const logs = await container.logs({ stdout: true, stderr: true, tail });
   return logs.toString('utf8');
 }

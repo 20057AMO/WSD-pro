@@ -13,7 +13,11 @@ import { WORKSPACES_ROOT } from './docker-manager';
 const docker = new Docker();
 
 const IDE_CONTAINER = 'wsd-ide';
-const IDE_IMAGE = process.env.WSD_BASE_IMAGE || 'wsd/workspace:latest';
+const IDE_IMAGE = (() => {
+  const configured = process.env.WSD_BASE_IMAGE?.trim();
+  if (!configured || configured === 'ubuntu:24.04') return 'wsd/workspace:latest';
+  return configured;
+})();
 const IDE_PORT = Number(process.env.WSD_IDE_PORT) || 8100;
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const IDE_PASSWORD_FILE = path.join(DATA_DIR, 'ide-password');
@@ -26,7 +30,8 @@ export interface IdeStatus {
 }
 
 export function getIdePassword(): string {
-  if (process.env.WSD_IDE_PASSWORD) return process.env.WSD_IDE_PASSWORD;
+  const configured = process.env.WSD_IDE_PASSWORD;
+  if (configured && configured.trim()) return configured.trim();
   try {
     if (fs.existsSync(IDE_PASSWORD_FILE)) {
       return fs.readFileSync(IDE_PASSWORD_FILE, 'utf8').trim();
@@ -59,9 +64,14 @@ export async function ensureIde(): Promise<IdeStatus> {
       name: IDE_CONTAINER,
       Image: IDE_IMAGE,
       Cmd: [
-        '/bin/bash',
-        '-c',
-        `code-server --bind-addr 0.0.0.0:8080 --auth password --password '${password}' /workspaces`,
+        'code-server',
+        '--bind-addr',
+        '0.0.0.0:8080',
+        '--auth',
+        'password',
+        '--password',
+        password,
+        '/workspaces',
       ],
       Tty: true,
       OpenStdin: true,

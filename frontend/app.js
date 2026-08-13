@@ -39,6 +39,16 @@ function esc(s) {
 
 function el(id) { return document.getElementById(id); }
 
+function getDisplayHost() {
+  return SERVER.lanIp || SERVER.tailscaleIp || location.hostname || 'localhost';
+}
+
+function buildProjectUrl(port) {
+  const host = getDisplayHost();
+  const protocol = location.protocol || 'http:';
+  return `${protocol}//${host}:${port}`;
+}
+
 /* ── Preloader ── */
 window.addEventListener('load', () => {
   setTimeout(() => {
@@ -73,7 +83,7 @@ function logout() {
   localStorage.removeItem('wsd_token');
   closeTerminal();
   if (portsTimer) { clearInterval(portsTimer); portsTimer = null; }
-  if (chatWs) { try { chatWs.close(); } catch {} }
+  if (chatWs) { try { chatWs.close(); } catch { } }
   chatWs = null;
   chatWsChatId = null;
   el('appView').style.display = 'none';
@@ -106,7 +116,8 @@ async function loadServerInfo() {
 
 function openIde() {
   const port = SERVER.idePort || 8100;
-  window.open(`${location.protocol}//${location.hostname}:${port}`, '_blank');
+  const host = getDisplayHost();
+  window.open(`${location.protocol}//${host}:${port}`, '_blank');
 }
 
 /* ── System status (sidebar) ── */
@@ -199,7 +210,7 @@ function openAppLink(slug) {
   if (!p) return;
   const firstPort = Object.keys(p.hostPorts || {})[0];
   if (!firstPort) return;
-  window.open(`http://192.168.0.110:${firstPort}`, '_blank');
+  window.open(buildProjectUrl(firstPort), '_blank');
 }
 
 async function createProject() {
@@ -248,12 +259,12 @@ function renderDetail(p) {
   const ports = Object.entries(p.hostPorts || {});
   const portLinks = el('detailPortLinks');
   portLinks.innerHTML = ports.map(([containerPort, hostPort]) =>
-    `<a class="btn-ghost sm" href="http://192.168.0.110:${esc(hostPort)}" target="_blank" title="Open app on port ${esc(hostPort)}">🌐 :${esc(hostPort)}</a>`
+    `<a class="btn-ghost sm" href="${buildProjectUrl(hostPort)}" target="_blank" title="Open app on port ${esc(hostPort)}">🌐 :${esc(hostPort)}</a>`
   ).join('');
 
   const ovPorts = el('ovPorts');
   ovPorts.innerHTML = ports.length ? ports.map(([c, h]) => `
-    <a class="port-link" href="http://192.168.0.110:${esc(h)}" target="_blank">
+    <a class="port-link" href="${buildProjectUrl(h)}" target="_blank">
       <span><span class="p-label">host</span> :${esc(h)}</span>
       <span><span class="p-label">→ container</span> <span class="p-val">:${esc(c)}</span></span>
     </a>`).join('') : '<div style="color:var(--text-3);font-size:0.78rem;">No ports published for this project.</div>';
@@ -316,9 +327,9 @@ function termStatus(text) {
 }
 
 function closeTerminal() {
-  if (termWs) { try { termWs.close(); } catch {} }
+  if (termWs) { try { termWs.close(); } catch { } }
   termWs = null;
-  if (term) { try { term.dispose(); } catch {} }
+  if (term) { try { term.dispose(); } catch { } }
   term = null;
   termFit = null;
 }
@@ -337,7 +348,7 @@ async function termOpen(slug) {
   termFit = new FitAddon.FitAddon();
   term.loadAddon(termFit);
   term.open(container);
-  try { termFit.fit(); } catch {}
+  try { termFit.fit(); } catch { }
   el('termTitle').textContent = `bash — wsd-${slug} · /workspace`;
   termStatus('connecting…');
 
@@ -370,7 +381,7 @@ async function termOpen(slug) {
 }
 
 window.addEventListener('resize', () => {
-  if (termFit) { try { termFit.fit(); } catch {} }
+  if (termFit) { try { termFit.fit(); } catch { } }
 });
 
 function termClear() {
@@ -537,7 +548,7 @@ async function agentAuth(name) {
 
 function openAgentChat(name) {
   activeAgent = name;
-  if (chatWs) { try { chatWs.close(); } catch {} }
+  if (chatWs) { try { chatWs.close(); } catch { } }
   chatWs = null;
   chatWsChatId = null;
   chatStreamEl = null;
@@ -600,7 +611,7 @@ function handleChatEvent(evt) {
 function openChatWS(chatId, streamEl, projectSlug) {
   chatStreamEl = streamEl;
   if (chatWs && chatWsChatId === chatId) return;
-  if (chatWs) { try { chatWs.close(); } catch {} }
+  if (chatWs) { try { chatWs.close(); } catch { } }
   chatWsChatId = chatId;
   chatProject = projectSlug;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -609,7 +620,7 @@ function openChatWS(chatId, streamEl, projectSlug) {
   const append = (t) => {
     if (chatStreamEl) { chatStreamEl.textContent += t; const b = el('agentChatBody'); if (b) b.scrollTop = b.scrollHeight; }
   };
-  ws.onopen = () => {};
+  ws.onopen = () => { };
   ws.onmessage = (ev) => {
     let msg;
     try { msg = JSON.parse(ev.data); } catch { return; }

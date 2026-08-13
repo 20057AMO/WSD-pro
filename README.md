@@ -53,17 +53,38 @@ The installer (idempotent, re-runnable) detects your **LAN IP and Tailscale IP**
 - Update: `sudo bash infra/update.sh` (git pull + rebuild + restart)
 - Uninstall: `sudo bash infra/uninstall.sh`
 
-## Development
+## Development / Local run
+
+This project is designed for Linux or WSL. Docker must be running and the workspace image must exist before the shared IDE is used.
 
 ```bash
 cd backend
 npm install
-npm run dev        # ts-node, http://localhost:3000
-npm run build      # tsc → dist/
-npm run typecheck
+npm run build        # tsc → dist/
+npm run typecheck   # optional validation
+node dist/index.js   # reliable runtime entry point
 ```
 
-Frontend is served statically by the backend (no build step).
+Then open:
+
+- http://localhost:3000
+- or http://<LAN-IP>:3000
+
+If the shared IDE is not available, build the workspace image first:
+
+```bash
+cd ..
+docker build -f Dockerfile.workspace -t wsd/workspace:latest .
+```
+
+Then start the IDE from the app or via the API:
+
+```bash
+curl -X POST http://localhost:3000/api/ide/start \
+  -H "Authorization: Bearer <JWT>"
+```
+
+The UI is served statically by the backend; there is no separate frontend build step.
 
 ## Repository layout
 
@@ -89,11 +110,127 @@ docs/                      systemd units, QA report, plans
 
 ## Security notes
 
-- Set `WSD_JWT_SECRET`, `WSD_ADMIN_PASSWORD` before first boot (random values are generated otherwise)
+- Set `WSD_JWT_SECRET`, `WSD_ADMIN_PASSWORD` before first boot; generated values are used as fallback only
 - JWT secret is persisted in `backend/data/jwt-secret` (mode 600) when not provided
 - Login is rate-limited (8 attempts / 15 min per IP)
-- All file paths are validated against path traversal
+- Project slugs, ports, execution commands, and file paths are validated to reduce injection/path traversal risk
+- WebSocket entry points are restricted to safe project/chat routes and connection caps
+- Docker execution is filtered through validated project containers rather than raw host-shell execution
 - Default install serves only on your LAN/Tailscale — no public exposure by default
+- Shared IDE uses the workspace image and avoids unsafe shell embedding for password handling
+
+## Runtime notes
+
+- Backend app entry point is `backend/dist/index.js` after TypeScript build.
+- `npm run dev` may not be reliable in all local Windows shells due to ts-node environment differences; `npx tsc && node dist/index.js` is the stable option in this project.
+- The IDE container depends on `wsd/workspace:latest` being present locally; without it, port `:8100` will not respond.
+
+## Troubleshooting
+
+### 1) Backend is running but port 3000 is not reachable
+
+Check whether the app is listening:
+
+```bash
+ss -tulpn | grep 3000
+```
+
+If nothing is listening, restart the built server:
+
+```bash
+cd backend
+npx tsc
+node dist/index.js
+```
+
+If port 3000 is already in use by another process, stop that process or change the port in `.env`:
+
+```env
+PORT=3001
+```
+
+### 2) IDE does not open on :8100
+
+This is usually caused by one of the following:
+
+- Docker is not running
+- the image `wsd/workspace:latest` was never built
+- the project is running on Windows without Docker Desktop / WSL support
+
+Check the image:
+
+```bash
+docker images | grep wsd/workspace
+```
+
+Build it if missing:
+
+```bash
+cd /path/to/WSD-Pro
+docker build -f Dockerfile.workspace -t wsd/workspace:latest .
+```
+
+Then start the IDE:
+
+```bash
+curl -X POST http://localhost:3000/api/ide/start \
+  -H "Authorization: Bearer <JWT>"
+```
+
+Open:
+
+```text
+http://<LAN-IP>:8100
+```
+
+### 3) Docker is available but container creation fails
+
+Check Docker status:
+
+```bash
+docker ps -a
+```
+
+Inspect logs for the IDE container:
+
+```bash
+docker logs wsd-ide
+```
+
+If the container was never created, trigger startup from the UI or API, then re-check:
+
+```bash
+docker ps -a --filter name=wsd-ide
+```
+
+### 4) The app loads, but auth/login fails
+
+Verify the admin credentials and the stored JWT secret:
+
+```bash
+ls -l backend/data
+cat backend/data/jwt-secret
+```
+
+If needed, set them explicitly before first boot:
+
+```env
+WSD_ADMIN_USER=admin
+WSD_ADMIN_PASSWORD=yourStrongPassword
+WSD_JWT_SECRET=yourRandomSecret
+```
+
+### 5) `npm run dev` fails in Windows shell
+
+This project is Linux-first. The stable local path is:
+
+```bash
+cd backend
+npx tsc
+node dist/index.js
+```
+
+Avoid relying on `ts-node` in some Windows shells because the environment may not resolve the TypeScript config correctly.
 
 ## Roadmap
 
