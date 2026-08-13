@@ -35,7 +35,7 @@ https://<IP>:<port> → Live preview of a project's published port
 - **Edge:** Caddy (local_certs), systemd services
 - **Containers:** Docker per-project workspaces + one `wsd/workspace` dev image (Node 22, Python, git, code-server)
 
-## Install (CasaOS-style, one command)
+## Install (one command)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/20057AMO/WSD-pro/main/install.sh | sudo bash
