@@ -35,22 +35,76 @@ https://<IP>:<port> → Live preview of a project's published port
 - **Edge:** Caddy (local_certs), systemd services
 - **Containers:** Docker per-project workspaces + one `wsd/workspace` dev image (Node 22, Python, git, code-server)
 
-## Install (CasaOS-style, one command)
+## Ubuntu installation (easy version)
+
+This project is designed for Ubuntu/Linux. Use this flow on a real Ubuntu machine or inside WSL2 Ubuntu.
+
+### 1) Install dependencies
 
 ```bash
-# 1. Get git + clone the repo (anywhere you like)
-sudo apt update && sudo apt install -y git
-git clone https://github.com/20057AMO/WSD-pro.git
-cd WSD-pro
-
-# 2. Run the installer from inside the clone
-sudo bash infra/install.sh                # basic
-sudo bash infra/install.sh --with-ollama  # + local free models (qwen2.5-coder)
+sudo apt update
+sudo apt install -y git curl ca-certificates docker.io npm
+sudo systemctl enable --now docker
 ```
 
-The installer (idempotent, re-runnable) detects your **LAN IP and Tailscale IP**, installs Docker/Node/Caddy, builds the workspace image in place, creates the backend systemd service, prints your credentials, and optionally installs Ollama. Full step-by-step guide in **[docs/INSTALL.md](docs/INSTALL.md)** (Arabic).
+### 2) Clone the project
 
-- Update: `sudo bash infra/update.sh` (git pull + rebuild + restart)
+```bash
+cd ~
+git clone https://github.com/20057AMO/WSD-pro.git
+cd WSD-pro
+```
+
+### 3) Build the workspace image used by the IDE
+
+```bash
+docker build -f Dockerfile.workspace -t wsd/workspace:latest .
+```
+
+### 4) Install backend dependencies and build it
+
+```bash
+cd backend
+npm install
+npx tsc
+```
+
+### 5) Start the app
+
+```bash
+node dist/index.js
+```
+
+Then open:
+
+- http://localhost:3000
+- or http://<your-ubuntu-ip>:3000
+
+### 6) Start the shared IDE
+
+After the server is running, open the app and start the IDE from the UI, or run:
+
+```bash
+curl -X POST http://localhost:3000/api/ide/start \
+  -H "Authorization: Bearer <JWT>"
+```
+
+Then open:
+
+- http://<your-ubuntu-ip>:8100
+
+### 7) Optional: install the full Linux installer script
+
+The project also includes installer scripts for production-style setup:
+
+```bash
+cd ~/WSD-pro
+sudo bash infra/install.sh
+```
+
+This script sets up the service and other environment pieces automatically.
+
+- Update: `sudo bash infra/update.sh`
 - Uninstall: `sudo bash infra/uninstall.sh`
 
 ## Development / Local run
