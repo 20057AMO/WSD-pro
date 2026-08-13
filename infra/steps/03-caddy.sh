@@ -26,10 +26,14 @@ https://${TAILSCALE_IP}:${IDE_PORT} {
 }"
   fi
 
+  # GNU sed requires newlines escaped as \n inside the replacement text
+  local tailblock_esc
+  tailblock_esc="${tailblock//$'\n'/\\n}"
+
   sed -e "s|{{LAN_IP}}|${LAN_IP}|g" \
       -e "s|{{DASHBOARD_PORT}}|${DASHBOARD_PORT}|g" \
       -e "s|{{IDE_PORT}}|${IDE_PORT}|g" \
-      -e "s|{{TAILSCALE_BLOCK}}|${tailblock}|g" \
+      -e "s|{{TAILSCALE_BLOCK}}|${tailblock_esc}|g" \
       "$SCRIPT_DIR/templates/Caddyfile.tmpl" > /etc/caddy/Caddyfile
 
   systemctl enable --now caddy >/dev/null 2>&1 || true

@@ -1,21 +1,11 @@
 # ── 02-build.sh — backend build + workspace Docker image ───────
+# Builds in place from the clone (APP_DIR is set by install.sh).
 
 function step_build() {
   echo "── [2/5] Backend build + workspace image"
 
-  mkdir -p "$APP_DIR"
-
-  # Install the app into APP_DIR (from local checkout or GitHub)
-  if [ -d "$ROOT_DIR/backend" ] && [ -f "$ROOT_DIR/Dockerfile.workspace" ]; then
-    echo "Copying app from local checkout → $APP_DIR"
-    rsync -a --exclude node_modules --exclude dist --exclude .git --exclude workspaces "$ROOT_DIR/" "$APP_DIR/"
-  else
-    echo "Cloning $REPO_URL → $APP_DIR"
-    git clone --depth 1 "$REPO_URL" "$APP_DIR"
-  fi
-
-  # Backend
   cd "$APP_DIR/backend"
+
   echo "npm install…"
   npm ci >/dev/null 2>&1 || npm install >/dev/null
   echo "Building (tsc)…"
@@ -29,8 +19,8 @@ function step_build() {
     -t "$WS_WORKSPACE_IMAGE" \
     "$APP_DIR"
 
-  # Ownership → service user can write data/ and dist stays readable
+  # Ownership → service user can write data/ inside the clone
   chown -R "$SERVICE_USER:$SERVICE_USER" "$APP_DIR"
 
-  echo "✅ build done"
+  echo "✅ build done (in place: $APP_DIR)"
 }
