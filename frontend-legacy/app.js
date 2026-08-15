@@ -114,10 +114,22 @@ async function loadServerInfo() {
   } catch { /* keep defaults */ }
 }
 
-function openIde() {
-  const port = SERVER.idePort || 8100;
-  const host = getDisplayHost();
-  window.open(`${location.protocol}//${host}:${port}`, '_blank');
+async function openIde() {
+  if (!currentProject) {
+    alert('Please select a project first to open its Web IDE.');
+    return;
+  }
+  try {
+    const data = await api(`/api/projects/${currentProject.slug}/ide/start`, { method: 'POST' });
+    if (data.ide && data.ide.port) {
+      const host = getDisplayHost();
+      window.open(`${location.protocol}//${host}:${data.ide.port}`, '_blank');
+    } else {
+      alert('IDE did not start properly or no port was assigned.');
+    }
+  } catch (err) {
+    alert('Failed to start IDE: ' + err.message);
+  }
 }
 
 /* ── System status (sidebar) ── */

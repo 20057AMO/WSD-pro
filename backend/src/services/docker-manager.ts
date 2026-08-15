@@ -37,6 +37,7 @@ export interface ProjectInfo {
   status: 'running' | 'stopped' | 'created' | 'missing';
   containerId?: string;
   hostPorts?: Record<string, string>;
+  idePort?: number;
   createdAt?: string;
 }
 
@@ -44,6 +45,12 @@ function validateProjectSlug(slug: string): string {
   const value = String(slug ?? '').trim().toLowerCase();
   const clean = value.replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
   if (!clean) throw new HttpError(400, 'Project slug is invalid');
+  
+  const RESERVED_SLUGS = ['wsd', 'ide', 'admin', 'api', 'system', 'root', 'workspace'];
+  if (RESERVED_SLUGS.includes(clean)) {
+    throw new HttpError(400, `Project slug '${clean}' is reserved and cannot be used.`);
+  }
+  
   return clean;
 }
 
@@ -72,6 +79,16 @@ function validateProjectSpec(spec: ProjectSpec): { name: string; slug: string; d
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
       throw new HttpError(400, `Invalid port: ${raw} (must be 1-65535)`);
     }
+    if (port < 1024) {
+      throw new HttpError(400, `Port ${port} is a privileged system port (1-1023) and cannot be used.`);
+    }
+    if (port === 3000 || port === Number(process.env.PORT || 3000)) {
+      throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro command center API.`);
+    }
+    if (port >= 8100 && port <= 8200) {
+      throw new HttpError(400, `Port ${port} is reserved for WSD-Pro Web IDEs (8100-8200).`);
+    }
+    
     if (seen.has(port)) continue;
     seen.add(port);
     cleanPorts.push(port);
@@ -123,6 +140,14 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   const workDir = ensureWorkspaceDir(slug);
   const containerName = `wsd-${slug}`;
 
+  // Find free IDE port
+  const allProjects = await listProjects();
+  const usedIdePorts = allProjects.map(p => p.idePort).filter(Boolean) as number[];
+  let idePort = 8101;
+  while (usedIdePorts.includes(idePort)) {
+    idePort++;
+  }
+
   // Port mappings: expose requested host ports
   const portBindings: Record<string, any> = {};
   const exposedPorts: Record<string, any> = {};
@@ -135,6 +160,10 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
       hostPorts[String(p)] = String(p);
     }
   }
+
+  // Add IDE port mapping (container 8080 -> host idePort)
+  exposedPorts['8080/tcp'] = {};
+  portBindings['8080/tcp'] = [{ HostPort: String(idePort) }];
 
   const container = await docker.createContainer({
     name: containerName,
@@ -152,6 +181,8 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     Labels: {
       'wsd.project': slug,
       'wsd.managed': 'true',
+      'wsd.ide.port': String(idePort),
+      'wsd.createdAt': new Date().toISOString(),
     },
     WorkingDir: '/workspace',
   });
@@ -167,6 +198,7 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     status: 'running',
     containerId: container.id,
     hostPorts,
+    idePort,
     createdAt: new Date().toISOString(),
   };
 
@@ -197,6 +229,7 @@ export async function listProjects(): Promise<ProjectInfo[]> {
       status: c.State === 'running' ? 'running' : 'stopped',
       containerId: c.Id,
       hostPorts: ports,
+      idePort: labels['wsd.ide.port'] ? parseInt(labels['wsd.ide.port'], 10) : undefined,
       createdAt: labels['wsd.createdAt'],
     });
   }

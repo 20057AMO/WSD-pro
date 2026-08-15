@@ -424,27 +424,27 @@ app.post('/api/projects/:slug/git/commit', requireAuth, async (req, res) => {
   }
 });
 
-// ── Shared Web IDE (code-server on :WSD_IDE_PORT) ────────────
-app.get('/api/ide/status', requireAuth, async (_req, res) => {
+// ── Web IDE (code-server per project) ────────────
+app.get('/api/projects/:slug/ide/status', requireAuth, async (req, res) => {
   try {
-    res.json({ ide: await getIdeStatus() });
+    res.json({ ide: await getIdeStatus(req.params.slug) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/ide/start', requireAuth, async (_req, res) => {
+app.post('/api/projects/:slug/ide/start', requireAuth, async (req, res) => {
   try {
-    const ide = await startIde();
+    const ide = await startIde(req.params.slug);
     res.json({ ide });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/ide/stop', requireAuth, async (_req, res) => {
+app.post('/api/projects/:slug/ide/stop', requireAuth, async (req, res) => {
   try {
-    const ide = await stopIde();
+    const ide = await stopIde(req.params.slug);
     res.json({ ide });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -1,24 +1,15 @@
 /**
  * ide-service.ts
- * WSD-Pro — Single shared Web IDE (code-server in its own container).
- * Container: wsd-ide — mounts ALL workspaces under /workspaces.
- * Published on the host at WSD_IDE_PORT (default 8100).
+ * WSD-Pro — Web IDE (code-server) managed per project container.
+ * Starts code-server inside the project's container on port 8080.
  */
 import Docker from 'dockerode';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { WORKSPACES_ROOT } from './docker-manager';
+import { getProject } from './docker-manager';
 
 const docker = new Docker();
-
-const IDE_CONTAINER = 'wsd-ide';
-const IDE_IMAGE = (() => {
-  const configured = process.env.WSD_BASE_IMAGE?.trim();
-  if (!configured || configured === 'ubuntu:24.04') return 'wsd/workspace:latest';
-  return configured;
-})();
-const IDE_PORT = Number(process.env.WSD_IDE_PORT) || 8100;
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const IDE_PASSWORD_FILE = path.join(DATA_DIR, 'ide-password');
 
@@ -45,83 +36,101 @@ export function getIdePassword(): string {
   }
 }
 
-async function inspectIde(): Promise<{ id: string; running: boolean } | null> {
+async function isCodeServerRunning(slug: string): Promise<boolean> {
   try {
-    const container = docker.getContainer(IDE_CONTAINER);
-    const info = await container.inspect();
-    return { id: info.Id, running: info.State?.Running === true };
+    const container = docker.getContainer(`wsd-${slug}`);
+    const exec = await container.exec({
+      Cmd: ['sh', '-c', 'pgrep -f code-server'],
+      AttachStdout: true,
+      AttachStderr: true,
+    });
+    
+    return new Promise((resolve) => {
+      exec.start({}, (err: any, stream: any) => {
+        if (err || !stream) return resolve(false);
+        let output = '';
+        stream.on('data', (chunk: Buffer) => {
+          let offset = 0;
+          while (offset + 8 <= chunk.length) {
+            const frameLen = chunk.readUInt32BE(offset + 4);
+            if (offset + 8 + frameLen > chunk.length) break;
+            output += chunk.subarray(offset + 8, offset + 8 + frameLen).toString('utf8');
+            offset += 8 + frameLen;
+          }
+          if (offset < chunk.length) {
+            output += chunk.subarray(offset).toString('utf8');
+          }
+        });
+        stream.on('end', () => {
+          resolve(output.trim().length > 0);
+        });
+      });
+    });
   } catch {
-    return null;
+    return false;
   }
 }
 
-/** Create the IDE container if missing (code-server + all workspaces). */
-export async function ensureIde(): Promise<IdeStatus> {
-  const existing = await inspectIde();
-  if (!existing) {
-    const password = getIdePassword();
-    await docker.createContainer({
-      name: IDE_CONTAINER,
-      Image: IDE_IMAGE,
-      Cmd: [
-        'code-server',
-        '--bind-addr',
-        '0.0.0.0:8080',
-        '--auth',
-        'password',
-        '--password',
-        password,
-        '/workspaces',
-      ],
-      Tty: true,
-      OpenStdin: true,
-      Env: ['PASSWORD=' + password, 'LANG=C.UTF-8'],
-      ExposedPorts: { '8080/tcp': {} },
-      HostConfig: {
-        Binds: [`${WORKSPACES_ROOT}:/workspaces`],
-        PortBindings: { '8080/tcp': [{ HostPort: String(IDE_PORT) }] },
-        RestartPolicy: { Name: 'unless-stopped' },
-      },
-      Labels: { 'wsd.ide': 'true', 'wsd.managed': 'true' },
-      WorkingDir: '/workspaces',
-    });
-    console.log(`[WSD-Pro] IDE container created (${IDE_CONTAINER}) on :${IDE_PORT}`);
+export async function getIdeStatus(slug: string): Promise<IdeStatus> {
+  const project = await getProject(slug);
+  if (!project || project.status !== 'running' || !project.idePort) {
+    return { running: false, exists: false, port: 0 };
   }
-
-  const info = (await inspectIde())!;
+  
+  const running = await isCodeServerRunning(slug);
   const status: IdeStatus = {
-    running: info.running,
+    running,
     exists: true,
-    port: IDE_PORT,
+    port: project.idePort
   };
   if (process.env.WSD_IDE_PASSWORD) status.password = process.env.WSD_IDE_PASSWORD;
   return status;
 }
 
-export async function getIdeStatus(): Promise<IdeStatus> {
-  const info = await inspectIde();
-  if (!info) {
-    return { running: false, exists: false, port: IDE_PORT };
+export async function startIde(slug: string): Promise<IdeStatus> {
+  const project = await getProject(slug);
+  if (!project || project.status !== 'running' || !project.idePort) {
+    throw new Error('Project not running or IDE port not allocated');
   }
-  const status: IdeStatus = { running: info.running, exists: true, port: IDE_PORT };
-  if (process.env.WSD_IDE_PASSWORD) status.password = process.env.WSD_IDE_PASSWORD;
-  return status;
+
+  const running = await isCodeServerRunning(slug);
+  if (!running) {
+    const password = getIdePassword();
+    const container = docker.getContainer(`wsd-${slug}`);
+    const exec = await container.exec({
+      Cmd: [
+        'sh', '-c', 
+        `PASSWORD=${password} LANG=C.UTF-8 nohup code-server --bind-addr 0.0.0.0:8080 --auth password --password ${password} /workspace > /tmp/code-server.log 2>&1 &`
+      ],
+      AttachStdout: false,
+      AttachStderr: false,
+    });
+    await new Promise((resolve, reject) => {
+      exec.start({ Detach: true }, (err: any) => {
+        if (err) return reject(err);
+        resolve(null);
+      });
+    });
+  }
+  return getIdeStatus(slug);
 }
 
-export async function startIde(): Promise<IdeStatus> {
-  await ensureIde();
-  const container = docker.getContainer(IDE_CONTAINER);
+export async function stopIde(slug: string): Promise<IdeStatus> {
   try {
-    await container.start();
-  } catch { /* already running */ }
-  return getIdeStatus();
-}
-
-export async function stopIde(): Promise<IdeStatus> {
-  await ensureIde();
-  const container = docker.getContainer(IDE_CONTAINER);
-  try {
-    await container.stop();
-  } catch { /* already stopped */ }
-  return getIdeStatus();
+    const container = docker.getContainer(`wsd-${slug}`);
+    const exec = await container.exec({
+      Cmd: ['sh', '-c', 'pkill -f code-server'],
+      AttachStdout: false,
+      AttachStderr: false,
+    });
+    await new Promise((resolve, reject) => {
+      exec.start({ Detach: true }, (err: any) => {
+        if (err) return reject(err);
+        resolve(null);
+      });
+    });
+  } catch {
+    // Ignore errors
+  }
+  return getIdeStatus(slug);
 }
