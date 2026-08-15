@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import net from 'net';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const IDE_PASSWORD_FILE = path.join(DATA_DIR, 'ide-password');
@@ -36,20 +37,23 @@ export function getIdePassword(): string {
 /**
  * Check whether code-server is up (it runs inside the same main container
  * on port 8080 — the dashboard host port is WSD_IDE_PORT).
+ * Uses a plain TCP probe so auth/healthz behavior never matters.
  */
-async function isIdeRunning(): Promise<boolean> {
-  try {
-    const res = await fetch('http://127.0.0.1:8080/healthz', {
-      signal: AbortSignal.timeout(1500),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+function isIdeRunning(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host: '127.0.0.1', port: 8080 });
+    const done = (ok: boolean) => {
+      sock.destroy();
+      resolve(ok);
+    };
+    sock.setTimeout(1500, () => done(false));
+    sock.once('connect', () => done(true));
+    sock.once('error', () => done(false));
+  });
 }
 
 export async function getIdeStatus(): Promise<IdeStatus> {
-  const [running] = await Promise.all([isIdeRunning()]);
+  const running = await isIdeRunning();
   return {
     running,
     port: Number(process.env.WSD_IDE_PORT) || 8100,

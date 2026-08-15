@@ -14,7 +14,9 @@ services:
       WSD_CHAT_MODEL: ${WSD_CHAT_MODEL:-qwen3:30b}
       OLLAMA_HOST: https://ollama.com
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:?set OLLAMA_API_KEY in .env}
-      WSD_IDE_PASSWORD: ${WSD_IDE_PASSWORD:-}
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
+      WSD_IDE_PASSWORD: ${WSD_IDE_PASSWORD:-admin123}
+      WSD_OPENCODE_PORT: ${WSD_OPENCODE_PORT:-4096}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./workspaces:/workspaces
@@ -22,6 +24,7 @@ services:
     ports:
       - "3000:3000"
       - "8100:8080"
+      - "${WSD_OPENCODE_PORT:-4096}:4096"
     depends_on:
       - workspace
 

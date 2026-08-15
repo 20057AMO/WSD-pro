@@ -44,10 +44,13 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
 // ── Uploads (files into an existing project workspace) ────────
+const UPLOADS_TMP = '/tmp/wsd-uploads';
+fs.mkdirSync(UPLOADS_TMP, { recursive: true });
+
 const upload = multer({
   storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, '/tmp/wsd-uploads'),
-    filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+    destination: (_req, _file, cb) => cb(null, UPLOADS_TMP),
+    filename: (_req, file, cb) => cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}-${file.originalname}`),
   }),
   limits: { fileSize: 200 * 1024 * 1024, files: 50 },
 });
@@ -87,6 +90,25 @@ app.get('/api/ide/status', async (_req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ── opencode web status ──────────────────────────────────────
+const OPENCODE_PORT = Number(process.env.WSD_OPENCODE_PORT) || 4096;
+
+async function opencodeRunning(): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${OPENCODE_PORT}`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+app.get('/api/opencode/status', async (_req, res) => {
+  res.json({ running: await opencodeRunning(), port: OPENCODE_PORT });
+});
+
 
 // ── Projects API ─────────────────────────────────────────────
 
@@ -187,16 +209,33 @@ app.post('/api/projects/:slug/upload', (req, res) => {
     for (const file of files) {
       const rel = normalizeUploadPath((req.body as any)?.paths?.[file.originalname] || file.originalname);
       if (!rel) continue;
-      const target = path.resolve(base, rel);
-      if (!target.startsWith(base)) continue;
+      const target = uniqueTargetPath(base, rel);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.copyFileSync(file.path, target);
       fs.unlinkSync(file.path);
-      saved.push({ name: file.originalname, path: rel });
+      saved.push({ name: file.originalname, path: path.relative(base, target).split(path.sep).join('/') });
     }
     res.status(201).json({ ok: true, files: saved });
   });
 });
+
+/**
+ * Resolve a target path inside the workspace; if a file already exists there,
+ * append a numeric suffix before the extension so re-uploads never overwrite.
+ */
+function uniqueTargetPath(base: string, rel: string): string {
+  const target = path.resolve(base, rel);
+  if (!target.startsWith(base)) return path.join(base, path.basename(rel));
+  if (!fs.existsSync(target)) return target;
+
+  const ext = path.extname(target);
+  const stem = path.join(path.dirname(target), path.basename(target, ext));
+  for (let i = 1; i < 1000; i++) {
+    const candidate = `${stem}-${i}${ext}`;
+    if (!fs.existsSync(candidate)) return candidate;
+  }
+  return `${stem}-${Date.now()}${ext}`;
+}
 
 /**
  * Keep upload paths inside the project workspace; strips leading slashes,
@@ -240,6 +279,7 @@ server.listen(PORT, HOST, () => {
   console.log(`[WSD-Pro] Dashboard on http://${HOST}:${PORT}`);
   console.log(`[WSD-Pro] WebSocket hub on ws://${HOST}:${PORT}/ws`);
   console.log(`[WSD-Pro] Workspaces root: ${WORKSPACES_ROOT}`);
+  console.log(`[WSD-Pro] opencode web on port ${OPENCODE_PORT}`);
   console.log(`[WSD-Pro] Chat model: ${MODEL}`);
   console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
 });

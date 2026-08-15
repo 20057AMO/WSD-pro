@@ -27,6 +27,11 @@ export interface ChatInfo {
   model: string;
 }
 
+export interface OpencodeStatus {
+  running: boolean;
+  port: number;
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   let data: any = {};
@@ -56,6 +61,7 @@ export const deleteProject = (slug: string) =>
 export const getServerInfo = () => api<ServerInfo>('/api/server/info');
 export const getIdeStatus = () => api<{ ide: IdeStatus }>('/api/ide/status');
 export const getChatInfo = () => api<ChatInfo>('/api/chat/info');
+export const getOpencodeStatus = () => api<OpencodeStatus>('/api/opencode/status');
 export const getLogs = (slug: string, tail = 200) =>
   api<{ logs: string }>(`/api/projects/${slug}/logs?tail=${tail}`);
 

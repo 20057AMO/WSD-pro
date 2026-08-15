@@ -26,7 +26,7 @@ function applyEvent(ev: ChatEvent, cur: Msg[]): Msg[] {
   } else if (ev.type === 'agent_chunk' || ev.type === 'agent_done') {
     const last = next[next.length - 1];
     if (last && last.role === 'agent') {
-      last.text += ev.content;
+      next[next.length - 1] = { ...last, text: last.text + ev.content };
     } else {
       next.push({ role: 'agent', text: ev.content });
     }
@@ -74,6 +74,9 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
         setMessages(msg.events.reduce((acc, ev) => applyEvent(ev, acc), [] as Msg[]));
       } else if (msg.type === 'event' && msg.event) {
         setMessages((cur) => applyEvent(msg.event!, cur));
+        if (msg.event.type === 'agent_done' || msg.event.type === 'agent_error') {
+          setRunning(false);
+        }
       } else if (msg.type === 'started') {
         setRunning(true);
       } else if (msg.type === 'error') {

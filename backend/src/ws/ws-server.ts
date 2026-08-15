@@ -3,20 +3,14 @@
  * WSD-Pro — WebSocket hub.
  * Manual upgrade routing (noServer) so nested paths work:
  *   /ws/chat/:chatId        → global chatbot (qwen3:30b, slug = 'global')
- *   /ws/opencode/:slug      → opencode build panel for a project
  * No authentication (open app).
  */
 import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 import { handleChatSocket } from './ws-chat';
-import { handleOpenCodeSocket } from './ws-opencode';
 
 const MAX_CONNECTIONS_PER_ROOM = 8;
 const roomConnections = new Map<string, number>();
-
-function isSafeSlug(value: string): boolean {
-  return /^[a-z0-9][a-z0-9-]{0,31}$/.test(value);
-}
 
 function isSafeChatId(value: string): boolean {
   return /^[A-Za-z0-9._-]{1,64}$/.test(value);
@@ -52,22 +46,6 @@ export function attachWebSockets(server: http.Server): void {
         return;
       }
       handleChatSocket(ws, 'global', chatId, releaseRoom(room));
-      return;
-    }
-
-    const opencodeMatch = url.pathname.match(/^\/ws\/opencode\/([^/]+)$/);
-    if (opencodeMatch) {
-      const slug = decodeURIComponent(opencodeMatch[1]);
-      if (!isSafeSlug(slug)) {
-        ws.close(1008, 'invalid project slug');
-        return;
-      }
-      const room = `opencode:${slug}`;
-      if (!acquireRoom(room)) {
-        ws.close(1013, 'too many connections for project');
-        return;
-      }
-      handleOpenCodeSocket(ws, slug, releaseRoom(room));
       return;
     }
 

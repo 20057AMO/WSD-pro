@@ -42,6 +42,8 @@ jobs:
         env:
           PORT: 3000
           OLLAMA_API_KEY: test-key
+          WSD_WORKSPACE_IMAGE: ubuntu:24.04
+          WSD_PROJECTS_DIR: /tmp/wsd-projects
         run: |
           npm start &
           # Wait for backend to be ready by pinging health endpoint repeatedly

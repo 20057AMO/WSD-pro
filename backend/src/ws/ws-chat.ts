@@ -12,8 +12,7 @@
  */
 import { WebSocket } from 'ws';
 import { chatStore } from '../services/chat-store';
-import { streamChat, ChatMessage } from '../services/ollama-chat';
-import { RunControl } from '../services/ollama-chat';
+import { streamChat, RunControl, type ChatMessage } from '../services/ollama-chat';
 
 const MAX_PROMPT_CHARS = 20000;
 const MAX_HISTORY_TURNS = 20;

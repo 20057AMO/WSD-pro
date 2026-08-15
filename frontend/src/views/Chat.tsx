@@ -36,7 +36,7 @@ export function Chat() {
         <h1 class="hero-title" style="font-size: 1.5rem">Plan & Design</h1>
         <p class="hero-sub">
           Discuss ideas, architecture and project structure. This assistant only plans —
-          use opencode inside a project to build.
+          use opencode in the sidebar to build.
         </p>
       </div>
 

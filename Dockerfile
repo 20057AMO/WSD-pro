@@ -1,5 +1,5 @@
 # WSD-Pro main container
-# Dashboard (3000) + shared code-server IDE (8100) + opencode CLI + qwen3:30b chat (Ollama Cloud).
+# Dashboard (3000) + shared code-server IDE (8100) + opencode web (4096) + qwen3:30b chat (Ollama Cloud).
 
 # ---- Stage 1: build frontend ----
 FROM node:22-bookworm AS frontend-build
@@ -32,8 +32,12 @@ RUN curl -fsSLo /tmp/code-server.deb \
     && dpkg -i /tmp/code-server.deb \
     && rm -f /tmp/code-server.deb
 
-# opencode CLI (project building agent)
+# opencode CLI (project building agent, web UI on port 4096)
 RUN npm install -g opencode-ai --no-fund --no-audit
+
+# Headless container: opencode tries to auto-open a browser via xdg-open on
+# `opencode web`; provide a no-op stub so it never errors out.
+RUN printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/xdg-open && chmod +x /usr/local/bin/xdg-open
 
 WORKDIR /app
 
@@ -52,6 +56,6 @@ COPY opencode.json /root/.config/opencode/opencode.json
 COPY backend/docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-EXPOSE 3000 8100
+EXPOSE 3000 8100 4096
 
 CMD ["/app/entrypoint.sh"]

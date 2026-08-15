@@ -1,0 +1,14 @@
+.git
+.github
+workspaces
+docs
+**/node_modules
+backend/data
+backend/dist
+frontend/dist
+.env
+*.log
+README.md
+docker-compose.yml
+Dockerfile
+Dockerfile.workspace

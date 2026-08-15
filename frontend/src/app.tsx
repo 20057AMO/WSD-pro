@@ -4,6 +4,7 @@ import { useHashLocation } from 'wouter/use-hash-location';
 import { Dashboard } from './views/Dashboard';
 import { Project } from './views/Project';
 import { Chat } from './views/Chat';
+import { Opencode } from './views/Opencode';
 import { getIdeStatus, IdeStatus } from './api';
 
 const NavButton = ({
@@ -56,7 +57,7 @@ function Sidebar() {
     });
   };
 
-  const ideUrl = ide ? `http://${window.location.hostname}:${ide.port}` : '#';
+  const ideDirectUrl = ide ? `http://${window.location.hostname}:${ide.port}` : '#';
 
   return (
     <>
@@ -71,6 +72,7 @@ function Sidebar() {
         <nav class="sidebar-nav">
           <NavButton href="/" label="Dashboard" icon="◈" />
           <NavButton href="/chat" label="Chat & Design" icon="✎" />
+          <NavButton href="/opencode" label="opencode" icon="⌁" />
           <NavButton label="Web IDE" icon="▦" onClick={openIdeDialog} />
         </nav>
         <div class="sidebar-footer">
@@ -94,19 +96,19 @@ function Sidebar() {
               </div>
               <div class="kv">
                 <span>Address</span>
-                <b class="mono">{ideUrl}</b>
+                <b class="mono">{ideDirectUrl}</b>
               </div>
               <div class="kv">
                 <span>Password</span>
                 <b class="mono">{ide?.password || '…'}</b>
               </div>
             </div>
-            <div style="display: flex; gap: 8px; margin-top: 18px; justify-content: flex-end">
+            <div style="display: flex; gap: 8px; margin-top: 18px; justify-content: flex-end; flex-wrap: wrap">
               <button class="btn-ghost sm" onClick={copyPassword}>
                 {copied ? 'Copied ✓' : 'Copy password'}
               </button>
-              <a class="btn-primary sm" href={ideUrl} target="_blank" rel="noreferrer">
-                Open IDE
+              <a class="btn-ghost sm" href={ideDirectUrl} target="_blank" rel="noreferrer">
+                Direct
               </a>
             </div>
           </div>
@@ -116,17 +118,29 @@ function Sidebar() {
   );
 }
 
+function Shell() {
+  const [location] = useHashLocation();
+
+  if (location.startsWith('/opencode')) {
+    return <Opencode />;
+  }
+
+  return (
+    <div class="app-view">
+      <Sidebar />
+      <main class="main">
+        <Route path="/" component={Dashboard} />
+        <Route path="/project/:slug" component={Project} />
+        <Route path="/chat" component={Chat} />
+      </main>
+    </div>
+  );
+}
+
 export function App() {
   return (
     <Router hook={useHashLocation}>
-      <div class="app-view">
-        <Sidebar />
-        <main class="main">
-          <Route path="/" component={Dashboard} />
-          <Route path="/project/:slug" component={Project} />
-          <Route path="/chat" component={Chat} />
-        </main>
-      </div>
+      <Shell />
     </Router>
   );
 }

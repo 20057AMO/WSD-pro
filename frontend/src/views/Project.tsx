@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   getProject,
@@ -7,18 +7,16 @@ import {
   deleteProject,
   getLogs,
   uploadFiles,
-  wsUrl,
 } from '../api';
 import type { Project } from '../api';
-import { useChatSocket } from '../useChatSocket';
 
-type Tab = 'build' | 'upload' | 'logs';
+type Tab = 'upload' | 'logs';
 
 export function Project({ params }: { params: { slug: string } }) {
   const slug = params.slug;
   const [, setLocation] = useHashLocation();
   const [project, setProject] = useState<Project | null>(null);
-  const [tab, setTab] = useState<Tab>('build');
+  const [tab, setTab] = useState<Tab>('upload');
   const [error, setError] = useState<string | null>(null);
   const [logs, setLogs] = useState('');
 
@@ -64,16 +62,18 @@ export function Project({ params }: { params: { slug: string } }) {
   const host = window.location.hostname;
   const portLinks = project?.hostPorts
     ? Object.entries(project.hostPorts).map(([priv, pub]) => (
-        <a
-          key={priv}
-          class="port-link"
-          href={`http://${host}:${pub}`}
-          target="_blank"
-          rel="noreferrer"
-        >
-          <span class="p-label">container {priv}</span>
-          <span class="p-val">{host}:{pub}</span>
-        </a>
+        <div key={priv} class="port-link-row">
+          <a
+            class="port-link"
+            href={`http://${host}:${pub}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span class="p-label">container {priv}</span>
+            <span class="p-val">{host}:{pub}</span>
+          </a>
+          <span class="dim" style="color: var(--text-3); font-size: 0.74rem">opens in your browser</span>
+        </div>
       ))
     : [];
 
@@ -112,92 +112,17 @@ export function Project({ params }: { params: { slug: string } }) {
       )}
 
       <div class="detail-tabs">
-        {(['build', 'upload', 'logs'] as Tab[]).map((t) => (
+        {(['upload', 'logs'] as Tab[]).map((t) => (
           <button class={`tab-btn ${tab === t ? 'active' : ''}`} key={t} onClick={() => setTab(t)}>
-            {t === 'build' ? 'Build (opencode)' : t === 'upload' ? 'Upload' : 'Logs'}
+            {t === 'upload' ? 'Upload' : 'Logs'}
           </button>
         ))}
       </div>
 
-      {tab === 'build' && <BuildPanel slug={slug} />}
       {tab === 'upload' && <UploadPanel slug={slug} />}
       {tab === 'logs' && (
         <div class="logs-box mono">{logs || 'No logs yet.'}</div>
       )}
-    </div>
-  );
-}
-
-function BuildPanel({ slug }: { slug: string }) {
-  const { messages, connected, running, error, send, stop } = useChatSocket(
-    wsUrl(`/ws/opencode/${slug}`),
-    'run'
-  );
-  const [prompt, setPrompt] = useState('');
-  const [inputError, setInputError] = useState<string | null>(null);
-  const bodyRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
-
-  const submit = (e: Event) => {
-    e.preventDefault();
-    if (!prompt.trim()) return;
-    setInputError(null);
-    send(prompt.trim());
-    setPrompt('');
-  };
-
-  return (
-    <div>
-      <div class="term-toolbar">
-        <span class="term-status">
-          <span class={`dot ${connected ? 'ok' : ''}`} />
-          opencode
-        </span>
-        <span class="term-title">
-          {running ? 'running…' : connected ? 'idle' : 'offline'} {error ? ` · ${error}` : ''}
-        </span>
-        <span class="term-actions">
-          {running && (
-            <button class="btn-danger sm" onClick={stop}>Stop</button>
-          )}
-        </span>
-      </div>
-      <div class="terminal-box" ref={bodyRef} style="height: 480px">
-        {messages.length === 0 && <div class="terminal-line dim">Tell opencode what to build.</div>}
-        {messages.map((m, i) => (
-          <div
-            class={
-              m.role === 'user'
-                ? 'terminal-line t-cmd'
-                : m.role === 'error'
-                ? 'terminal-line t-err'
-                : 'terminal-line t-out'
-            }
-            key={i}
-          >
-            {m.role === 'user' ? `$ ${m.text}` : m.text}
-          </div>
-        ))}
-      </div>
-      <form class="terminal-input-row" onSubmit={submit}>
-        <span class="terminal-prompt">›</span>
-        <input
-          class="terminal-input"
-          placeholder="Describe what to build or fix…"
-          value={prompt}
-          onInput={(e: any) => setPrompt(e.target.value)}
-          disabled={running}
-        />
-        {running && <span class="dim" style="color: var(--text-3); font-size: 0.72rem">running…</span>}
-        <button class="btn-primary sm" type="submit" disabled={running || !prompt.trim()}>
-          Run
-        </button>
-      </form>
-      {inputError && <div class="login-error">{inputError}</div>}
     </div>
   );
 }

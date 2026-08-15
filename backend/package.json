@@ -6,9 +6,9 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
+    "dev": "npm run build && node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --import ts-node/register tests/**/*.test.ts"
+    "test": "node --test \"tests/**/*.test.ts\""
   },
   "keywords": [
     "wsd-pro",
@@ -34,7 +34,6 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^26.2.0",
     "@types/ws": "^8.18.1",
-    "ts-node": "^10.9.2",
     "typescript": "^7.0.2"
   }
 }

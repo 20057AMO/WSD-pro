@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 
-const API_URL = 'http://127.0.0.1:3000/api';
+const API_URL = process.env.WSD_TEST_API_URL || 'http://127.0.0.1:3000/api';
 let testProjectSlug = 'smoke-test-project-' + Date.now();
 
 describe('WSD-Pro API Smoke Tests', () => {
@@ -33,6 +33,14 @@ describe('WSD-Pro API Smoke Tests', () => {
     const data = await res.json();
     assert.strictEqual(typeof data.ide.port, 'number');
     assert.strictEqual(typeof data.ide.password, 'string');
+  });
+
+  test('GET /opencode/status - should report the opencode web UI', async () => {
+    const res = await fetch(`${API_URL}/opencode/status`);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(typeof data.running, 'boolean');
+    assert.strictEqual(typeof data.port, 'number');
   });
 
   test('POST /projects - should create a new test project', async () => {

@@ -80,11 +80,15 @@ function validateProjectSpec(spec: ProjectSpec): { name: string; slug: string; d
     }
     const dashboardPort = Number(process.env.PORT) || 3000;
     const idePort = Number(process.env.WSD_IDE_PORT) || 8100;
+    const opencodePort = Number(process.env.WSD_OPENCODE_PORT) || 4096;
     if (port === dashboardPort) {
       throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro dashboard.`);
     }
     if (port === idePort) {
       throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro Web IDE.`);
+    }
+    if (port === opencodePort) {
+      throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro opencode web UI.`);
     }
 
     if (seen.has(port)) continue;
@@ -125,6 +129,30 @@ function ensureWorkspaceDir(slug: string): string {
 }
 
 /**
+ * Make sure the project image exists locally; if not, pull it so
+ * `docker create` never fails on a missing image (fresh hosts, CI, etc).
+ */
+async function ensureImage(image: string): Promise<void> {
+  try {
+    await docker.getImage(image).inspect();
+    return;
+  } catch {
+    // image not present locally — pull it
+  }
+  await new Promise<void>((resolve, reject) => {
+    docker.pull(image, (err: any, stream: any) => {
+      if (err || !stream) {
+        return reject(new Error(`Failed to pull ${image}: ${err?.message || 'no stream'}`));
+      }
+      stream.on('data', () => { /* progress */ });
+      stream.on('end', () => resolve());
+      stream.on('close', () => resolve());
+      stream.on('error', (e: Error) => reject(new Error(`Failed to pull ${image}: ${e.message}`)));
+    });
+  });
+}
+
+/**
  * Create a project: provision workspace dir + launch container.
  */
 export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
@@ -137,6 +165,8 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   const slug = clean.slug;
   const workDir = ensureWorkspaceDir(slug);
   const containerName = `wsd-${slug}`;
+  const image = clean.image || BASE_IMAGE;
+  await ensureImage(image);
 
   // Port mappings: expose requested host ports (bound to all interfaces)
   const portBindings: Record<string, any> = {};
@@ -153,7 +183,7 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
 
   const container = await docker.createContainer({
     name: containerName,
-    Image: clean.image || BASE_IMAGE,
+    Image: image,
     Cmd: ['/bin/bash', '-c', 'sleep infinity'],
     Tty: true,
     OpenStdin: true,

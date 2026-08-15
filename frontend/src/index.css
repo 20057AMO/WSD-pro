@@ -307,13 +307,6 @@ select.modern-input { appearance: none; cursor: pointer; }
 .term-status { display: flex; align-items: center; gap: 6px; }
 .term-title { font-family: var(--mono); color: var(--text-3); flex: 1; }
 .term-actions { display: flex; gap: 8px; }
-.term-container {
-  min-height: 460px; max-height: 70vh; overflow-y: hidden;
-  background: #0b0c10; border: 1px solid var(--border); border-top: none;
-  border-radius: 0 0 var(--radius) var(--radius);
-  padding: 6px 4px;
-}
-.term-container .xterm { padding: 4px 6px; }
 
 /* Git */
 .git-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
@@ -537,3 +530,26 @@ select.modern-input { appearance: none; cursor: pointer; }
 /* OpenCode panel */
 .terminal-box .t-cmd { margin-top: 8px; }
 .terminal-box .t-err { white-space: pre-wrap; word-break: break-word; }
+
+/* -- opencode (standalone web UI page) -- */
+.opencode-page {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; flex-direction: column;
+  background: var(--bg);
+}
+.opencode-toolbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+.opencode-frame {
+  flex: 1; width: 100%; border: none;
+  background: #000;
+}
+
+/* Port preview row */
+.port-link-row {
+  display: flex; align-items: center; gap: 8px;
+}
+.port-link-row .port-link { flex: 1; }
