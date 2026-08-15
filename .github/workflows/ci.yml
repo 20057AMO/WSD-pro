@@ -11,7 +11,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,23 +20,28 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: 'backend/package-lock.json'
 
-      - name: Install Dependencies
+      - name: Install + build backend
         working-directory: ./backend
-        run: npm ci || npm install
+        run: npm ci --no-fund --no-audit || npm install --no-fund --no-audit
 
-      - name: Build TypeScript
+      - name: Typecheck + build backend
         working-directory: ./backend
+        run: npm run build
+
+      - name: Install + build frontend
+        working-directory: ./frontend
+        run: npm ci --no-fund --no-audit || npm install --no-fund --no-audit
+
+      - name: Build frontend
+        working-directory: ./frontend
         run: npm run build
 
       - name: Start WSD-Pro Backend
         working-directory: ./backend
         env:
-          WSD_JWT_SECRET: test-secret-key-123
-          WSD_ADMIN_USER: admin
-          WSD_ADMIN_PASSWORD: admin123
+          PORT: 3000
+          OLLAMA_API_KEY: test-key
         run: |
           npm start &
           # Wait for backend to be ready by pinging health endpoint repeatedly

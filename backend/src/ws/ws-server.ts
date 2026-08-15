@@ -2,18 +2,17 @@
  * ws-server.ts
  * WSD-Pro — WebSocket hub.
  * Manual upgrade routing (noServer) so nested paths work:
- *   /ws/terminal/{slug}   → interactive container terminal
- *   /ws/chat/{slug}/{chatId} → streaming agent chat
- * JWT auth via token query param.
+ *   /ws/chat/:chatId        → global chatbot (qwen3:30b, slug = 'global')
+ *   /ws/opencode/:slug      → opencode build panel for a project
+ * No authentication (open app).
  */
 import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
-import { verifyToken } from '../services/auth';
-import { handleTerminalSocket } from './ws-terminal';
 import { handleChatSocket } from './ws-chat';
+import { handleOpenCodeSocket } from './ws-opencode';
 
-const MAX_PROJECT_CONNECTIONS = 8;
-const projectConnections = new Map<string, number>();
+const MAX_CONNECTIONS_PER_ROOM = 8;
+const roomConnections = new Map<string, number>();
 
 function isSafeSlug(value: string): boolean {
   return /^[a-z0-9][a-z0-9-]{0,31}$/.test(value);
@@ -39,54 +38,36 @@ export function attachWebSockets(server: http.Server): void {
 
   wss.on('connection', (ws: WebSocket, req) => {
     const url = new URL(req.url || '/', 'http://localhost');
-    const token = url.searchParams.get('token') || '';
-    if (!verifyToken(token)) {
-      ws.close(4001, 'unauthorized');
+
+    const chatMatch = url.pathname.match(/^\/ws\/chat\/([^/]+)$/);
+    if (chatMatch) {
+      const chatId = decodeURIComponent(chatMatch[1]);
+      if (!isSafeChatId(chatId)) {
+        ws.close(1008, 'invalid chat id');
+        return;
+      }
+      const room = `chat:${chatId}`;
+      if (!acquireRoom(room)) {
+        ws.close(1013, 'too many connections for chat');
+        return;
+      }
+      handleChatSocket(ws, 'global', chatId, releaseRoom(room));
       return;
     }
 
-    const termMatch = url.pathname.match(/^\/ws\/terminal\/([^/]+)$/);
-    if (termMatch) {
-      const slug = decodeURIComponent(termMatch[1]);
+    const opencodeMatch = url.pathname.match(/^\/ws\/opencode\/([^/]+)$/);
+    if (opencodeMatch) {
+      const slug = decodeURIComponent(opencodeMatch[1]);
       if (!isSafeSlug(slug)) {
         ws.close(1008, 'invalid project slug');
         return;
       }
-      const count = projectConnections.get(slug) || 0;
-      if (count >= MAX_PROJECT_CONNECTIONS) {
+      const room = `opencode:${slug}`;
+      if (!acquireRoom(room)) {
         ws.close(1013, 'too many connections for project');
         return;
       }
-      projectConnections.set(slug, count + 1);
-      ws.on('close', () => {
-        const current = projectConnections.get(slug) || 1;
-        if (current <= 1) projectConnections.delete(slug);
-        else projectConnections.set(slug, current - 1);
-      });
-      void handleTerminalSocket(ws, slug);
-      return;
-    }
-
-    const chatMatch = url.pathname.match(/^\/ws\/chat\/([^/]+)\/([^/]+)$/);
-    if (chatMatch) {
-      const slug = decodeURIComponent(chatMatch[1]);
-      const chatId = decodeURIComponent(chatMatch[2]);
-      if (!isSafeSlug(slug) || !isSafeChatId(chatId)) {
-        ws.close(1008, 'invalid project or chat id');
-        return;
-      }
-      const count = projectConnections.get(slug) || 0;
-      if (count >= MAX_PROJECT_CONNECTIONS) {
-        ws.close(1013, 'too many connections for project');
-        return;
-      }
-      projectConnections.set(slug, count + 1);
-      ws.on('close', () => {
-        const current = projectConnections.get(slug) || 1;
-        if (current <= 1) projectConnections.delete(slug);
-        else projectConnections.set(slug, current - 1);
-      });
-      handleChatSocket(ws, slug, chatId);
+      handleOpenCodeSocket(ws, slug, releaseRoom(room));
       return;
     }
 
@@ -96,4 +77,19 @@ export function attachWebSockets(server: http.Server): void {
   wss.on('error', (err) => {
     console.error('[WSD-Pro] WebSocket server error:', err.message);
   });
+}
+
+function acquireRoom(room: string): boolean {
+  const count = roomConnections.get(room) || 0;
+  if (count >= MAX_CONNECTIONS_PER_ROOM) return false;
+  roomConnections.set(room, count + 1);
+  return true;
+}
+
+function releaseRoom(room: string): () => void {
+  return () => {
+    const current = roomConnections.get(room) || 1;
+    if (current <= 1) roomConnections.delete(room);
+    else roomConnections.set(room, current - 1);
+  };
 }

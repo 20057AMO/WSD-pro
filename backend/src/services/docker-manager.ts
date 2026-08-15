@@ -2,6 +2,8 @@
  * docker-manager.ts
  * WSD-Pro — Docker orchestration layer.
  * Creates, starts, stops, and inspects per-project containers via Dockerode.
+ * Each project gets its own container on its own port(s); the workspace dir
+ * lives under WORKSPACES_ROOT and is bind-mounted at /workspace.
  */
 
 import Docker from 'dockerode';
@@ -11,15 +13,10 @@ import fs from 'fs';
 const docker = new Docker(); // uses /var/run/docker.sock by default
 
 // Host path where project workspaces live (bind-mounted into containers)
-const WORKSPACES_ROOT = process.env.WSD_PROJECTS_DIR || '/home/ahmedali/wsd-pro/workspaces';
+const WORKSPACES_ROOT = process.env.WSD_PROJECTS_DIR || '/workspaces';
 
 // Base image used for project workspaces (Ubuntu + dev tooling)
-const BASE_IMAGE = process.env.WSD_BASE_IMAGE || 'ubuntu:24.04';
-
-// Images commonly needed inside workspaces: code-server, node, python, git
-const WORKSPACE_ENV = [
-  'DEBIAN_FRONTEND=noninteractive',
-];
+const BASE_IMAGE = process.env.WSD_WORKSPACE_IMAGE || 'wsd/workspace:latest';
 
 export interface ProjectSpec {
   name: string;
@@ -37,7 +34,6 @@ export interface ProjectInfo {
   status: 'running' | 'stopped' | 'created' | 'missing';
   containerId?: string;
   hostPorts?: Record<string, string>;
-  idePort?: number;
   createdAt?: string;
 }
 
@@ -45,12 +41,12 @@ function validateProjectSlug(slug: string): string {
   const value = String(slug ?? '').trim().toLowerCase();
   const clean = value.replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32);
   if (!clean) throw new HttpError(400, 'Project slug is invalid');
-  
+
   const RESERVED_SLUGS = ['wsd', 'ide', 'admin', 'api', 'system', 'root', 'workspace'];
   if (RESERVED_SLUGS.includes(clean)) {
     throw new HttpError(400, `Project slug '${clean}' is reserved and cannot be used.`);
   }
-  
+
   return clean;
 }
 
@@ -82,13 +78,15 @@ function validateProjectSpec(spec: ProjectSpec): { name: string; slug: string; d
     if (port < 1024) {
       throw new HttpError(400, `Port ${port} is a privileged system port (1-1023) and cannot be used.`);
     }
-    if (port === 3000 || port === Number(process.env.PORT || 3000)) {
-      throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro command center API.`);
+    const dashboardPort = Number(process.env.PORT) || 3000;
+    const idePort = Number(process.env.WSD_IDE_PORT) || 8100;
+    if (port === dashboardPort) {
+      throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro dashboard.`);
     }
-    if (port >= 8100 && port <= 8200) {
-      throw new HttpError(400, `Port ${port} is reserved for WSD-Pro Web IDEs (8100-8200).`);
+    if (port === idePort) {
+      throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro Web IDE.`);
     }
-    
+
     if (seen.has(port)) continue;
     seen.add(port);
     cleanPorts.push(port);
@@ -140,15 +138,7 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   const workDir = ensureWorkspaceDir(slug);
   const containerName = `wsd-${slug}`;
 
-  // Find free IDE port
-  const allProjects = await listProjects();
-  const usedIdePorts = allProjects.map(p => p.idePort).filter(Boolean) as number[];
-  let idePort = 8101;
-  while (usedIdePorts.includes(idePort)) {
-    idePort++;
-  }
-
-  // Port mappings: expose requested host ports
+  // Port mappings: expose requested host ports (bound to all interfaces)
   const portBindings: Record<string, any> = {};
   const exposedPorts: Record<string, any> = {};
   const hostPorts: Record<string, string> = {};
@@ -156,14 +146,10 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     for (const p of clean.ports) {
       const key = `${p}/tcp`;
       exposedPorts[key] = {};
-      portBindings[key] = [{ HostPort: String(p) }];
+      portBindings[key] = [{ HostIp: '0.0.0.0', HostPort: String(p) }];
       hostPorts[String(p)] = String(p);
     }
   }
-
-  // Add IDE port mapping (container 8080 -> host idePort)
-  exposedPorts['8080/tcp'] = {};
-  portBindings['8080/tcp'] = [{ HostPort: String(idePort) }];
 
   const container = await docker.createContainer({
     name: containerName,
@@ -171,7 +157,7 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     Cmd: ['/bin/bash', '-c', 'sleep infinity'],
     Tty: true,
     OpenStdin: true,
-    Env: WORKSPACE_ENV,
+    Env: ['DEBIAN_FRONTEND=noninteractive'],
     ExposedPorts: exposedPorts,
     HostConfig: {
       Binds: [`${workDir}:/workspace`],
@@ -180,8 +166,8 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     },
     Labels: {
       'wsd.project': slug,
+      'wsd.name': clean.name,
       'wsd.managed': 'true',
-      'wsd.ide.port': String(idePort),
       'wsd.createdAt': new Date().toISOString(),
     },
     WorkingDir: '/workspace',
@@ -189,7 +175,6 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
 
   await container.start();
 
-  // Label metadata on the container for future lookups
   const info: ProjectInfo = {
     id: container.id,
     name: clean.name,
@@ -198,7 +183,6 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     status: 'running',
     containerId: container.id,
     hostPorts,
-    idePort,
     createdAt: new Date().toISOString(),
   };
 
@@ -224,12 +208,11 @@ export async function listProjects(): Promise<ProjectInfo[]> {
 
     projects.push({
       id: c.Id,
-      name: slug.replace(/^wsd-/, ''),
+      name: labels['wsd.name'] || slug.replace(/^wsd-/, ''),
       slug,
       status: c.State === 'running' ? 'running' : 'stopped',
       containerId: c.Id,
       hostPorts: ports,
-      idePort: labels['wsd.ide.port'] ? parseInt(labels['wsd.ide.port'], 10) : undefined,
       createdAt: labels['wsd.createdAt'],
     });
   }
@@ -286,103 +269,6 @@ export async function removeProject(slug: string): Promise<void> {
   await requireContainer(projectSlug);
   const container = docker.getContainer(`wsd-${projectSlug}`);
   await container.remove({ force: true });
-}
-
-/**
- * Execute a command inside a project container (for terminal / agent actions).
- */
-export async function execInProject(
-  slug: string,
-  cmd: string[],
-  opts: { stream?: boolean } = {}
-): Promise<{ output: string; exitCode: number }> {
-  const projectSlug = validateProjectSlug(slug);
-  if (!Array.isArray(cmd) || cmd.length === 0 || cmd.some((part) => typeof part !== 'string' || part.length === 0)) {
-    throw new HttpError(400, 'Command must be a non-empty array of non-empty strings');
-  }
-  await requireContainer(projectSlug);
-  const container = docker.getContainer(`wsd-${projectSlug}`);
-  const exec = await container.exec({
-    Cmd: cmd,
-    AttachStdout: true,
-    AttachStderr: true,
-    Tty: false,
-  });
-
-  return new Promise((resolve, reject) => {
-    exec.start({}, (err: any, stream: any) => {
-      if (err) return reject(err);
-      let output = '';
-      if (stream) {
-        // Docker multiplexed stream: 8-byte header per frame.
-        // [0]=stream type, [1-3]=unused, [4-7]=length
-        stream.on('data', (chunk: Buffer) => {
-          let offset = 0;
-          while (offset + 8 <= chunk.length) {
-            const frameLen = chunk.readUInt32BE(offset + 4);
-            if (offset + 8 + frameLen > chunk.length) break;
-            output += chunk.subarray(offset + 8, offset + 8 + frameLen).toString('utf8');
-            offset += 8 + frameLen;
-          }
-          // tail of a partial frame: carry over
-          if (offset < chunk.length) {
-            output += chunk.subarray(offset).toString('utf8');
-          }
-        });
-        stream.on('end', () => {
-          exec.inspect((ierr: any, data: any) => {
-            if (ierr) return reject(ierr);
-            resolve({ output, exitCode: data?.ExitCode ?? 0 });
-          });
-        });
-        stream.on('error', reject);
-      } else {
-        resolve({ output: '', exitCode: 0 });
-      }
-    });
-  });
-}
-
-export interface ExecSession {
-  id: string;
-  exec: any;
-  stream: any;
-}
-
-/**
- * Start an interactive bash session inside a project container.
- * Uses a TTY exec (raw output — no 8-byte demux headers), returns a
- * full-duplex hijacked stream for reading output and writing input.
- */
-export async function startInteractiveShell(slug: string): Promise<ExecSession> {
-  const projectSlug = validateProjectSlug(slug);
-  await requireContainer(projectSlug);
-  const container = docker.getContainer(`wsd-${projectSlug}`);
-  const exec = await container.exec({
-    Cmd: ['/bin/bash', '-l'],
-    Tty: true,
-    AttachStdin: true,
-    AttachStdout: true,
-    AttachStderr: true,
-    Env: ['TERM=xterm-256color', 'COLORTERM=truecolor', 'LANG=C.UTF-8'],
-  });
-  const stream: any = await new Promise((resolve, reject) => {
-    exec.start({ hijack: true, stdin: true }, (err: any, s: any) => {
-      if (err) return reject(err);
-      resolve(s);
-    });
-  });
-  return { id: exec.id, exec, stream };
-}
-
-/** Resize the TTY of an interactive exec session (cols/rows). */
-export function resizeExecSession(session: ExecSession, cols: number, rows: number): Promise<void> {
-  return new Promise((resolve, reject) => {
-    session.exec.resize({ h: rows, w: cols }, (err: any) => {
-      if (err) return reject(err);
-      resolve();
-    });
-  });
 }
 
 /**

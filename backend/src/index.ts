@@ -1,8 +1,8 @@
 /**
  * index.ts
- * WSD-Pro — Work Space Development Pro
- * Self-hosted command center for AI coding agents.
- * Each project = isolated Docker container with durable workspace.
+ * WSD-Pro — Work Space Development Pro v2
+ * Docker-compose app: dashboard + unified code-server IDE + opencode + chat.
+ * No login. Each project = isolated container with durable workspace.
  */
 
 import express from 'express';
@@ -12,6 +12,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
 import http from 'http';
+import multer from 'multer';
 
 import {
   createProject,
@@ -20,17 +21,14 @@ import {
   startProject,
   stopProject,
   removeProject,
-  execInProject,
   projectLogs,
+  HttpError,
   WORKSPACES_ROOT,
 } from './services/docker-manager';
-import { ensureAdmin, login, requireAuth, loginRateLimit, resetLoginAttempts } from './services/auth';
-import { getAgents, checkAgentAuth, runAgent, listTasks, getTask, stopTask } from './services/agents-manager';
-import { attachWebSockets } from './ws/ws-server';
+import { getIdeStatus } from './services/ide-service';
 import { detectIp } from './services/server-info';
-import { getIdeStatus, startIde, stopIde } from './services/ide-service';
-import { scanProjectPorts } from './services/port-scanner';
-import { gitStatus, gitLog, gitDiff, gitCommit } from './services/git-service';
+import { MODEL } from './services/ollama-chat';
+import { attachWebSockets } from './ws/ws-server';
 
 dotenv.config();
 
@@ -40,67 +38,18 @@ app.disable('x-powered-by');
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
-// Helmet with CSP that allows the app's inline onclick handlers
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrcAttr: ["'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'", 'https:'],
-      imgSrc: ["'self'", 'data:'],
-      fontSrc: ["'self'", 'https:', 'data:'],
-      connectSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      frameAncestors: ["'self'"],
-      upgradeInsecureRequests: [],
-    },
-  },
-}));
-const allowedOrigins = (process.env.WSD_ALLOWED_ORIGINS || '')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
-
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-    return callback(new Error('CORS policy: origin not allowed'));
-  },
-  credentials: true,
-}));
+// Helmet (CSP off — the UI is served from the same origin)
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-app.use((err: any, _req: any, res: any, next: any) => {
-  if (err && err.message === 'CORS policy: origin not allowed') {
-    return res.status(403).json({ error: 'CORS policy: origin not allowed' });
-  }
-  if (res.headersSent) return next(err);
-  console.error('[WSD-Pro] Unhandled error:', err?.stack || err);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-// ── Auth ─────────────────────────────────────────────────────
-app.post('/api/auth/login', loginRateLimit, async (req, res) => {
-  try {
-    const { username, password } = req.body || {};
-    if (!username || !password) {
-      return res.status(400).json({ error: 'username and password required' });
-    }
-    const result = await login(username, password);
-    if (!result) return res.status(401).json({ error: 'Invalid credentials' });
-    resetLoginAttempts(req.ip || 'unknown');
-    res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/auth/status', requireAuth, (_req, res) => {
-  res.json({ authenticated: true });
+// ── Uploads (files into an existing project workspace) ────────
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, '/tmp/wsd-uploads'),
+    filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+  }),
+  limits: { fileSize: 200 * 1024 * 1024, files: 50 },
 });
 
 // ── Health check ─────────────────────────────────────────────
@@ -108,15 +57,41 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'WSD-Pro',
-    version: '0.2.0',
+    version: '2.0.0',
     timestamp: new Date().toISOString(),
   });
 });
 
-// ── Projects API (protected) ─────────────────────────────────
+// ── Server info / networking ─────────────────────────────────
+app.get('/api/server/info', (_req, res) => {
+  const ips = detectIp();
+  res.json({
+    version: '2.0.0',
+    lanIp: ips.lanIp,
+    tailscaleIp: ips.tailscaleIp,
+    basePort: PORT,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ── Chatbot info ─────────────────────────────────────────────
+app.get('/api/chat/info', (_req, res) => {
+  res.json({ model: MODEL });
+});
+
+// ── Unified Web IDE status (port + password) ─────────────────
+app.get('/api/ide/status', async (_req, res) => {
+  try {
+    res.json({ ide: await getIdeStatus() });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Projects API ─────────────────────────────────────────────
 
 // List all projects
-app.get('/api/projects', requireAuth, async (_req, res) => {
+app.get('/api/projects', async (_req, res) => {
   try {
     const projects = await listProjects();
     res.json({ projects });
@@ -126,38 +101,21 @@ app.get('/api/projects', requireAuth, async (_req, res) => {
 });
 
 // Create a new project (provisions container + workspace)
-app.post('/api/projects', requireAuth, async (req, res) => {
+app.post('/api/projects', async (req, res) => {
   try {
     const { name, slug, description, image, ports } = req.body || {};
     if (!name || !String(name).trim()) {
       return res.status(400).json({ error: 'Project name is required' });
     }
-    // Validate ports: integers in 1..65535
-    if (ports !== undefined) {
-      if (!Array.isArray(ports)) {
-        return res.status(400).json({ error: 'ports must be an array of numbers' });
-      }
-      for (const p of ports) {
-        if (!Number.isInteger(p) || p < 1 || p > 65535) {
-          return res.status(400).json({ error: `Invalid port: ${p} (must be 1-65535)` });
-        }
-      }
-    }
-    // Duplicate check before hitting Docker
-    const existing = await getProject(slug || String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''));
-    if (existing) {
-      return res.status(409).json({ error: `Project '${existing.slug}' already exists` });
-    }
     const project = await createProject({ name, slug, description, image, ports });
     res.status(201).json({ project });
   } catch (err: any) {
-    const code = err.statusCode || (err.message && err.message.includes('Conflict') ? 409 : 500);
-    res.status(code).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
 // Get single project
-app.get('/api/projects/:slug', requireAuth, async (req, res) => {
+app.get('/api/projects/:slug', async (req, res) => {
   try {
     const project = await getProject(req.params.slug);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -168,7 +126,7 @@ app.get('/api/projects/:slug', requireAuth, async (req, res) => {
 });
 
 // Start project
-app.post('/api/projects/:slug/start', requireAuth, async (req, res) => {
+app.post('/api/projects/:slug/start', async (req, res) => {
   try {
     const project = await startProject(req.params.slug);
     res.json({ project });
@@ -178,7 +136,7 @@ app.post('/api/projects/:slug/start', requireAuth, async (req, res) => {
 });
 
 // Stop project
-app.post('/api/projects/:slug/stop', requireAuth, async (req, res) => {
+app.post('/api/projects/:slug/stop', async (req, res) => {
   try {
     const project = await stopProject(req.params.slug);
     res.json({ project });
@@ -188,7 +146,7 @@ app.post('/api/projects/:slug/stop', requireAuth, async (req, res) => {
 });
 
 // Remove project (container only; workspace kept)
-app.delete('/api/projects/:slug', requireAuth, async (req, res) => {
+app.delete('/api/projects/:slug', async (req, res) => {
   try {
     await removeProject(req.params.slug);
     res.json({ ok: true });
@@ -197,22 +155,8 @@ app.delete('/api/projects/:slug', requireAuth, async (req, res) => {
   }
 });
 
-// Execute a command inside a project container
-app.post('/api/projects/:slug/exec', requireAuth, async (req, res) => {
-  try {
-    const { cmd } = req.body || {};
-    if (!Array.isArray(cmd) || cmd.length === 0) {
-      return res.status(400).json({ error: 'cmd must be a non-empty string array' });
-    }
-    const result = await execInProject(req.params.slug, cmd);
-    res.json(result);
-  } catch (err: any) {
-    res.status(err.statusCode || 500).json({ error: err.message });
-  }
-});
-
 // Project container logs
-app.get('/api/projects/:slug/logs', requireAuth, async (req, res) => {
+app.get('/api/projects/:slug/logs', async (req, res) => {
   try {
     const tail = Number(req.query.tail) || 200;
     const logs = await projectLogs(req.params.slug, tail);
@@ -222,289 +166,52 @@ app.get('/api/projects/:slug/logs', requireAuth, async (req, res) => {
   }
 });
 
-// ── Workspace file API (read via bind-mount host dirs) ───────
-app.get('/api/projects/:slug/files', requireAuth, (req, res) => {
-  try {
-    const relPath = (req.query.path as string) || '.';
-    const base = path.join(WORKSPACES_ROOT, req.params.slug);
-    // Prevent path traversal
-    const target = path.resolve(base, relPath);
-    if (!target.startsWith(path.resolve(base))) {
-      return res.status(400).json({ error: 'Invalid path' });
-    }
-    if (!fs.existsSync(target)) {
-      return res.status(404).json({ error: 'Path not found' });
-    }
-    const stat = fs.statSync(target);
-    if (stat.isDirectory()) {
-      const entries = fs.readdirSync(target).map((name) => {
-        const full = path.join(target, name);
-        const s = fs.statSync(full);
-        return { name, type: s.isDirectory() ? 'dir' : 'file', size: s.size };
-      });
-      res.json({ path: relPath, entries });
-    } else {
-      const content = fs.readFileSync(target, 'utf8');
-      res.json({ path: relPath, content });
-    }
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
+// Upload files into an existing project workspace (files only, no archives)
+app.post('/api/projects/:slug/upload', (req, res) => {
+  const slug = String(req.params.slug || '').trim();
+  const base = path.resolve(path.join(WORKSPACES_ROOT, slug));
+  if (!fs.existsSync(base)) {
+    return res.status(404).json({ error: `Project workspace '${slug}' not found` });
   }
-});
 
-// ── IDE file tree (recursive, lazy per folder) ────────────────
-app.get('/api/projects/:slug/tree', requireAuth, (req, res) => {
-  try {
-    const relPath = (req.query.path as string) || '.';
-    const base = path.join(WORKSPACES_ROOT, req.params.slug);
-    const target = path.resolve(base, relPath);
-    if (!target.startsWith(path.resolve(base))) {
-      return res.status(400).json({ error: 'Invalid path' });
+  upload.array('files', 50)(req, res, (err: any) => {
+    if (err) {
+      return res.status(400).json({ error: err.message });
     }
-    if (!fs.existsSync(target)) return res.status(404).json({ error: 'Path not found' });
-    const stat = fs.statSync(target);
-    const read = (p: string): any => {
-      const s = fs.statSync(p);
-      if (s.isDirectory()) {
-        return {
-          name: path.basename(p),
-          type: 'dir',
-          children: fs.readdirSync(p)
-            .filter((n) => !n.startsWith('.') && n !== 'node_modules')
-            .map((n) => read(path.join(p, n))),
-        };
-      }
-      return { name: path.basename(p), type: 'file', size: s.size };
-    };
-    res.json({ path: relPath, tree: read(target) });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    const files = (req.files || []) as Express.Multer.File[];
+    if (files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
 
-// ── IDE: write file ───────────────────────────────────────────
-app.post('/api/projects/:slug/file/write', requireAuth, (req, res) => {
-  try {
-    const { path: relPath, content } = req.body || {};
-    if (!relPath) return res.status(400).json({ error: 'path required' });
-    const base = path.join(WORKSPACES_ROOT, req.params.slug);
-    const target = path.resolve(base, relPath);
-    if (!target.startsWith(path.resolve(base))) {
-      return res.status(400).json({ error: 'Invalid path' });
-    }
-    if (!fs.existsSync(path.dirname(target))) {
+    const saved: { name: string; path: string }[] = [];
+    for (const file of files) {
+      const rel = normalizeUploadPath((req.body as any)?.paths?.[file.originalname] || file.originalname);
+      if (!rel) continue;
+      const target = path.resolve(base, rel);
+      if (!target.startsWith(base)) continue;
       fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.copyFileSync(file.path, target);
+      fs.unlinkSync(file.path);
+      saved.push({ name: file.originalname, path: rel });
     }
-    fs.writeFileSync(target, content ?? '', 'utf8');
-    res.json({ ok: true, path: relPath });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── IDE: create file/folder ───────────────────────────────────
-app.post('/api/projects/:slug/file', requireAuth, (req, res) => {
-  try {
-    const { path: relPath, type = 'file' } = req.body || {};
-    if (!relPath) return res.status(400).json({ error: 'path required' });
-    const base = path.join(WORKSPACES_ROOT, req.params.slug);
-    const target = path.resolve(base, relPath);
-    if (!target.startsWith(path.resolve(base))) {
-      return res.status(400).json({ error: 'Invalid path' });
-    }
-    if (type === 'dir') {
-      fs.mkdirSync(target, { recursive: true });
-    } else {
-      if (fs.existsSync(target)) return res.status(409).json({ error: 'Already exists' });
-      fs.writeFileSync(target, '', 'utf8');
-    }
-    res.json({ ok: true, path: relPath, type });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── IDE: delete file/folder ───────────────────────────────────
-app.delete('/api/projects/:slug/file', requireAuth, (req, res) => {
-  try {
-    const relPath = (req.query.path as string) || '';
-    if (!relPath) return res.status(400).json({ error: 'path required' });
-    const base = path.join(WORKSPACES_ROOT, req.params.slug);
-    const target = path.resolve(base, relPath);
-    if (!target.startsWith(path.resolve(base))) {
-      return res.status(400).json({ error: 'Invalid path' });
-    }
-    fs.rmSync(target, { recursive: true, force: true });
-    res.json({ ok: true, path: relPath });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── IDE: rename file/folder ───────────────────────────────────
-app.post('/api/projects/:slug/file/rename', requireAuth, (req, res) => {
-  try {
-    const { path: relPath, newName } = req.body || {};
-    if (!relPath || !newName) return res.status(400).json({ error: 'path and newName required' });
-    const base = path.join(WORKSPACES_ROOT, req.params.slug);
-    const target = path.resolve(base, relPath);
-    const dest = path.resolve(path.dirname(target), newName);
-    if (!target.startsWith(path.resolve(base)) || !dest.startsWith(path.resolve(base))) {
-      return res.status(400).json({ error: 'Invalid path' });
-    }
-    if (!fs.existsSync(target)) return res.status(404).json({ error: 'Not found' });
-    fs.renameSync(target, dest);
-    res.json({ ok: true, path: relPath, newPath: path.relative(base, dest) });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Server info / networking ─────────────────────────────────
-app.get('/api/server/info', requireAuth, (_req, res) => {
-  const ips = detectIp();
-  res.json({
-    version: '0.2.0',
-    lanIp: ips.lanIp,
-    tailscaleIp: ips.tailscaleIp,
-    idePort: Number(process.env.WSD_IDE_PORT) || 8100,
-    basePort: PORT,
-    timestamp: new Date().toISOString(),
+    res.status(201).json({ ok: true, files: saved });
   });
 });
 
-// ── Live port discovery (preview links) ──────────────────────
-app.get('/api/projects/:slug/ports', requireAuth, async (req, res) => {
-  try {
-    const fresh = req.query.fresh === '1';
-    const ports = await scanProjectPorts(req.params.slug, fresh);
-    res.json({ slug: req.params.slug, ports });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Git inside project workspace ─────────────────────────────
-app.get('/api/projects/:slug/git/status', requireAuth, async (req, res) => {
-  try {
-    res.json({ slug: req.params.slug, output: await gitStatus(req.params.slug) });
-  } catch (err: any) {
-    res.status(err.statusCode || 500).json({ error: err.message });
-  }
-});
-
-app.get('/api/projects/:slug/git/log', requireAuth, async (req, res) => {
-  try {
-    const count = Math.min(100, Number(req.query.count) || 20);
-    res.json({ slug: req.params.slug, output: await gitLog(req.params.slug, count) });
-  } catch (err: any) {
-    res.status(err.statusCode || 500).json({ error: err.message });
-  }
-});
-
-app.get('/api/projects/:slug/git/diff', requireAuth, async (req, res) => {
-  try {
-    const output = await gitDiff(req.params.slug, req.query.staged === '1');
-    res.json({ slug: req.params.slug, output });
-  } catch (err: any) {
-    res.status(err.statusCode || 500).json({ error: err.message });
-  }
-});
-
-app.post('/api/projects/:slug/git/commit', requireAuth, async (req, res) => {
-  try {
-    const { message } = req.body || {};
-    if (!message || !String(message).trim()) {
-      return res.status(400).json({ error: 'commit message required' });
-    }
-    const output = await gitCommit(req.params.slug, String(message));
-    res.json({ slug: req.params.slug, output });
-  } catch (err: any) {
-    res.status(err.statusCode || 500).json({ error: err.message });
-  }
-});
-
-// ── Web IDE (code-server per project) ────────────
-app.get('/api/projects/:slug/ide/status', requireAuth, async (req, res) => {
-  try {
-    res.json({ ide: await getIdeStatus(req.params.slug) });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/projects/:slug/ide/start', requireAuth, async (req, res) => {
-  try {
-    const ide = await startIde(req.params.slug);
-    res.json({ ide });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/projects/:slug/ide/stop', requireAuth, async (req, res) => {
-  try {
-    const ide = await stopIde(req.params.slug);
-    res.json({ ide });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── Agent Bridge API ─────────────────────────────────────────
-app.get('/api/agents', requireAuth, async (_req, res) => {
-  try {
-    const agents = getAgents();
-    const withAuth = await Promise.all(
-      agents.map(async (a) => ({ ...a, auth: await checkAgentAuth(a.name) }))
-    );
-    res.json({ agents: withAuth });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/agents/:name/run', requireAuth, async (req, res) => {
-  try {
-    const { project, prompt } = req.body || {};
-    if (!project || !prompt) {
-      return res.status(400).json({ error: 'project and prompt are required' });
-    }
-    const task = await runAgent(req.params.name, project, prompt);
-    res.status(202).json({ task });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.get('/api/agents/tasks', requireAuth, (req, res) => {
-  try {
-    const agent = req.query.agent as string | undefined;
-    res.json({ tasks: listTasks(agent) });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/agents/tasks/:id', requireAuth, (req, res) => {
-  const task = getTask(req.params.id);
-  if (!task) return res.status(404).json({ error: 'Task not found' });
-  res.json({ task });
-});
-
-app.post('/api/agents/tasks/:id/stop', requireAuth, (req, res) => {
-  const ok = stopTask(req.params.id);
-  if (!ok) return res.status(404).json({ error: 'Task not found' });
-  res.json({ ok: true });
-});
+/**
+ * Keep upload paths inside the project workspace; strips leading slashes,
+ * resolves '..' segments safely, and falls back to the bare filename.
+ */
+function normalizeUploadPath(raw: string): string | null {
+  const value = String(raw ?? '').trim();
+  const clean = value.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!clean || clean === '.') return null;
+  if (clean.startsWith('..') || clean.includes('/../') || clean.endsWith('/..')) return null;
+  return clean.slice(0, 1024);
+}
 
 // ── Serve frontend static build if present ───────────────────
-// Prefer ../frontend (dev), fall back to ../public (legacy)
-const frontendDist =
-  fs.existsSync(path.join(__dirname, '..', '..', 'frontend')) &&
-    fs.existsSync(path.join(__dirname, '..', '..', 'frontend', 'index.html'))
-    ? path.join(__dirname, '..', '..', 'frontend')
-    : path.join(__dirname, '..', 'public');
+const frontendDist = path.join(__dirname, '..', '..', 'frontend', 'dist');
 if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
   // SPA fallback — catch-all (Express 5 compatible)
@@ -515,20 +222,24 @@ if (fs.existsSync(frontendDist)) {
   console.log(`[WSD-Pro] Serving frontend from ${frontendDist}`);
 }
 
+// ── Error handler ────────────────────────────────────────────
+app.use((err: any, _req: any, res: any, next: any) => {
+  if (res.headersSent) return next(err);
+  if (err instanceof HttpError) {
+    return res.status(err.statusCode).json({ error: err.message });
+  }
+  console.error('[WSD-Pro] Unhandled error:', err?.stack || err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 // ── Start ────────────────────────────────────────────────────
 const server = http.createServer(app);
 attachWebSockets(server);
 
-ensureAdmin()
-  .then(() => {
-    server.listen(PORT, HOST, () => {
-      console.log(`[WSD-Pro] Command center listening on http://${HOST}:${PORT}`);
-      console.log(`[WSD-Pro] WebSocket hub on ws://${HOST}:${PORT}/ws`);
-      console.log(`[WSD-Pro] Workspaces root: ${WORKSPACES_ROOT}`);
-      console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
-    });
-  })
-  .catch((err: any) => {
-    console.error('[WSD-Pro] Startup failed:', err);
-    process.exit(1);
-  });
+server.listen(PORT, HOST, () => {
+  console.log(`[WSD-Pro] Dashboard on http://${HOST}:${PORT}`);
+  console.log(`[WSD-Pro] WebSocket hub on ws://${HOST}:${PORT}/ws`);
+  console.log(`[WSD-Pro] Workspaces root: ${WORKSPACES_ROOT}`);
+  console.log(`[WSD-Pro] Chat model: ${MODEL}`);
+  console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
+});

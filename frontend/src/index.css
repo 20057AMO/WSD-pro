@@ -516,3 +516,24 @@ select.modern-input { appearance: none; cursor: pointer; }
   .port-input { max-width: 100%; }
   .detail-topbar { flex-wrap: wrap; }
 }
+
+/* -- Modal (IDE dialog) -- */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal-card {
+  width: 100%; max-width: 420px;
+  background: var(--panel);
+  border: 1px solid var(--border-2);
+  border-radius: 14px;
+  padding: 22px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+}
+.modal-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 16px; }
+
+/* OpenCode panel */
+.terminal-box .t-cmd { margin-top: 8px; }
+.terminal-box .t-err { white-space: pre-wrap; word-break: break-word; }
