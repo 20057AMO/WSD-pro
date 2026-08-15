@@ -22,7 +22,7 @@ FROM node:22-bookworm
 
 # Docker CLI (to manage project containers through the mounted socket)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git docker.io \
+    && apt-get install -y --no-install-recommends ca-certificates curl git docker.io jq \
     && rm -rf /var/lib/apt/lists/*
 
 # code-server — unified Web IDE rooted at /workspaces

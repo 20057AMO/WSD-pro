@@ -9,6 +9,8 @@
 import Docker from 'dockerode';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
+import { execSync } from 'child_process';
 
 const docker = new Docker(); // uses /var/run/docker.sock by default
 
@@ -128,6 +130,44 @@ function ensureWorkspaceDir(slug: string): string {
   return dir;
 }
 
+// opencode web server port (same container), used to register new projects
+// with the web UI so they appear in the sidebar without a restart.
+const OPENCODE_PORT = process.env.WSD_OPENCODE_PORT || '4096';
+
+/**
+ * Register a project directory with the opencode web server (POST /session is
+ * the official "open project" mechanism — it records the project and creates a
+ * fresh empty session). opencode only treats a directory as its own project
+ * once a session exists there AND it can resolve a project id (git remote >
+ * cached id in <gitdir>/opencode > root commit > global), so we seed a git
+ * repo + deterministic cached id first. Non-fatal: if opencode is still
+ * starting, the entrypoint's startup sync registers every /workspaces/*
+ * directory anyway.
+ */
+function seedOpencodeProjectId(dir: string): void {
+  try {
+    if (!fs.existsSync(path.join(dir, '.git'))) {
+      execSync('git init -q', { cwd: dir, stdio: 'ignore' });
+    }
+    const sha = crypto.createHash('sha1').update(path.basename(dir)).digest('hex');
+    fs.writeFileSync(path.join(dir, '.git', 'opencode'), sha);
+  } catch {
+    /* best effort — startup sync in entrypoint covers it */
+  }
+}
+
+function registerOpencodeProject(slug: string): void {
+  const directory = path.join(WORKSPACES_ROOT, slug);
+  seedOpencodeProjectId(directory);
+  fetch(`http://localhost:${OPENCODE_PORT}/session?directory=${encodeURIComponent(directory)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{}',
+  }).catch(() => {
+    /* opencode not ready yet — startup sync in entrypoint covers it */
+  });
+}
+
 /**
  * Make sure the project image exists locally; if not, pull it so
  * `docker create` never fails on a missing image (fresh hosts, CI, etc).
@@ -204,6 +244,8 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   });
 
   await container.start();
+
+  registerOpencodeProject(slug);
 
   const info: ProjectInfo = {
     id: container.id,
