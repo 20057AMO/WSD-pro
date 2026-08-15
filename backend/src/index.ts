@@ -27,7 +27,9 @@ import {
 } from './services/docker-manager';
 import { getIdeStatus } from './services/ide-service';
 import { detectIp } from './services/server-info';
-import { MODEL } from './services/ollama-chat';
+import { getChatConfig, updateChatConfig, listModels, type ChatConfig } from './services/chat-config';
+import { listProviders, updateProvider, getProviderConfig } from './services/provider-store';
+import { authenticate, verifyToken, revokeToken } from './services/providers-auth';
 import { attachWebSockets } from './ws/ws-server';
 
 dotenv.config();
@@ -78,8 +80,109 @@ app.get('/api/server/info', (_req, res) => {
 });
 
 // ── Chatbot info ─────────────────────────────────────────────
-app.get('/api/chat/info', (_req, res) => {
-  res.json({ model: MODEL });
+app.get('/api/chat/info', async (_req, res) => {
+  const cfg = getChatConfig();
+  const models = await listModels(cfg.provider);
+  res.json({ ...cfg, models });
+});
+
+// Update chat configuration (provider / model / language / system prompt / temperature)
+app.post('/api/chat/config', (req, res) => {
+  try {
+    const { provider, model, systemPrompt, language, temperature } = req.body || {};
+    const patch: Partial<ChatConfig> = {};
+    if (provider === 'ollama' || provider === 'local') patch.provider = provider;
+    if (typeof model === 'string' && model.trim()) patch.model = model.trim().slice(0, 200);
+    if (typeof systemPrompt === 'string') patch.systemPrompt = systemPrompt.slice(0, 20000);
+    if (language === 'auto' || language === 'ar' || language === 'en') patch.language = language;
+    if (typeof temperature === 'number' && temperature >= 0 && temperature <= 2) patch.temperature = temperature;
+    res.json(updateChatConfig(patch));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List models available from a provider (ollama | local)
+app.get('/api/chat/models', async (req, res) => {
+  const provider = req.query.provider === 'local' ? 'local' : 'ollama';
+  const models = await listModels(provider);
+  res.json({ models });
+});
+
+// ── Providers (password-protected API key management) ────────
+function requireProvidersAuth(req: any, res: any, next: any): void {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!verifyToken(token)) {
+    res.status(401).json({ error: 'Authentication required' });
+    return;
+  }
+  next();
+}
+
+function bearerToken(req: any): string | null {
+  const header = req.headers.authorization || '';
+  return header.startsWith('Bearer ') ? header.slice(7) : null;
+}
+
+function isProviderId(value: string): boolean {
+  return value === 'ollama' || value === 'local';
+}
+
+app.post('/api/providers/auth', (req, res) => {
+  const password = (req.body || {}).password;
+  const token = authenticate(typeof password === 'string' ? password : '');
+  if (!token) {
+    res.status(401).json({ error: 'Invalid password' });
+    return;
+  }
+  res.json({ token });
+});
+
+app.post('/api/providers/logout', requireProvidersAuth, (req, res) => {
+  const token = bearerToken(req);
+  if (token) revokeToken(token);
+  res.json({ ok: true });
+});
+
+app.get('/api/providers', requireProvidersAuth, (_req, res) => {
+  res.json({ providers: listProviders() });
+});
+
+app.put('/api/providers/:id', requireProvidersAuth, (req, res) => {
+  const id = String(req.params.id || '');
+  if (!isProviderId(id)) {
+    res.status(404).json({ error: 'Unknown provider' });
+    return;
+  }
+  const { host, apiKey, enabled } = req.body || {};
+  const provider = updateProvider(id, { host, apiKey, enabled });
+  res.json({ provider });
+});
+
+app.post('/api/providers/:id/test', requireProvidersAuth, async (req, res) => {
+  const id = String(req.params.id || '');
+  if (!isProviderId(id)) {
+    res.status(404).json({ error: 'Unknown provider' });
+    return;
+  }
+  const cfg = getProviderConfig(id);
+  try {
+    const headers: Record<string, string> = {};
+    if (cfg.apiKey) headers['Authorization'] = `Bearer ${cfg.apiKey}`;
+    const resp = await fetch(`${cfg.host}/api/tags`, {
+      headers,
+      signal: AbortSignal.timeout(8000),
+    });
+    const body = (await resp.json().catch(() => ({}))) as { models?: unknown[] };
+    res.json({
+      ok: resp.ok,
+      status: resp.status,
+      modelCount: Array.isArray(body.models) ? body.models.length : 0,
+    });
+  } catch (err: any) {
+    res.json({ ok: false, error: err?.message || String(err) });
+  }
 });
 
 // ── Unified Web IDE status (port + password) ─────────────────
@@ -280,6 +383,6 @@ server.listen(PORT, HOST, () => {
   console.log(`[WSD-Pro] WebSocket hub on ws://${HOST}:${PORT}/ws`);
   console.log(`[WSD-Pro] Workspaces root: ${WORKSPACES_ROOT}`);
   console.log(`[WSD-Pro] opencode web on port ${OPENCODE_PORT}`);
-  console.log(`[WSD-Pro] Chat model: ${MODEL}`);
+  console.log(`[WSD-Pro] Chat model: ${getChatConfig().model}`);
   console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
 });

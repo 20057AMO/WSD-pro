@@ -21,7 +21,7 @@
   --blue: #58a6ff;
   --radius: 10px;
   --radius-sm: 6px;
-  --font: 'Inter', system-ui, sans-serif;
+  --font: 'Inter', system-ui, sans-serif, 'Segoe UI', 'Noto Naskh Arabic', Tahoma;
   --mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
 }
 
@@ -442,6 +442,9 @@ select.modern-input { appearance: none; cursor: pointer; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .chat-head {
   padding: 13px 18px; font-weight: 600; font-size: 0.85rem;
@@ -449,11 +452,11 @@ select.modern-input { appearance: none; cursor: pointer; }
   background: var(--bg-2);
 }
 .chat-body {
-  height: 240px; overflow-y: auto; padding: 14px 18px;
+  flex: 1; min-height: 0; overflow-y: auto; padding: 14px 18px;
   display: flex; flex-direction: column; gap: 10px;
 }
 .chat-msg {
-  padding: 10px 14px; border-radius: 10px; font-size: 0.8rem; line-height: 1.55;
+  padding: 10px 14px; border-radius: 10px; font-size: 0.82rem; line-height: 1.6;
   background: var(--panel-2);
   max-width: 85%;
 }
@@ -462,14 +465,151 @@ select.modern-input { appearance: none; cursor: pointer; }
 .chat-msg.user { align-self: flex-end; background: rgba(255,255,255,0.09); }
 .chat-msg.user span { display: block; margin-bottom: 4px; font-size: 0.68rem; color: var(--text-2); }
 .chat-msg.agent { align-self: flex-start; background: var(--panel-2); }
+.chat-msg-text { white-space: pre-wrap; word-break: break-word; }
 .agent-badge { display: block; margin-bottom: 6px; font-size: 0.68rem; color: var(--text-2); }
 .agent-stream {
-  margin: 0; padding: 0; white-space: pre-wrap; word-break: break-word;
-  font-family: var(--mono); font-size: 0.76rem; line-height: 1.5; max-height: 320px; overflow-y: auto;
+  margin: 0; padding: 0; white-space: normal; word-break: break-word;
+  font-family: var(--font); font-size: 0.82rem; line-height: 1.6;
 }
+
+/* Markdown body */
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+.md p { margin: 0.4em 0; }
+.md h1, .md h2, .md h3, .md h4 { margin: 0.7em 0 0.35em; font-weight: 700; line-height: 1.3; }
+.md h1 { font-size: 1.15em; }
+.md h2 { font-size: 1.05em; }
+.md h3, .md h4 { font-size: 0.95em; }
+.md ul, .md ol { margin: 0.4em 0; padding-left: 1.4em; }
+.md li { margin: 0.15em 0; }
+.md code {
+  font-family: var(--mono); font-size: 0.78em;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 4px; padding: 0.1em 0.35em;
+}
+.md pre {
+  background: #0a0b0e; border: 1px solid var(--border); border-radius: 8px;
+  padding: 10px 12px; margin: 0.5em 0; overflow-x: auto;
+}
+.md pre code { background: none; border: none; padding: 0; font-size: 0.76em; white-space: pre; }
+.md blockquote {
+  margin: 0.5em 0; padding: 0.2em 0.9em;
+  border-left: 3px solid var(--border-2); color: var(--text-2);
+}
+.md a { color: var(--blue); }
+.md table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.8em; }
+.md th, .md td { border: 1px solid var(--border-2); padding: 4px 9px; }
+.md th { background: var(--bg-2); }
+.md img { max-width: 100%; border-radius: 6px; }
+
+/* Chat attachments (sent) */
+.chat-attachments { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 8px; }
+.chat-img {
+  max-width: 220px; max-height: 200px; object-fit: cover;
+  border: 1px solid var(--border-2); border-radius: 8px;
+  display: block;
+}
+.chat-file-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px 9px;
+  font-family: var(--mono); font-size: 0.68rem; color: var(--text-2);
+  width: fit-content;
+}
+
+/* Pending attachments (pre-send) */
+.chat-pending {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 8px 14px; border-top: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.chat-attach-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 4px 8px;
+  font-size: 0.72rem;
+}
+.chat-attach-thumb {
+  width: 28px; height: 28px; object-fit: cover;
+  border-radius: 5px; border: 1px solid var(--border-2);
+}
+.chat-attach-icon { font-size: 0.85rem; }
+.chat-attach-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-attach-size { color: var(--text-3); font-family: var(--mono); font-size: 0.66rem; }
+.chat-attach-x {
+  color: var(--text-3); font-size: 0.9rem; line-height: 1;
+  padding: 0 2px; border-radius: 4px;
+}
+.chat-attach-x:hover { color: var(--red); }
+
 .chat-input-row { display: flex; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--border); }
 .agent-project-sel { max-width: 170px; flex-shrink: 0; }
 .agent-prompt-input { flex: 1; }
+.chat-attach-btn { padding: 8px 12px; font-size: 0.9rem; }
+
+/* Chat settings */
+.chat-settings { margin-bottom: 14px; }
+.chat-settings-row {
+  display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px 14px;
+}
+.chat-settings-label { display: flex; flex-direction: column; gap: 4px; }
+.chat-settings-label span {
+  font-size: 0.62rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--text-3);
+}
+.chat-sel { width: auto; min-width: 120px; padding: 7px 10px; font-size: 0.76rem; }
+.chat-save-btn { flex-shrink: 0; }
+.chat-settings-body { margin-top: 8px; }
+.chat-sysprompt {
+  font-family: var(--mono); font-size: 0.75rem; line-height: 1.5;
+  resize: vertical;
+}
+.chat-save-msg {
+  margin-top: 6px; font-size: 0.72rem; color: var(--green);
+}
+
+/* Providers page */
+.providers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 14px;
+}
+.provider-card { display: flex; flex-direction: column; gap: 10px; }
+.provider-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.provider-title { display: flex; flex-direction: column; gap: 2px; }
+.provider-name { font-size: 1rem; font-weight: 700; }
+.provider-id { font-size: 0.68rem; color: var(--text-3); }
+.provider-toggle { display: flex; align-items: center; gap: 7px; font-size: 0.72rem; color: var(--text-2); cursor: pointer; }
+.provider-toggle input { accent-color: var(--text); }
+.key-row { display: flex; gap: 8px; align-items: center; }
+.key-masked {
+  color: var(--text-2); background: var(--bg-2);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 8px 10px; font-size: 0.75rem; white-space: nowrap;
+}
+.key-replace { flex: 1; min-width: 0; }
+.provider-actions { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+
+/* -- Modal (password popup) -- */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.modal-card {
+  width: 100%; max-width: 420px;
+  background: var(--panel);
+  border: 1px solid var(--border-2);
+  border-radius: 14px;
+  padding: 22px;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+}
+.modal-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
+.modal-sub { font-size: 0.75rem; color: var(--text-2); margin-bottom: 16px; line-height: 1.5; }
+.modal-card .login-error { margin-top: 6px; }
 
 /* Tasks */
 .tasks-card { display: flex; flex-direction: column; gap: 10px; }
@@ -509,23 +649,6 @@ select.modern-input { appearance: none; cursor: pointer; }
   .port-input { max-width: 100%; }
   .detail-topbar { flex-wrap: wrap; }
 }
-
-/* -- Modal (IDE dialog) -- */
-.modal-overlay {
-  position: fixed; inset: 0; z-index: 200;
-  background: rgba(0,0,0,0.6);
-  display: flex; align-items: center; justify-content: center;
-  padding: 20px;
-}
-.modal-card {
-  width: 100%; max-width: 420px;
-  background: var(--panel);
-  border: 1px solid var(--border-2);
-  border-radius: 14px;
-  padding: 22px;
-  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
-}
-.modal-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 16px; }
 
 /* OpenCode panel */
 .terminal-box .t-cmd { margin-top: 8px; }

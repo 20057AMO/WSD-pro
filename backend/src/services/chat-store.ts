@@ -11,11 +11,22 @@ const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'd
 
 export type ChatEventType = 'user_message' | 'agent_chunk' | 'agent_done' | 'agent_error';
 
+export interface ChatAttachment {
+  kind: 'image' | 'text' | 'file';
+  name: string;
+  /** Base64 data URL (data:image/...) — present for image attachments. */
+  data?: string;
+  /** Inlined text content — present for text-file attachments. */
+  text?: string;
+  size: number;
+}
+
 export interface ChatEvent {
   seq: number;
   type: ChatEventType;
   content: string;
   timestamp: string;
+  attachments?: ChatAttachment[];
 }
 
 export class ChatStore {
@@ -49,12 +60,19 @@ export class ChatStore {
   }
 
   /** Append an event and persist it (sync append is fine for local JSONL). */
-  append(slug: string, chatId: string, type: ChatEventType, content: string): ChatEvent {
+  append(
+    slug: string,
+    chatId: string,
+    type: ChatEventType,
+    content: string,
+    attachments?: ChatAttachment[]
+  ): ChatEvent {
     const event: ChatEvent = {
       seq: this.nextSeq(slug, chatId),
       type,
       content,
       timestamp: new Date().toISOString(),
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     };
     fs.appendFileSync(this.file(slug, chatId), JSON.stringify(event) + '\n', 'utf8');
     return event;

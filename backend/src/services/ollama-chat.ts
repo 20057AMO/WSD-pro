@@ -1,15 +1,22 @@
 /**
  * ollama-chat.ts
- * WSD-Pro — Chatbot against Ollama Cloud (qwen3:30b by default).
+ * WSD-Pro — Streaming chat against any Ollama-compatible endpoint
+ * (Ollama Cloud by default, or a local Ollama instance).
  * Streams /api/chat (NDJSON) deltas via fetch. No local Ollama required.
  */
 
-const OLLAMA_HOST = process.env.OLLAMA_HOST || 'https://ollama.com';
-const MODEL = process.env.WSD_CHAT_MODEL || 'qwen3:30b';
+import {
+  getChatConfig,
+  resolveProvider,
+  buildSystemPrompt,
+  type Provider,
+} from './chat-config';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  /** Base64-encoded images (no data-URI prefix), for vision-capable models. */
+  images?: string[];
 }
 
 export interface StreamHandlers {
@@ -23,29 +30,35 @@ export interface RunControl {
   abort: (() => void) | null;
 }
 
-const SYSTEM_PROMPT =
-  'You are the WSD-Pro assistant. You help users plan, design, and structure ' +
-  'their software projects (architecture, tech choices, project layout, and ' +
-  'implementation steps). You only discuss ideas and design — you do not edit ' +
-  'files. Answer in the same language the user writes in. Be concise and practical.';
-
-function getApiKey(): string {
-  const key = process.env.OLLAMA_API_KEY || '';
-  if (!key) throw new Error('OLLAMA_API_KEY is not set (see .env.example)');
-  return key;
+export interface StreamOptions {
+  provider: Provider;
+  model: string;
+  temperature: number;
 }
 
 export async function streamChat(
   messages: ChatMessage[],
   handlers: StreamHandlers,
-  control: RunControl
+  control: RunControl,
+  opts: Partial<StreamOptions> = {}
 ): Promise<string> {
-  const apiKey = getApiKey();
+  const cfg = getChatConfig();
+  const provider = opts.provider || cfg.provider;
+  const model = opts.model || cfg.model;
+  const temperature = opts.temperature ?? cfg.temperature;
+  const { baseUrl, apiKey } = resolveProvider(provider);
+
+  if (provider === 'ollama' && !apiKey) {
+    const error = 'OLLAMA_API_KEY is not set (see .env.example)';
+    handlers.onError(error);
+    throw new Error(error);
+  }
+
   const body = JSON.stringify({
-    model: MODEL,
-    messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
+    model,
+    messages: [{ role: 'system', content: buildSystemPrompt(cfg) }, ...messages],
     stream: true,
-    options: { temperature: 0.4 },
+    options: { temperature },
   });
 
   const controller = new AbortController();
@@ -53,11 +66,11 @@ export async function streamChat(
 
   let full = '';
   try {
-    const res = await fetch(`${OLLAMA_HOST}/api/chat`, {
+    const res = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
       },
       body,
       signal: controller.signal,
@@ -65,7 +78,7 @@ export async function streamChat(
 
     if (!res.ok || !res.body) {
       const detail = await res.text().catch(() => '');
-      throw new Error(`Ollama Cloud request failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`);
+      throw new Error(`${baseUrl} request failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`);
     }
 
     const reader = res.body.getReader();
@@ -107,5 +120,3 @@ export async function streamChat(
     control.abort = null;
   }
 }
-
-export { MODEL };

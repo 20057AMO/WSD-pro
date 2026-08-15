@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "marked": "^18.0.9",
     "preact": "^10.22.0",
     "wouter": "^3.3.1"
   },

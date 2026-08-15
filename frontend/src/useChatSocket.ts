@@ -1,8 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
 
+export interface Attachment {
+  kind: 'image' | 'text' | 'file';
+  name: string;
+  data?: string;
+  text?: string;
+  size: number;
+}
+
 export interface Msg {
   role: 'user' | 'agent' | 'error';
   text: string;
+  attachments?: Attachment[];
 }
 
 interface ChatEvent {
@@ -10,6 +19,7 @@ interface ChatEvent {
   type: 'user_message' | 'agent_chunk' | 'agent_done' | 'agent_error';
   content: string;
   timestamp: string;
+  attachments?: Attachment[];
 }
 
 interface ServerMsg {
@@ -22,7 +32,7 @@ interface ServerMsg {
 function applyEvent(ev: ChatEvent, cur: Msg[]): Msg[] {
   const next = cur.slice();
   if (ev.type === 'user_message') {
-    next.push({ role: 'user', text: ev.content });
+    next.push({ role: 'user', text: ev.content, attachments: ev.attachments });
   } else if (ev.type === 'agent_chunk' || ev.type === 'agent_done') {
     const last = next[next.length - 1];
     if (last && last.role === 'agent') {
@@ -41,7 +51,7 @@ export interface ChatSocketState {
   connected: boolean;
   running: boolean;
   error: string | null;
-  send: (text: string) => void;
+  send: (text: string, attachments?: Attachment[]) => void;
   stop: () => void;
 }
 
@@ -92,12 +102,14 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
   }, [path]);
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, attachments?: Attachment[]) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       setError(null);
       setRunning(true);
-      ws.send(JSON.stringify({ type: runType, text }));
+      const payload: any = { type: runType, text };
+      if (attachments && attachments.length > 0) payload.attachments = attachments;
+      ws.send(JSON.stringify(payload));
     },
     [runType]
   );
