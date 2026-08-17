@@ -1,9 +1,4 @@
-# WSD-Pro
-
-<p align="center">
-  <img src="frontend/public/logo.png" alt="WSD-Pro Logo" width="180" />
-</p>
-
+# WSD-Pro <p align="center"> <img src="frontend/public/logo.png" alt="WSD-Pro Logo" width="160" /> </p>
 WSD-Pro is a self-hosted workspace platform for developers and AI-assisted workflows. It gives each project its own isolated container, a unified browser-based IDE, an OpenCode experience, and a design/chat assistant for architecture and planning.
 
 It is designed for local or private deployment without requiring a domain, SSL, or complex infrastructure.
