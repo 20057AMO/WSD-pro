@@ -2,12 +2,16 @@
  * ws-server.ts
  * WSD-Pro — WebSocket hub.
  * Manual upgrade routing (noServer) so nested paths work:
- *   /ws/chat/:chatId        → global chatbot (qwen3:30b, slug = 'global')
+ *   /ws/chat/:slug/:chatId  → chatbot scoped to a project (slug = project or 'global')
+ *   /ws/chat/:chatId        → legacy alias for slug = 'global'
  * No authentication (open app).
  */
 import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 import { handleChatSocket } from './ws-chat';
+import { handleTerminalSocket } from './ws-terminal';
+import { handleProjectLogsSocket } from './ws-project-logs';
+import { handleAntigravitySocket } from './ws-antigravity';
 
 const MAX_CONNECTIONS_PER_ROOM = 8;
 const roomConnections = new Map<string, number>();
@@ -33,19 +37,80 @@ export function attachWebSockets(server: http.Server): void {
   wss.on('connection', (ws: WebSocket, req) => {
     const url = new URL(req.url || '/', 'http://localhost');
 
-    const chatMatch = url.pathname.match(/^\/ws\/chat\/([^/]+)$/);
+    const chatMatch = url.pathname.match(/^\/ws\/chat\/([^/]+)\/([^/]+)$/);
     if (chatMatch) {
-      const chatId = decodeURIComponent(chatMatch[1]);
+      const slug = decodeURIComponent(chatMatch[1]);
+      const chatId = decodeURIComponent(chatMatch[2]);
+      if (!isSafeChatId(slug) || !isSafeChatId(chatId)) {
+        ws.close(1008, 'invalid chat id');
+        return;
+      }
+      const room = `chat:${slug}:${chatId}`;
+      if (!acquireRoom(room)) {
+        ws.close(1013, 'too many connections for chat');
+        return;
+      }
+      handleChatSocket(ws, slug, chatId, releaseRoom(room));
+      return;
+    }
+
+    const termMatch = url.pathname.match(/^\/ws\/projects\/([^/]+)\/terminal$/);
+    if (termMatch) {
+      const slug = decodeURIComponent(termMatch[1]);
+      if (!isSafeChatId(slug)) {
+        ws.close(1008, 'invalid slug');
+        return;
+      }
+      const mode = url.searchParams.get('mode') === 'control' ? 'control' : 'project';
+      const room = `term:${slug}:${mode}`;
+      if (!acquireRoom(room)) {
+        ws.close(1013, 'too many connections for terminal');
+        return;
+      }
+      handleTerminalSocket(ws, slug, mode, releaseRoom(room));
+      return;
+    }
+
+    const logsMatch = url.pathname.match(/^\/ws\/projects\/([^/]+)\/logs$/);
+    if (logsMatch) {
+      const slug = decodeURIComponent(logsMatch[1]);
+      if (!isSafeChatId(slug)) {
+        ws.close(1008, 'invalid slug');
+        return;
+      }
+      const room = `logs:${slug}`;
+      if (!acquireRoom(room)) {
+        ws.close(1013, 'too many connections for logs');
+        return;
+      }
+      handleProjectLogsSocket(ws, slug, releaseRoom(room));
+      return;
+    }
+
+    const legacyChatMatch = url.pathname.match(/^\/ws\/chat\/([^/]+)$/);
+    if (legacyChatMatch) {
+      const chatId = decodeURIComponent(legacyChatMatch[1]);
       if (!isSafeChatId(chatId)) {
         ws.close(1008, 'invalid chat id');
         return;
       }
-      const room = `chat:${chatId}`;
+      const room = `chat:global:${chatId}`;
       if (!acquireRoom(room)) {
         ws.close(1013, 'too many connections for chat');
         return;
       }
       handleChatSocket(ws, 'global', chatId, releaseRoom(room));
+      return;
+    }
+
+    const antiMatch = url.pathname === '/ws/antigravity';
+    if (antiMatch) {
+      const room = 'antigravity:main';
+      if (!acquireRoom(room)) {
+        ws.close(1013, 'too many connections for antigravity');
+        return;
+      }
+      handleAntigravitySocket(ws, releaseRoom(room));
       return;
     }
 

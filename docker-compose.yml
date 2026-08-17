@@ -9,11 +9,14 @@ services:
       PORT: 3000
       HOST: 0.0.0.0
       WSD_PROJECTS_DIR: /workspaces
+      # Host-side absolute path of ./workspaces, used as the bind source when
+      # launching project containers so their /workspace sees the same files
+      # (bind sources resolve on the Docker Desktop VM, not inside this container).
+      WSD_WORKSPACES_HOST_DIR: ${WSD_WORKSPACES_HOST_DIR:?set in .env}
       WSD_WORKSPACE_IMAGE: wsd/workspace:latest
       WSD_IDE_PORT: 8100
       WSD_CHAT_MODEL: ${WSD_CHAT_MODEL:-qwen3:30b}
       WSD_DATA_DIR: /app/data
-      WSD_PROVIDERS_PASSWORD: ${WSD_PROVIDERS_PASSWORD:-admin123}
       OLLAMA_HOST: https://ollama.com
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:?set OLLAMA_API_KEY in .env}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
@@ -23,6 +26,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./workspaces:/workspaces
       - wsd-data:/app/data
+      - code-server-config:/root/.config/code-server
+      - code-server-data:/root/.local/share/code-server
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -43,3 +48,5 @@ services:
 
 volumes:
   wsd-data:
+  code-server-config:
+  code-server-data:

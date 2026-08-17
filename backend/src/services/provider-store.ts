@@ -1,7 +1,9 @@
 /**
  * provider-store.ts
- * WSD-Pro — Persisted provider credentials (Ollama Cloud / Local Ollama).
+ * WSD-Pro — Persisted provider credentials.
  * Stored in WSD_DATA_DIR/providers.json. Env vars act as defaults.
+ * Providers are fully dynamic: any number of Ollama / OpenAI-compatible /
+ * Anthropic endpoints can be added, edited or deleted from the UI.
  */
 
 import fs from 'fs';
@@ -10,31 +12,64 @@ import path from 'path';
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const STORE_FILE = path.join(DATA_DIR, 'providers.json');
 
-export type ProviderId = 'ollama' | 'local';
+export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'gemini';
+export type AuthMode = 'bearer' | 'api-key';
 
 export interface ProviderConfig {
+  name: string;
+  type: ProviderType;
   host: string;
   apiKey: string;
+  /** Header used for OpenAI-compatible providers (some gateways use `api-key`). */
+  auth?: AuthMode;
   enabled: boolean;
 }
 
 export interface ProviderMeta {
   id: string;
   name: string;
+  type: ProviderType;
   host: string;
   apiKeyMasked: string;
   enabled: boolean;
-  requiresKey: boolean;
 }
 
-function defaults(): Record<ProviderId, ProviderConfig> {
+export interface KnownTemplate {
+  name: string;
+  type: ProviderType;
+  host: string;
+  /** One or more key prefixes that hint at this provider (used to order detection). */
+  keyPrefix?: string | string[];
+}
+
+export const KNOWN_TEMPLATES: KnownTemplate[] = [
+  { name: 'OpenRouter', type: 'openai', host: 'https://openrouter.ai/api/v1', keyPrefix: 'sk-or-v1-' },
+  { name: 'OpenAI', type: 'openai', host: 'https://api.openai.com/v1', keyPrefix: 'sk-' },
+  { name: 'Google AI Studio (Gemini)', type: 'gemini', host: 'https://generativelanguage.googleapis.com/v1beta', keyPrefix: ['AIza', 'AQ'] },
+  { name: 'Anthropic (Claude)', type: 'anthropic', host: 'https://api.anthropic.com', keyPrefix: 'sk-ant-' },
+  { name: 'Groq', type: 'openai', host: 'https://api.groq.com/openai/v1', keyPrefix: 'gsk_' },
+  { name: 'DeepSeek', type: 'openai', host: 'https://api.deepseek.com/v1', keyPrefix: 'sk-' },
+  { name: 'Mistral', type: 'openai', host: 'https://api.mistral.ai/v1', keyPrefix: 'az' },
+  { name: 'Together AI', type: 'openai', host: 'https://api.together.xyz/v1' },
+  { name: 'xAI', type: 'openai', host: 'https://api.x.ai/v1', keyPrefix: 'xai-' },
+  { name: 'HuggingFace', type: 'openai', host: 'https://router.huggingface.co/v1', keyPrefix: 'hf_' },
+  { name: 'Fireworks', type: 'openai', host: 'https://api.fireworks.ai/inference/v1' },
+  { name: 'Ollama (Cloud)', type: 'ollama', host: process.env.OLLAMA_HOST || 'https://ollama.com' },
+  { name: 'Ollama (Local)', type: 'ollama', host: process.env.OLLAMA_LOCAL_HOST || 'http://host.docker.internal:11434' },
+];
+
+function seeded(): Record<string, ProviderConfig> {
   return {
     ollama: {
+      name: 'Ollama Cloud',
+      type: 'ollama',
       host: process.env.OLLAMA_HOST || 'https://ollama.com',
       apiKey: process.env.OLLAMA_API_KEY || '',
       enabled: true,
     },
     local: {
+      name: 'Local Ollama',
+      type: 'ollama',
       host: process.env.OLLAMA_LOCAL_HOST || 'http://host.docker.internal:11434',
       apiKey: '',
       enabled: true,
@@ -42,19 +77,29 @@ function defaults(): Record<ProviderId, ProviderConfig> {
   };
 }
 
-let cached: Record<ProviderId, ProviderConfig> | null = null;
+let cached: Record<string, ProviderConfig> | null = null;
 
-function load(): Record<ProviderId, ProviderConfig> {
+function load(): Record<string, ProviderConfig> {
   if (cached) return cached;
-  const base = defaults();
+  const base = seeded();
   try {
     if (fs.existsSync(STORE_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8')) as Partial<
-        Record<ProviderId, Partial<ProviderConfig>>
+      const raw = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8')) as Record<
+        string,
+        Partial<ProviderConfig> | undefined
       >;
-      for (const id of ['ollama', 'local'] as ProviderId[]) {
+      for (const id of Object.keys(raw)) {
         const stored = raw[id];
-        if (stored && typeof stored === 'object') base[id] = { ...base[id], ...stored };
+        if (!stored || typeof stored !== 'object') continue;
+        const prev = base[id];
+        base[id] = {
+          name: typeof stored.name === 'string' ? stored.name : prev?.name || id,
+          type: stored.type === 'ollama' || stored.type === 'openai' || stored.type === 'anthropic' || stored.type === 'gemini' ? stored.type : prev?.type || 'ollama',
+          host: typeof stored.host === 'string' ? stored.host : prev?.host || '',
+          apiKey: typeof stored.apiKey === 'string' ? stored.apiKey : prev?.apiKey || '',
+          auth: stored.auth === 'api-key' ? 'api-key' : 'bearer',
+          enabled: typeof stored.enabled === 'boolean' ? stored.enabled : true,
+        };
       }
     }
   } catch {
@@ -69,45 +114,143 @@ function persist(): void {
   fs.writeFileSync(STORE_FILE, JSON.stringify(cached, null, 2), 'utf8');
 }
 
-export function getProviderConfig(id: string): ProviderConfig {
-  const cfg = load();
-  return cfg[id === 'local' ? 'local' : 'ollama'];
+function throwStatus(status: number, message: string): never {
+  const err = new Error(message) as Error & { status: number };
+  err.status = status;
+  throw err;
 }
 
-export function listProviders(): ProviderMeta[] {
-  const cfg = load();
-  const ids: ProviderId[] = ['ollama', 'local'];
-  return ids.map((id) => ({
-    id,
-    name: id === 'ollama' ? 'Ollama Cloud' : 'Local Ollama',
-    host: cfg[id].host,
-    apiKeyMasked: maskKey(cfg[id].apiKey),
-    enabled: cfg[id].enabled,
-    requiresKey: id === 'ollama',
-  }));
+export function slugify(name: string): string {
+  const base = name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return base || 'provider';
 }
 
-export function updateProvider(
-  id: string,
-  patch: { host?: string; apiKey?: string; enabled?: boolean }
-): ProviderMeta {
-  const providerId: ProviderId = id === 'local' ? 'local' : 'ollama';
-  const cfg = load();
-  if (typeof patch.host === 'string' && patch.host.trim()) {
-    cfg[providerId].host = patch.host.trim().slice(0, 500);
-  }
-  if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
-    cfg[providerId].apiKey = patch.apiKey.trim();
-  }
-  if (typeof patch.enabled === 'boolean') {
-    cfg[providerId].enabled = patch.enabled;
-  }
-  persist();
-  return listProviders().find((p) => p.id === providerId)!;
+export function normalizeHost(host: string): string {
+  return host.trim().replace(/\/+$/, '');
 }
 
 export function maskKey(key: string): string {
   if (!key) return '';
   if (key.length <= 4) return '••••';
   return '••••••••' + key.slice(-4);
+}
+
+/** Find an existing provider that already uses the same API key (or, when key is empty, the same host+type). */
+export function findDuplicateByKeyOrHost(apiKey: string, host?: string, type?: ProviderType): ProviderMeta | null {
+  const cfg = load();
+  const key = String(apiKey ?? '').trim();
+  if (key) {
+    const id = Object.keys(cfg).find((x) => cfg[x].apiKey === key);
+    if (id) return listProviders().find((p) => p.id === id) || null;
+  }
+  if (host && type) {
+    const h = normalizeHost(host);
+    const id = Object.keys(cfg).find((x) => !cfg[x].apiKey && cfg[x].type === type && normalizeHost(cfg[x].host) === h);
+    if (id) return listProviders().find((p) => p.id === id) || null;
+  }
+  return null;
+}
+
+/** All providers in insertion order (seeded defaults first). */
+export function listProviders(): ProviderMeta[] {
+  const cfg = load();
+  return Object.entries(cfg).map(([id, p]) => ({
+    id,
+    name: p.name,
+    type: p.type,
+    host: p.host,
+    apiKeyMasked: maskKey(p.apiKey),
+    enabled: p.enabled,
+  }));
+}
+
+export function getProviderMeta(id: string): ProviderMeta | null {
+  return listProviders().find((p) => p.id === id) || null;
+}
+
+/** Resolve a provider config by id; falls back to the first available provider. */
+export function getProviderConfig(id: string): ProviderConfig {
+  const cfg = load();
+  if (cfg[id]) return cfg[id];
+  const fallback = Object.values(cfg).find((p) => p.enabled) || Object.values(cfg)[0];
+  if (!fallback) throwStatus(500, 'No providers configured');
+  return fallback;
+}
+
+export function createProvider(input: {
+  name: string;
+  host: string;
+  type?: ProviderType;
+  apiKey?: string;
+  enabled?: boolean;
+  auth?: AuthMode;
+}): ProviderMeta {
+  const cfg = load();
+  const name = String(input.name ?? '').trim();
+  if (!name) throwStatus(400, 'Provider name is required');
+  if (name.length > 80) throwStatus(400, 'Provider name is too long');
+  const host = normalizeHost(String(input.host ?? ''));
+  if (!host) throwStatus(400, 'Provider host / base URL is required');
+  if (host.length > 500) throwStatus(400, 'Provider host is too long');
+
+  const type: ProviderType =
+    input.type === 'ollama' || input.type === 'anthropic' || input.type === 'gemini' ? input.type : 'openai';
+
+  let id = slugify(name);
+  let n = 2;
+  while (cfg[id]) id = `${slugify(name)}-${n++}`;
+
+  cfg[id] = {
+    name,
+    type,
+    host,
+    apiKey: typeof input.apiKey === 'string' ? input.apiKey.trim() : '',
+    auth: input.auth === 'api-key' ? 'api-key' : 'bearer',
+    enabled: input.enabled !== false,
+  };
+  persist();
+  return listProviders().find((p) => p.id === id)!;
+}
+
+export function updateProvider(
+  id: string,
+  patch: { name?: string; host?: string; apiKey?: string; enabled?: boolean; type?: ProviderType; auth?: AuthMode }
+): ProviderMeta {
+  const cfg = load();
+  if (!cfg[id]) throwStatus(404, 'Unknown provider');
+  const p = cfg[id];
+  if (typeof patch.name === 'string' && patch.name.trim()) {
+    p.name = patch.name.trim().slice(0, 80);
+  }
+  if (typeof patch.host === 'string' && patch.host.trim()) {
+    p.host = normalizeHost(patch.host).slice(0, 500);
+  }
+  if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
+    p.apiKey = patch.apiKey.trim();
+  }
+  if (patch.type === 'ollama' || patch.type === 'openai' || patch.type === 'anthropic' || patch.type === 'gemini') {
+    p.type = patch.type;
+  }
+  if (patch.auth === 'api-key' || patch.auth === 'bearer') {
+    p.auth = patch.auth;
+  }
+  if (typeof patch.enabled === 'boolean') {
+    p.enabled = patch.enabled;
+  }
+  persist();
+  return listProviders().find((x) => x.id === id)!;
+}
+
+export function deleteProvider(id: string): void {
+  const cfg = load();
+  if (!cfg[id]) throwStatus(404, 'Unknown provider');
+  if (Object.keys(cfg).length <= 1) {
+    throwStatus(400, 'At least one provider must remain');
+  }
+  delete cfg[id];
+  persist();
 }

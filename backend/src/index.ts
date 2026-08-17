@@ -22,14 +22,39 @@ import {
   stopProject,
   removeProject,
   projectLogs,
+  getProjectStats,
+  checkProjectPorts,
+  recreateProject,
+  runProjectScript,
+  cloneIntoWorkspace,
   HttpError,
   WORKSPACES_ROOT,
 } from './services/docker-manager';
+import { listWorkspaceFiles, readWorkspaceFile, deleteWorkspacePath, resolveProjectSubdir } from './services/workspace-files';
+import { loadMeta, saveMeta } from './services/projects-meta';
 import { getIdeStatus } from './services/ide-service';
 import { detectIp } from './services/server-info';
 import { getChatConfig, updateChatConfig, listModels, type ChatConfig } from './services/chat-config';
-import { listProviders, updateProvider, getProviderConfig } from './services/provider-store';
+import {
+  listProviders,
+  updateProvider,
+  getProviderConfig,
+  getProviderMeta,
+  createProvider,
+  deleteProvider,
+  findDuplicateByKeyOrHost,
+  KNOWN_TEMPLATES,
+} from './services/provider-store';
+import { detectProvider, checkProvider } from './services/providers-detect';
 import { authenticate, verifyToken, revokeToken } from './services/providers-auth';
+import { getProjectContext, listProjectsBrief, capText } from './services/project-context';
+import { getIndexStats, retrieveProject, formatRetrievedChunks } from './services/project-index';
+import {
+  listSessions,
+  createSession,
+  renameSession,
+  deleteSession,
+} from './services/chat-sessions';
 import { attachWebSockets } from './ws/ws-server';
 
 dotenv.config();
@@ -44,6 +69,42 @@ const HOST = process.env.HOST || '0.0.0.0';
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// ── Rate limiting (simple in-memory, per IP) ─────────────────
+const rateBuckets = new Map<string, { count: number; resetAt: number }[]>();
+const RATE_WINDOW = 60_000; // 1 minute
+const RATE_MAX = 120; // max requests per window
+const RATE_STRICT_MAX = 10; // for dangerous endpoints
+
+function rateLimit(windowMs: number, max: number) {
+  return (req: any, res: any, next: any) => {
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+    const now = Date.now();
+    const buckets = rateBuckets.get(ip) || [];
+    const active = buckets.filter((b) => b.resetAt > now);
+    active.push({ count: 1, resetAt: now + windowMs });
+    const total = active.reduce((s, b) => s + b.count, 0);
+    rateBuckets.set(ip, active);
+    if (total > max) {
+      res.set('Retry-After', String(Math.ceil(windowMs / 1000)));
+      return res.status(429).json({ error: 'Too many requests. Try again later.' });
+    }
+    next();
+  };
+}
+
+// Clean up stale buckets every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, buckets] of rateBuckets) {
+    const active = buckets.filter((b) => b.resetAt > now);
+    if (active.length === 0) rateBuckets.delete(ip);
+    else rateBuckets.set(ip, active);
+  }
+}, 120_000);
+
+// Global rate limit
+app.use(rateLimit(RATE_WINDOW, RATE_MAX));
 
 // ── Uploads (files into an existing project workspace) ────────
 const UPLOADS_TMP = '/tmp/wsd-uploads';
@@ -83,7 +144,8 @@ app.get('/api/server/info', (_req, res) => {
 app.get('/api/chat/info', async (_req, res) => {
   const cfg = getChatConfig();
   const models = await listModels(cfg.provider);
-  res.json({ ...cfg, models });
+  const providers = listProviders().map((p) => ({ id: p.id, name: p.name, type: p.type, enabled: p.enabled }));
+  res.json({ ...cfg, models, providers });
 });
 
 // Update chat configuration (provider / model / language / system prompt / temperature)
@@ -91,7 +153,9 @@ app.post('/api/chat/config', (req, res) => {
   try {
     const { provider, model, systemPrompt, language, temperature } = req.body || {};
     const patch: Partial<ChatConfig> = {};
-    if (provider === 'ollama' || provider === 'local') patch.provider = provider;
+    if (typeof provider === 'string' && provider.trim() && getProviderMeta(provider)) {
+      patch.provider = provider;
+    }
     if (typeof model === 'string' && model.trim()) patch.model = model.trim().slice(0, 200);
     if (typeof systemPrompt === 'string') patch.systemPrompt = systemPrompt.slice(0, 20000);
     if (language === 'auto' || language === 'ar' || language === 'en') patch.language = language;
@@ -102,11 +166,63 @@ app.post('/api/chat/config', (req, res) => {
   }
 });
 
-// List models available from a provider (ollama | local)
+// List models available from a provider (any configured provider id)
 app.get('/api/chat/models', async (req, res) => {
-  const provider = req.query.provider === 'local' ? 'local' : 'ollama';
+  const requested = String(req.query.provider || '');
+  const provider = requested && getProviderMeta(requested) ? requested : getChatConfig().provider;
   const models = await listModels(provider);
   res.json({ models });
+});
+
+// Preview the project-awareness context that will be injected into the model
+app.get('/api/chat/context', async (req, res) => {
+  const project = String(req.query.project || '').trim();
+  if (!project) {
+    return res.status(400).json({ error: 'Missing project query (use "all" or a project slug)' });
+  }
+  try {
+    const ctx = project === 'all' ? await listProjectsBrief() : await getProjectContext(project);
+    let indexStats;
+    if (project !== 'all') {
+      indexStats = getIndexStats(project);
+      const query = String(req.query.query || '').trim();
+      if (query) {
+        const ret = await retrieveProject(project, query, 6);
+        const block = formatRetrievedChunks(ret);
+        if (block) ctx.text = capText(`${ctx.text}\n\n${block}`, 24000).text;
+      }
+    }
+    res.json({ ...ctx, indexStats });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ── Chat sessions (per-project conversation history) ──────────
+app.get('/api/chat/sessions', (_req, res) => {
+  const project = String(_req.query.project || '').trim() || undefined;
+  res.json({ sessions: listSessions(project) });
+});
+
+app.post('/api/chat/sessions', (req, res) => {
+  const { name, project } = req.body || {};
+  res.status(201).json({ session: createSession({ project, name }) });
+});
+
+app.put('/api/chat/sessions/:chatId', (req, res) => {
+  const project = String(req.query.project || '').trim() || undefined;
+  const name = String(req.body?.name || '').trim();
+  const session = renameSession(project, req.params.chatId, name);
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  res.json({ session });
+});
+
+app.delete('/api/chat/sessions/:chatId', (req, res) => {
+  const project = String(req.query.project || '').trim() || undefined;
+  if (!deleteSession(project, req.params.chatId)) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+  res.json({ ok: true });
 });
 
 // ── Providers (password-protected API key management) ────────
@@ -123,10 +239,6 @@ function requireProvidersAuth(req: any, res: any, next: any): void {
 function bearerToken(req: any): string | null {
   const header = req.headers.authorization || '';
   return header.startsWith('Bearer ') ? header.slice(7) : null;
-}
-
-function isProviderId(value: string): boolean {
-  return value === 'ollama' || value === 'local';
 }
 
 app.post('/api/providers/auth', (req, res) => {
@@ -149,40 +261,94 @@ app.get('/api/providers', requireProvidersAuth, (_req, res) => {
   res.json({ providers: listProviders() });
 });
 
-app.put('/api/providers/:id', requireProvidersAuth, (req, res) => {
-  const id = String(req.params.id || '');
-  if (!isProviderId(id)) {
-    res.status(404).json({ error: 'Unknown provider' });
-    return;
+app.get('/api/providers/templates', requireProvidersAuth, (_req, res) => {
+  res.json({ templates: KNOWN_TEMPLATES });
+});
+
+app.post('/api/providers/detect', requireProvidersAuth, async (req, res) => {
+  try {
+    const { apiKey, host } = req.body || {};
+    const result = await detectProvider({ apiKey, host });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
-  const { host, apiKey, enabled } = req.body || {};
-  const provider = updateProvider(id, { host, apiKey, enabled });
-  res.json({ provider });
+});
+
+app.post('/api/providers', requireProvidersAuth, async (req, res) => {
+  try {
+    const { name, host, type, apiKey, enabled, auth } = req.body || {};
+    const key = typeof apiKey === 'string' ? apiKey.trim() : '';
+
+    let finalHost = typeof host === 'string' ? host.trim() : '';
+    let finalType = type;
+    if (finalHost) {
+      const dup = findDuplicateByKeyOrHost(key, finalHost, type);
+      if (dup) {
+        res.status(409).json({ error: `A provider with this ${key ? 'API key' : 'host'} already exists (${dup.name})` });
+        return;
+      }
+    } else {
+      // No host → detect everything from the API key in the background.
+      const result = await detectProvider({ apiKey: key });
+      if (!result.provider) {
+        res.status(400).json({
+          error: 'detection_required',
+          message: 'Could not auto-detect a provider from this API key. Pick a template or enter the host manually.',
+          tried: result.tried,
+        });
+        return;
+      }
+      const dup = findDuplicateByKeyOrHost(key);
+      if (dup) {
+        res.status(409).json({ error: `A provider with this API key already exists (${dup.name})` });
+        return;
+      }
+      finalHost = result.provider.host;
+      finalType = result.provider.type;
+    }
+
+    const provider = createProvider({ name, host: finalHost, type: finalType, apiKey: key, enabled, auth });
+    res.status(201).json({ provider });
+  } catch (err: any) {
+    res.status(err?.status || 500).json({ error: err.message });
+  }
+});
+
+app.put('/api/providers/:id', requireProvidersAuth, (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    if (!getProviderMeta(id)) {
+      res.status(404).json({ error: 'Unknown provider' });
+      return;
+    }
+    const { name, host, apiKey, enabled, type, auth } = req.body || {};
+    const provider = updateProvider(id, { name, host, apiKey, enabled, type, auth });
+    res.json({ provider });
+  } catch (err: any) {
+    res.status(err?.status || 500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/providers/:id', requireProvidersAuth, (req, res) => {
+  try {
+    const id = String(req.params.id || '');
+    deleteProvider(id);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(err?.status || 500).json({ error: err.message });
+  }
 });
 
 app.post('/api/providers/:id/test', requireProvidersAuth, async (req, res) => {
   const id = String(req.params.id || '');
-  if (!isProviderId(id)) {
+  if (!getProviderMeta(id)) {
     res.status(404).json({ error: 'Unknown provider' });
     return;
   }
   const cfg = getProviderConfig(id);
-  try {
-    const headers: Record<string, string> = {};
-    if (cfg.apiKey) headers['Authorization'] = `Bearer ${cfg.apiKey}`;
-    const resp = await fetch(`${cfg.host}/api/tags`, {
-      headers,
-      signal: AbortSignal.timeout(8000),
-    });
-    const body = (await resp.json().catch(() => ({}))) as { models?: unknown[] };
-    res.json({
-      ok: resp.ok,
-      status: resp.status,
-      modelCount: Array.isArray(body.models) ? body.models.length : 0,
-    });
-  } catch (err: any) {
-    res.json({ ok: false, error: err?.message || String(err) });
-  }
+  const r = await checkProvider(cfg.type, cfg.host, cfg.apiKey, cfg.auth);
+  res.json({ ok: r.ok, status: r.status, modelCount: r.modelCount, verified: r.verified, error: r.error });
 });
 
 // ── Unified Web IDE status (port + password) ─────────────────
@@ -210,6 +376,60 @@ async function opencodeRunning(): Promise<boolean> {
 
 app.get('/api/opencode/status', async (_req, res) => {
   res.json({ running: await opencodeRunning(), port: OPENCODE_PORT });
+});
+
+
+// ── Antigravity CLI status ──────────────────────────────────
+app.get('/api/antigravity/status', async (_req, res) => {
+  const { execFile } = await import('child_process');
+  const agyPath = '/root/.local/bin/agy';
+  let installed = false;
+  let version = '';
+  try {
+    const result = await new Promise<string>((resolve, reject) => {
+      execFile(agyPath, ['--version'], { timeout: 5000 }, (err, stdout) => {
+        if (err) reject(err);
+        else resolve(stdout.trim());
+      });
+    });
+    installed = true;
+    version = result;
+  } catch {
+    installed = false;
+  }
+  res.json({ installed, version });
+});
+
+// Antigravity project context
+import { analyzeProject } from './services/antigravity-context';
+app.get('/api/antigravity/context', (req, res) => {
+  const slug = String(req.query.project || '').trim();
+  const dir = slug ? path.join(WORKSPACES_ROOT, slug) : WORKSPACES_ROOT;
+  const analysis = analyzeProject(dir);
+  if (!analysis) {
+    res.json({ project: null, framework: null, language: null, structure: [], conventions: [] });
+    return;
+  }
+  res.json(analysis);
+});
+
+
+// Antigravity settings
+import { loadSettings, saveSettings, isConfigured } from './services/antigravity-settings';
+
+app.get('/api/antigravity/settings', (_req, res) => {
+  const s = loadSettings();
+  res.json({ configured: isConfigured(), apiKey: s.apiKey ? '••••••••' : '' });
+});
+
+app.post('/api/antigravity/settings', (req, res) => {
+  const body = req.body as { apiKey?: string };
+  if (!body || typeof body.apiKey !== 'string') {
+    res.status(400).json({ error: 'apiKey required' });
+    return;
+  }
+  saveSettings({ apiKey: body.apiKey.trim() });
+  res.json({ ok: true, configured: isConfigured() });
 });
 
 
@@ -271,7 +491,7 @@ app.post('/api/projects/:slug/stop', async (req, res) => {
 });
 
 // Remove project (container only; workspace kept)
-app.delete('/api/projects/:slug', async (req, res) => {
+app.delete('/api/projects/:slug', rateLimit(RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
   try {
     await removeProject(req.params.slug);
     res.json({ ok: true });
@@ -320,6 +540,165 @@ app.post('/api/projects/:slug/upload', (req, res) => {
     }
     res.status(201).json({ ok: true, files: saved });
   });
+});
+
+// Edit project metadata (name / description)
+app.patch('/api/projects/:slug', async (req, res) => {
+  try {
+    const project = await getProject(req.params.slug);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const { name, description } = req.body || {};
+    const meta = loadMeta(project.slug) || { activity: [] };
+    if (typeof name === 'string' && name.trim()) meta.name = name.trim().slice(0, 100);
+    if (typeof description === 'string') meta.description = description.trim().slice(0, 2000);
+    meta.activity = [
+      ...(meta.activity || []),
+      { action: 'updated', at: new Date().toISOString() },
+    ].slice(-200);
+    saveMeta(project.slug, meta);
+    res.json({ project: await getProject(project.slug) });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Recreate the container from stored meta (image / ports / env)
+app.post('/api/projects/:slug/recreate', async (req, res) => {
+  try {
+    const project = await getProject(req.params.slug);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const recreated = await recreateProject(project.slug);
+    res.json({ project: recreated });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Set project environment variables (applied on recreate)
+app.put('/api/projects/:slug/env', async (req, res) => {
+  try {
+    const project = await getProject(req.params.slug);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const rawEnv = (req.body || {}).env || {};
+    const clean: Record<string, string> = {};
+    if (typeof rawEnv === 'object' && rawEnv !== null) {
+      for (const [k, v] of Object.entries(rawEnv)) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) continue;
+        if (typeof v === 'string' && v.length <= 4000) clean[k] = v;
+      }
+    }
+    const meta = loadMeta(project.slug) || { activity: [] };
+    meta.env = clean;
+    meta.activity = [
+      ...(meta.activity || []),
+      { action: 'env_updated', at: new Date().toISOString() },
+    ].slice(-200);
+    saveMeta(project.slug, meta);
+    res.json({ env: clean, needsRecreate: project.status === 'running' });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// git clone into the workspace
+app.post('/api/projects/:slug/clone', async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    if (!url || !String(url).trim()) {
+      return res.status(400).json({ error: 'Git repository URL is required' });
+    }
+    const result = await cloneIntoWorkspace(req.params.slug, url);
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Runtime stats (CPU / memory / uptime)
+app.get('/api/projects/:slug/stats', async (req, res) => {
+  try {
+    res.json({ stats: await getProjectStats(req.params.slug) });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// HTTP health check for each published port
+app.get('/api/projects/:slug/ports/check', async (req, res) => {
+  try {
+    res.json({ checks: await checkProjectPorts(req.params.slug) });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// ── Project workspace files ───────────────────────────────────
+app.get('/api/projects/:slug/files', (req, res) => {
+  try {
+    const listing = listWorkspaceFiles(req.params.slug, String(req.query.path || '').trim() || undefined);
+    res.json(listing);
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.get('/api/projects/:slug/file', (req, res) => {
+  try {
+    const rel = String(req.query.path || '').trim();
+    if (!rel) return res.status(400).json({ error: 'Missing path query' });
+    res.json(readWorkspaceFile(req.params.slug, rel));
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/projects/:slug/file', (req, res) => {
+  try {
+    const rel = String(req.query.path || '').trim();
+    if (!rel) return res.status(400).json({ error: 'Missing path query' });
+    res.json(deleteWorkspacePath(req.params.slug, rel));
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// ── npm scripts ───────────────────────────────────────────────
+app.get('/api/projects/:slug/scripts', (req, res) => {
+  try {
+    const base = path.resolve(WORKSPACES_ROOT, String(req.params.slug || '').trim());
+    const pkgPath = path.join(base, 'package.json');
+    if (!fs.existsSync(pkgPath)) return res.json({ scripts: {} });
+    let pkg: any = {};
+    try {
+      pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    } catch {
+      /* invalid json — treat as no scripts */
+    }
+    res.json({ scripts: pkg?.scripts || {} });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/projects/:slug/scripts/run', rateLimit(RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
+  try {
+    const name = String((req.body || {}).script || '').trim();
+    if (!/^[A-Za-z0-9:_-]{1,64}$/.test(name)) {
+      return res.status(400).json({ error: 'Invalid script name' });
+    }
+    res.json(await runProjectScript(req.params.slug, name));
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.get('/api/projects/:slug/subdir', (req, res) => {
+  try {
+    const info = resolveProjectSubdir(req.params.slug);
+    res.json(info);
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
 });
 
 /**

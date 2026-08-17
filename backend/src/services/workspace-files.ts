@@ -1,0 +1,211 @@
+/**
+ * workspace-files.ts
+ * WSD-Pro — Read-only-ish filesystem access to project workspaces for the
+ * Files tab: safe path resolution (no traversal), directory listing, text
+ * preview, and delete. Uploads already exist via /api/projects/:slug/upload.
+ */
+import fs from 'fs';
+import path from 'path';
+import { HttpError, WORKSPACES_ROOT } from './docker-manager';
+import { IGNORED_DIRS } from './project-context';
+
+const MAX_PREVIEW_CHARS = 200 * 1024;
+
+export interface FileEntry {
+  path: string;
+  type: 'file' | 'dir';
+  size: number;
+  mtime: string;
+}
+
+export interface FileListing {
+  entries: FileEntry[];
+  fileCount: number;
+  dirCount: number;
+  totalBytes: number;
+  truncated: boolean;
+}
+
+export interface SubdirInfo {
+  subdir: string;
+  /** Absolute workspace root on the host (used for IDE path). */
+  hostPath: string;
+  /** Path inside the project container (/workspace + subdir). */
+  containerPath: string;
+}
+
+const PROJECT_MARKERS = ['.git', 'package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod'];
+
+/**
+ * Resolve the project's primary working directory inside the workspace.
+ * Checks for a git repo at root first; otherwise picks the most likely
+ * single subdirectory. The result is persisted in meta.subdir so it
+ * survives restarts and only needs to be computed once.
+ */
+export function resolveProjectSubdir(slug: string): SubdirInfo {
+  const base = path.resolve(WORKSPACES_ROOT, String(slug ?? '').replace(/[^a-z0-9._-]+/gi, ''));
+  if (!fs.existsSync(base)) {
+    return { subdir: '', hostPath: base, containerPath: '/workspace' };
+  }
+
+  // 1. If the workspace root itself is a project root (has a git repo or
+  //    known manifest), return ''.
+  if (fs.existsSync(path.join(base, '.git'))) {
+    return { subdir: '', hostPath: base, containerPath: '/workspace' };
+  }
+
+  // 2. Scan one level of subdirectories for the most likely project dir.
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(base, { withFileTypes: true });
+  } catch {
+    return { subdir: '', hostPath: base, containerPath: '/workspace' };
+  }
+
+  const candidates = entries
+    .filter((e) => e.isDirectory() && !IGNORED_DIRS.has(e.name))
+    .map((e) => {
+      const dir = path.join(base, e.name);
+      let score = 0;
+      if (fs.existsSync(path.join(dir, '.git'))) score = 3;
+      else if (fs.existsSync(path.join(dir, 'package.json'))) score = 2;
+      else if (fs.existsSync(path.join(dir, 'pyproject.toml'))) score = 1;
+      else if (fs.existsSync(path.join(dir, 'Cargo.toml'))) score = 1;
+      else if (fs.existsSync(path.join(dir, 'go.mod'))) score = 1;
+      return { name: e.name, score };
+    })
+    .filter((c) => c.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (candidates.length === 0) {
+    return { subdir: '', hostPath: base, containerPath: '/workspace' };
+  }
+
+  // Prefer the highest-scoring single candidate.
+  const subdir = candidates[0].name;
+  return {
+    subdir,
+    hostPath: path.join(base, subdir),
+    containerPath: `/workspace/${subdir}`,
+  };
+}
+
+/** Resolve a workspace path safely; throws on traversal or missing workspace. */
+export function resolveWorkspacePath(slug: string, rel?: string): string {
+  const cleanSlug = String(slug ?? '').replace(/[^a-z0-9._-]+/gi, '');
+  const base = path.resolve(WORKSPACES_ROOT, cleanSlug);
+  if (!fs.existsSync(base)) throw new HttpError(404, `Project workspace '${cleanSlug}' not found`);
+
+  const relClean = String(rel ?? '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+  if (!relClean || relClean === '.') return base;
+
+  const normalized = path.posix.normalize(relClean);
+  if (normalized === '..' || normalized.startsWith('../') || normalized.includes('/../')) {
+    throw new HttpError(400, 'Invalid path');
+  }
+  const target = path.resolve(base, normalized);
+  if (target !== base && !target.startsWith(base + path.sep)) {
+    throw new HttpError(400, 'Invalid path');
+  }
+  return target;
+}
+
+export function listWorkspaceFiles(slug: string, rel?: string): FileListing {
+  const dir = resolveWorkspacePath(slug, rel);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(dir);
+  } catch {
+    throw new HttpError(404, 'Path not found');
+  }
+  if (!stat.isDirectory()) throw new HttpError(400, 'Not a directory');
+
+  let items: fs.Dirent[];
+  try {
+    items = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (err: any) {
+    throw new HttpError(500, err?.message || 'Failed to read directory');
+  }
+
+  const entries: FileEntry[] = [];
+  let fileCount = 0;
+  let dirCount = 0;
+  let totalBytes = 0;
+
+  for (const item of items) {
+    if (item.isDirectory()) {
+      if (IGNORED_DIRS.has(item.name)) continue;
+      entries.push({ path: item.name, type: 'dir', size: 0, mtime: '' });
+      dirCount += 1;
+    } else if (item.isFile()) {
+      let st: fs.Stats;
+      try {
+        st = fs.statSync(path.join(dir, item.name));
+      } catch {
+        continue;
+      }
+      entries.push({
+        path: item.name,
+        type: 'file',
+        size: st.size,
+        mtime: st.mtime.toISOString(),
+      });
+      fileCount += 1;
+      totalBytes += st.size;
+    }
+  }
+
+  entries.sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+    return a.path.localeCompare(b.path);
+  });
+
+  return { entries, fileCount, dirCount, totalBytes, truncated: false };
+}
+
+export interface FilePreview {
+  content: string;
+  truncated: boolean;
+  size: number;
+  binary: boolean;
+}
+
+export function readWorkspaceFile(slug: string, rel: string): FilePreview {
+  const target = resolveWorkspacePath(slug, rel);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(target);
+  } catch {
+    throw new HttpError(404, 'File not found');
+  }
+  if (stat.isDirectory()) throw new HttpError(400, 'Is a directory');
+
+  const buf = fs.readFileSync(target);
+  const binary = buf.length > 0 && buf.subarray(0, 8192).includes(0);
+  const size = buf.length;
+  if (binary) return { content: '', truncated: false, size, binary: true };
+
+  let text = buf.toString('utf8');
+  const truncated = text.length > MAX_PREVIEW_CHARS;
+  if (truncated) text = text.slice(0, MAX_PREVIEW_CHARS) + '\n… (preview truncated)';
+  return { content: text, truncated, size, binary: false };
+}
+
+export function deleteWorkspacePath(slug: string, rel: string): { ok: boolean; type: 'file' | 'dir' } {
+  const base = path.resolve(WORKSPACES_ROOT, String(slug ?? '').replace(/[^a-z0-9._-]+/gi, ''));
+  const target = resolveWorkspacePath(slug, rel);
+  if (target === base) throw new HttpError(400, 'Cannot delete the workspace root');
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(target);
+  } catch {
+    throw new HttpError(404, 'Path not found');
+  }
+  const type = stat.isDirectory() ? 'dir' : 'file';
+  if (type === 'dir') fs.rmSync(target, { recursive: true, force: true });
+  else fs.unlinkSync(target);
+  return { ok: true, type };
+}

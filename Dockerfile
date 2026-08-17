@@ -23,6 +23,7 @@ FROM node:22-bookworm
 # Docker CLI (to manage project containers through the mounted socket)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git docker.io jq \
+        python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
 # code-server — unified Web IDE rooted at /workspaces
@@ -32,12 +33,30 @@ RUN curl -fsSLo /tmp/code-server.deb \
     && dpkg -i /tmp/code-server.deb \
     && rm -f /tmp/code-server.deb
 
+# VS Code Extensions
+RUN code-server --install-extension dbaeumer.vscode-eslint \
+    && code-server --install-extension esbenp.prettier-vscode \
+    && code-server --install-extension eamodio.gitlens \
+    && code-server --install-extension formulahendry.auto-rename-tag \
+    && code-server --install-extension christian-kohler.path-intellisense \
+    && code-server --install-extension bradlc.vscode-tailwindcss \
+    && code-server --install-extension ms-python.python \
+    && code-server --install-extension rust-lang.rust-analyzer \
+    && code-server --install-extension usernamehw.errorlens \
+    && code-server --install-extension streetsidesoftware.code-spell-checker \
+    && code-server --install-extension PKief.material-icon-theme \
+    && code-server --install-extension Gruntfuggly.todo-tree
+
 # opencode CLI (project building agent, web UI on port 4096)
 RUN npm install -g opencode-ai --no-fund --no-audit
 
 # Headless container: opencode tries to auto-open a browser via xdg-open on
 # `opencode web`; provide a no-op stub so it never errors out.
 RUN printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/xdg-open && chmod +x /usr/local/bin/xdg-open
+
+# Antigravity CLI (agy) — AI coding agent for frontend building
+RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
+ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /app
 
@@ -51,6 +70,9 @@ COPY --from=frontend-build /src/dist ./frontend/dist
 
 # opencode configuration
 COPY opencode.json /root/.config/opencode/opencode.json
+
+# code-server default settings (dark theme, auto-save, format-on-save, etc.)
+COPY code-server-settings.json /root/.config/code-server/User/settings.json
 
 # Entrypoint
 COPY backend/docker/entrypoint.sh /app/entrypoint.sh

@@ -18,11 +18,11 @@ else
 fi
 
 # ── Web IDE ───────────────────────────────────────────────────
-echo "WSD-Pro: starting code-server IDE on 0.0.0.0:8080 (password stored in $IDE_PASSWORD_FILE)"
-export PASSWORD="$IDE_PASSWORD"
+echo "WSD-Pro: starting code-server IDE on 0.0.0.0:8080 (no auth)"
 # NOTE: code-server reads the PORT env var and it overrides --bind-addr,
 # so unset it (PORT is used by the dashboard node app).
-env -u PORT code-server --auth password --disable-telemetry --disable-update-check \
+# Auth disabled (--auth none) — safe in local Docker environment.
+env -u PORT code-server --auth none --disable-telemetry --disable-update-check \
   --bind-addr 0.0.0.0:8080 /workspaces \
   > /tmp/code-server.log 2>&1 &
 CODE_SERVER_PID=$!
@@ -81,6 +81,28 @@ if opencode_ready; then
     curl -fsS --max-time 5 -X POST "$OPCODE_URL/session?directory=$dir" \
       -H 'content-type: application/json' -d '{}' >/dev/null 2>&1 || true
   done
+fi
+
+# ── Antigravity CLI (agy) ────────────────────────────────
+mkdir -p /root/.local/bin /root/.gemini/antigravity-cli
+export PATH="/root/.local/bin:${PATH}"
+export AGY_CLI_DISABLE_AUTO_UPDATE=true
+# Sync Gemini API key from persisted settings into agy config
+ANTI_SETTINGS="$DATA_DIR/antigravity-settings.json"
+if [ -f "$ANTI_SETTINGS" ]; then
+  API_KEY=$(grep -o '"apiKey"[[:space:]]*:[[:space:]]*"[^"]*"' "$ANTI_SETTINGS" | sed 's/.*"apiKey"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+  if [ -n "$API_KEY" ]; then
+    export GEMINI_API_KEY="$API_KEY"
+    cat > /root/.gemini/antigravity-cli/settings.json << SEOF
+{"modelProvider": "gemini"}
+SEOF
+    echo "WSD-Pro: Antigravity Gemini API key configured"
+  fi
+fi
+if command -v agy &>/dev/null; then
+  echo "WSD-Pro: Antigravity CLI (agy) ready at $(agy --version 2>/dev/null || echo 'unknown')"
+else
+  echo "WSD-Pro: WARNING — agy binary not found in PATH"
 fi
 
 cleanup() {

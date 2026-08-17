@@ -1,10 +1,13 @@
 /**
  * ws-chat.ts
- * WSD-Pro — Global chatbot over WebSocket (Ollama Cloud or local Ollama).
- * History is persisted via chat-store under slug 'global'.
+ * WSD-Pro — Chatbot over WebSocket (any configured provider: Ollama,
+ * OpenAI-compatible, Anthropic, or Gemini).
+ * History is persisted via chat-store under slug = project slug (or 'global').
+ * Sessions are indexed via chat-sessions for the sessions rail in the UI.
  * Protocol (client → server, JSON):
- *   { type: "prompt", text, attachments? } → start a streaming reply (one per chat)
+ *   { type: "prompt", text, attachments?, project? } → start a streaming reply (one per chat)
  *     attachments: [{ kind: "image"|"text"|"file", name, data?, text?, size? }]
+ *     project: "all" | <slug> | omitted → model gets project-aware context injected
  * Protocol (server → client, JSON):
  *   { type: "replay", events: ChatEvent[] } → full history on connect
  *   { type: "started" }
@@ -13,13 +16,22 @@
  */
 import { WebSocket } from 'ws';
 import { chatStore, type ChatAttachment, type ChatEvent } from '../services/chat-store';
-import { streamChat, RunControl, type ChatMessage } from '../services/ollama-chat';
+import { streamChat, type RunControl, type ChatMessage } from '../services/ollama-chat';
+import { touchSession } from '../services/chat-sessions';
+import { getProjectContext, listProjectsBrief, capText } from '../services/project-context';
+import { retrieveProject, formatRetrievedChunks } from '../services/project-index';
+import { buildSystemPrompt, getChatConfig } from '../services/chat-config';
 
 const MAX_PROMPT_CHARS = 20000;
 const MAX_HISTORY_TURNS = 20;
 const MAX_ATTACHMENTS = 5;
 const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
 const MAX_TEXT_FILE_CHARS = 100000;
+const PROJECT_RE = /^[a-z0-9._-]{1,32}$/i;
+const STATIC_CONTEXT_BUDGET = 18000;
+const RETRIEVED_CONTEXT_BUDGET = 6000;
+const TOTAL_CONTEXT_BUDGET = 24000;
+const RETRIEVAL_K = 6;
 const active = new Map<string, boolean>();
 const controls = new Map<string, RunControl>();
 const subscribers = new Map<string, Set<WebSocket>>();
@@ -69,6 +81,29 @@ function normalizeAttachments(raw: any): ChatAttachment[] | null {
   return out;
 }
 
+/**
+ * Normalize the optional project scope.
+ * Returns undefined (no context), 'all', a validated slug, or null (invalid).
+ */
+function normalizeProject(raw: any): string | null | undefined {
+  if (raw == null || raw === '') return undefined;
+  if (typeof raw !== 'string') return null;
+  const p = raw.trim();
+  if (!p) return undefined;
+  if (p === 'all') return 'all';
+  if (!PROJECT_RE.test(p)) return null;
+  return p;
+}
+
+/** Query text used for retrieval: the message + any inlined text attachments. */
+function buildRetrievalQuery(text: string, attachments: ChatAttachment[]): string {
+  const parts: string[] = [text];
+  for (const a of attachments) {
+    if (a.kind === 'text' && a.text) parts.push(a.name, a.text);
+  }
+  return parts.join('\n').slice(0, 4000);
+}
+
 /** Model-facing text for the current turn: prompt + inlined text files + binary markers. */
 function buildUserContent(text: string, attachments: ChatAttachment[]): string {
   const parts: string[] = [text];
@@ -82,18 +117,12 @@ function buildUserContent(text: string, attachments: ChatAttachment[]): string {
   return parts.join('\n\n');
 }
 
-/** Strip the data-URI prefix so Ollama accepts the raw base64. */
-function toBase64(dataUrl: string): string {
-  const idx = dataUrl.indexOf(',');
-  return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
-}
-
 /** Reconstruct a model message from a persisted event (keeps image context). */
 function eventToMessage(ev: ChatEvent): ChatMessage | null {
   if (ev.type === 'user_message') {
     const images = (ev.attachments || [])
       .filter((a) => a.kind === 'image' && a.data)
-      .map((a) => toBase64(a.data!));
+      .map((a) => a.data!);
     return {
       role: 'user',
       content: ev.content,
@@ -135,6 +164,10 @@ export function handleChatSocket(ws: WebSocket, slug: string, chatId: string, on
   };
 
   ws.on('message', (data) => {
+    void handleMessage(data);
+  });
+
+  async function handleMessage(data: any): Promise<void> {
     let msg: any;
     try {
       msg = JSON.parse(data.toString('utf8'));
@@ -155,6 +188,12 @@ export function handleChatSocket(ws: WebSocket, slug: string, chatId: string, on
       return;
     }
 
+    const project = normalizeProject(msg.project);
+    if (project === null) {
+      sendJson(ws, { type: 'error', message: 'Invalid project scope' });
+      return;
+    }
+
     if (active.get(room)) {
       sendJson(ws, { type: 'error', message: 'A reply is already running. Wait for it to finish.' });
       return;
@@ -163,6 +202,7 @@ export function handleChatSocket(ws: WebSocket, slug: string, chatId: string, on
 
     const userContent = buildUserContent(text, attachments);
     const userEvent = chatStore.append(slug, chatId, 'user_message', userContent, attachments);
+    touchSession(slug, chatId, userEvent);
     broadcast(room, { type: 'event', event: userEvent });
 
     const control: RunControl = { cancelled: false, abort: null };
@@ -170,34 +210,62 @@ export function handleChatSocket(ws: WebSocket, slug: string, chatId: string, on
 
     const images = attachments
       .filter((a) => a.kind === 'image' && a.data)
-      .map((a) => toBase64(a.data!));
+      .map((a) => a.data!);
     const userMessage: ChatMessage = {
       role: 'user',
       content: userContent,
       ...(images.length > 0 ? { images } : {}),
     };
 
+    let systemText = buildSystemPrompt(getChatConfig());
+    if (project) {
+      try {
+        let ctxText: string;
+        if (project === 'all') {
+          ctxText = (await listProjectsBrief()).text;
+        } else {
+          ctxText = (await getProjectContext(project, STATIC_CONTEXT_BUDGET)).text;
+          const query = buildRetrievalQuery(text, attachments);
+          try {
+            const ret = await retrieveProject(project, query, RETRIEVAL_K);
+            const block = formatRetrievedChunks(ret);
+            if (block) ctxText += `\n\n${capText(block, RETRIEVED_CONTEXT_BUDGET).text}`;
+          } catch {
+            // Retrieval is best-effort; never fail the reply because of it.
+          }
+        }
+        const total = capText(ctxText, TOTAL_CONTEXT_BUDGET);
+        systemText += `\n\n${total.text}`;
+      } catch {
+        // Project context is best-effort; never fail the reply because of it.
+      }
+    }
+
     streamChat(
       [...buildHistory(slug, chatId), userMessage],
       {
         onDelta: (delta) => {
           const ev = chatStore.append(slug, chatId, 'agent_chunk', delta);
+          touchSession(slug, chatId, ev);
           broadcast(room, { type: 'event', event: ev });
         },
         onDone: (final) => {
           const ev = chatStore.append(slug, chatId, 'agent_done', final);
+          touchSession(slug, chatId, ev);
           broadcast(room, { type: 'event', event: ev });
           active.delete(room);
           controls.delete(room);
         },
         onError: (error) => {
           const ev = chatStore.append(slug, chatId, 'agent_error', error);
+          touchSession(slug, chatId, ev);
           broadcast(room, { type: 'event', event: ev });
           active.delete(room);
           controls.delete(room);
         },
       },
-      control
+      control,
+      { system: systemText }
     ).catch((err: any) => {
       active.delete(room);
       controls.delete(room);
@@ -205,7 +273,7 @@ export function handleChatSocket(ws: WebSocket, slug: string, chatId: string, on
     });
 
     broadcast(room, { type: 'started' });
-  });
+  }
 
   ws.on('close', release);
   ws.on('error', release);

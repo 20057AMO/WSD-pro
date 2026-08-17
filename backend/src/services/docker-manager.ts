@@ -10,12 +10,18 @@ import Docker from 'dockerode';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { execSync } from 'child_process';
+import { execSync, spawn, execFileSync } from 'child_process';
+import { loadMeta, saveMeta, deleteMeta, touchActivity, type ProjectMeta } from './projects-meta';
 
 const docker = new Docker(); // uses /var/run/docker.sock by default
 
 // Host path where project workspaces live (bind-mounted into containers)
 const WORKSPACES_ROOT = process.env.WSD_PROJECTS_DIR || '/workspaces';
+// Host-side path of the same directory, used as the bind source for project
+// containers. Bind sources are resolved by the Docker daemon (the Docker
+// Desktop VM), so a container-internal path like /workspaces/<slug> would
+// resolve to an unrelated empty directory there.
+const WORKSPACES_HOST_DIR = (process.env.WSD_WORKSPACES_HOST_DIR || '').replace(/[\\/]+$/, '');
 
 // Base image used for project workspaces (Ubuntu + dev tooling)
 const BASE_IMAGE = process.env.WSD_WORKSPACE_IMAGE || 'wsd/workspace:latest';
@@ -26,6 +32,7 @@ export interface ProjectSpec {
   description?: string;
   image?: string;
   ports?: number[]; // host ports to expose
+  env?: Record<string, string>;
 }
 
 export interface ProjectInfo {
@@ -37,6 +44,10 @@ export interface ProjectInfo {
   containerId?: string;
   hostPorts?: Record<string, string>;
   createdAt?: string;
+  image?: string;
+  ports?: number[];
+  env?: Record<string, string>;
+  activity?: { action: string; at: string }[];
 }
 
 function validateProjectSlug(slug: string): string {
@@ -61,7 +72,7 @@ function sanitizeSlug(name: string): string {
     .slice(0, 32) || `project-${Date.now()}`;
 }
 
-function validateProjectSpec(spec: ProjectSpec): { name: string; slug: string; description?: string; image?: string; ports?: number[] } {
+function validateProjectSpec(spec: ProjectSpec): { name: string; slug: string; description?: string; image?: string; ports?: number[]; env: Record<string, string> } {
   const name = String(spec.name ?? '').trim();
   if (!name) throw new HttpError(400, 'Project name is required');
 
@@ -104,7 +115,18 @@ function validateProjectSpec(spec: ProjectSpec): { name: string; slug: string; d
     description: spec.description ? String(spec.description).trim() : undefined,
     image: spec.image ? String(spec.image).trim() : undefined,
     ports: cleanPorts,
+    env: normalizeEnv(spec.env),
   };
+}
+
+function normalizeEnv(env?: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!env || typeof env !== 'object') return out;
+  for (const [k, v] of Object.entries(env)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) continue;
+    if (typeof v === 'string' && v.length <= 4000) out[k] = v;
+  }
+  return out;
 }
 
 /** Error with an HTTP status code — routes map this to the response. */
@@ -204,6 +226,9 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
 
   const slug = clean.slug;
   const workDir = ensureWorkspaceDir(slug);
+  const bindSource = WORKSPACES_HOST_DIR
+    ? `${WORKSPACES_HOST_DIR.replace(/\\/g, '/')}/${slug}`
+    : workDir;
   const containerName = `wsd-${slug}`;
   const image = clean.image || BASE_IMAGE;
   await ensureImage(image);
@@ -227,10 +252,13 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     Cmd: ['/bin/bash', '-c', 'sleep infinity'],
     Tty: true,
     OpenStdin: true,
-    Env: ['DEBIAN_FRONTEND=noninteractive'],
+    Env: [
+      ...Object.entries(clean.env || {}).map(([k, v]) => `${k}=${v}`),
+      'DEBIAN_FRONTEND=noninteractive',
+    ],
     ExposedPorts: exposedPorts,
     HostConfig: {
-      Binds: [`${workDir}:/workspace`],
+      Binds: [`${bindSource}:/workspace`],
       PortBindings: portBindings,
       RestartPolicy: { Name: 'unless-stopped' },
     },
@@ -256,7 +284,24 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     containerId: container.id,
     hostPorts,
     createdAt: new Date().toISOString(),
+    image,
+    ports: clean.ports,
+    env: clean.env,
   };
+
+  const prev = loadMeta(slug);
+  saveMeta(slug, {
+    name: clean.name,
+    description: clean.description,
+    image,
+    ports: clean.ports,
+    createdAt: info.createdAt,
+    env: clean.env,
+    activity: [
+      ...(prev?.activity || []),
+      { action: 'created', at: new Date().toISOString() },
+    ].slice(-200),
+  });
 
   return info;
 }
@@ -278,7 +323,7 @@ export async function listProjects(): Promise<ProjectInfo[]> {
       if (p.PublicPort) ports[String(p.PrivatePort)] = String(p.PublicPort);
     }
 
-    projects.push({
+    const project: ProjectInfo = {
       id: c.Id,
       name: labels['wsd.name'] || slug.replace(/^wsd-/, ''),
       slug,
@@ -286,7 +331,19 @@ export async function listProjects(): Promise<ProjectInfo[]> {
       containerId: c.Id,
       hostPorts: ports,
       createdAt: labels['wsd.createdAt'],
-    });
+    };
+
+    const meta = loadMeta(slug);
+    if (meta) {
+      if (meta.name) project.name = meta.name;
+      project.description = meta.description;
+      project.image = meta.image;
+      project.ports = meta.ports;
+      project.env = meta.env;
+      project.activity = meta.activity;
+    }
+
+    projects.push(project);
   }
 
   return projects;
@@ -313,6 +370,7 @@ export async function startProject(slug: string): Promise<ProjectInfo> {
   await requireContainer(projectSlug);
   const container = docker.getContainer(`wsd-${projectSlug}`);
   await container.start();
+  touchActivity(projectSlug, 'started');
   const info = await getProject(projectSlug);
   if (!info) throw new HttpError(500, 'Project not found after start');
   info.status = 'running';
@@ -327,6 +385,7 @@ export async function stopProject(slug: string): Promise<ProjectInfo> {
   await requireContainer(projectSlug);
   const container = docker.getContainer(`wsd-${projectSlug}`);
   await container.stop();
+  touchActivity(projectSlug, 'stopped');
   const info = await getProject(projectSlug);
   if (!info) throw new HttpError(500, 'Project not found after stop');
   info.status = 'stopped';
@@ -341,6 +400,7 @@ export async function removeProject(slug: string): Promise<void> {
   await requireContainer(projectSlug);
   const container = docker.getContainer(`wsd-${projectSlug}`);
   await container.remove({ force: true });
+  deleteMeta(projectSlug);
 }
 
 /**
@@ -355,3 +415,238 @@ export async function projectLogs(slug: string, tail = 200): Promise<string> {
 }
 
 export { WORKSPACES_ROOT, BASE_IMAGE };
+
+// ── Extended project capabilities ────────────────────────────
+
+export interface ProjectStats {
+  running: boolean;
+  cpuPct: number;
+  memBytes: number;
+  memLimit: number;
+  memPct: number;
+  startedAt: string | null;
+}
+
+/** One-shot container stats (CPU %, memory) + uptime from inspect. */
+export async function getProjectStats(slug: string): Promise<ProjectStats> {
+  const projectSlug = validateProjectSlug(slug);
+  await requireContainer(projectSlug);
+  const container = docker.getContainer(`wsd-${projectSlug}`);
+  const [stats, inspect] = await Promise.all([
+    container.stats({ stream: false }) as unknown as any,
+    container.inspect(),
+  ]);
+
+  const cpuDelta =
+    (stats.cpu_stats?.cpu_usage?.total_usage || 0) -
+    (stats.precpu_stats?.cpu_usage?.total_usage || 0);
+  const sysDelta =
+    (stats.cpu_stats?.system_cpu_usage || 0) -
+    (stats.precpu_stats?.system_cpu_usage || 0);
+  const cpuCount = stats.cpu_stats?.online_cpus || 1;
+  const cpuPct = sysDelta > 0 ? (cpuDelta / sysDelta) * cpuCount * 100 : 0;
+
+  const memBytes = stats.memory_stats?.usage || 0;
+  const memLimit = stats.memory_stats?.limit || 0;
+  const memPct = memLimit > 0 ? (memBytes / memLimit) * 100 : 0;
+
+  return {
+    running: Boolean(inspect?.State?.Running),
+    cpuPct: Math.round(cpuPct * 10) / 10,
+    memBytes,
+    memLimit,
+    memPct: Math.round(memPct * 10) / 10,
+    startedAt: inspect?.State?.StartedAt || null,
+  };
+}
+
+export interface PortHealth {
+  port: string;
+  hostPort: string;
+  status: 'open' | 'refused' | 'timeout' | 'error';
+  httpCode: number | null;
+  ms: number;
+}
+
+/** Probe each published host port over HTTP from inside the control container. */
+export async function checkProjectPorts(slug: string): Promise<PortHealth[]> {
+  const project = await requireContainer(slug);
+  if (!project.hostPorts || Object.keys(project.hostPorts).length === 0) return [];
+
+  const results: PortHealth[] = [];
+  for (const [priv, pub] of Object.entries(project.hostPorts)) {
+    const started = Date.now();
+    const url = `http://host.docker.internal:${pub}/`;
+    try {
+      const res = await fetch(url, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: AbortSignal.timeout(3000),
+      });
+      results.push({
+        port: priv,
+        hostPort: pub,
+        status: 'open',
+        httpCode: res.status,
+        ms: Date.now() - started,
+      });
+    } catch (err: any) {
+      const cause = err?.cause?.code as string | undefined;
+      results.push({
+        port: priv,
+        hostPort: pub,
+        status: err?.name === 'TimeoutError' ? 'timeout' : 'refused',
+        httpCode: null,
+        ms: Date.now() - started,
+      });
+    }
+  }
+  return results;
+}
+
+/** Stop + recreate a project container from its stored meta (env/image/ports). */
+export async function recreateProject(slug: string): Promise<ProjectInfo> {
+  const projectSlug = validateProjectSlug(slug);
+  const proj = await requireContainer(projectSlug);
+  const meta: ProjectMeta = loadMeta(projectSlug) || { activity: [] };
+
+  if (proj.containerId) {
+    const c = docker.getContainer(proj.containerId);
+    await c.stop().catch(() => {});
+    await c.remove({ force: true }).catch(() => {});
+  }
+
+  return createProject({
+    name: meta.name || proj.name,
+    slug: projectSlug,
+    description: meta.description,
+    image: meta.image,
+    ports: meta.ports,
+    env: meta.env,
+  });
+}
+
+export interface ScriptRunResult {
+  exitCode: number | null;
+  output: string;
+}
+
+/** Run `npm run <script>` inside the project container (must be running). */
+export async function runProjectScript(slug: string, script: string): Promise<ScriptRunResult> {
+  const projectSlug = validateProjectSlug(slug);
+  const proj = await requireContainer(projectSlug);
+  if (proj.status !== 'running') throw new HttpError(409, 'Project is stopped. Start it first.');
+
+  const container = docker.getContainer(`wsd-${projectSlug}`);
+  const exec = await container.exec({
+    Cmd: ['sh', '-lc', `npm run ${script} 2>&1`],
+    AttachStdout: true,
+    AttachStderr: true,
+  });
+  const stream: any = await exec.start({ hijack: false });
+
+  let output = '';
+  let raw = Buffer.alloc(0);
+  await new Promise<void>((resolve) => {
+    const onData = (d: Buffer) => {
+      // docker stream: [1 byte stream][3 bytes padding][4 byte big-endian len]
+      // then payload. Demux by walking frames in case a chunk splits a frame.
+      raw = Buffer.concat([raw, d]);
+      while (raw.length >= 8) {
+        const size = raw.readUInt32BE(4);
+        if (raw.length < 8 + size) break;
+        output += raw.subarray(8, 8 + size).toString('utf8');
+        raw = raw.subarray(8 + size);
+      }
+      if (output.length > 300000) output = output.slice(-300000);
+    };
+    stream.on('data', onData);
+    stream.on('end', resolve);
+    stream.on('error', resolve);
+    const timer = setTimeout(() => {
+      try {
+        stream.destroy();
+      } catch {
+        /* ignore */
+      }
+      resolve();
+    }, 180000);
+    stream.on('close', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+
+  const info = await exec.inspect().catch(() => null);
+  return { exitCode: info?.ExitCode ?? null, output };
+}
+
+/** git clone into the project workspace (empty workspace → root, else subdir). */
+export async function cloneIntoWorkspace(
+  slug: string,
+  url: string
+): Promise<{ target: string; output: string }> {
+  const projectSlug = validateProjectSlug(slug);
+  const base = path.resolve(WORKSPACES_ROOT, projectSlug);
+  if (!fs.existsSync(base)) throw new HttpError(404, `Project workspace '${projectSlug}' not found`);
+
+  const cleanUrl = String(url ?? '').trim();
+  const validHttp = /^[a-z][a-z0-9+.-]*:\/\/[^\s]+$/i.test(cleanUrl);
+  const validScp = /^[\w.-]+@[\w.-]+:[\w./-]+$/i.test(cleanUrl);
+  const validShort = /^[\w.-]+\/[\w.-]+(\.git)?$/.test(cleanUrl);
+  if (!validHttp && !validScp && !validShort) {
+    throw new HttpError(400, 'Invalid git repository URL');
+  }
+
+  const existing = fs.readdirSync(base).filter((f) => f !== '.git');
+  let target = existing.length === 0 ? base : path.join(base, repoName(cleanUrl));
+
+  // If we're cloning into the root, the only thing there may be the auto-init
+  // .git scaffold (no commits) created for opencode registration — drop it so
+  // `git clone` can seed the workspace. Keep any .git that has real history.
+  if (target === base && fs.existsSync(path.join(base, '.git'))) {
+    let hasCommits = true;
+    try {
+      hasCommits =
+        execFileSync('git', ['-C', base, 'rev-parse', '--verify', 'HEAD'], {
+          stdio: 'pipe',
+        }).toString().trim().length > 0;
+    } catch {
+      hasCommits = false;
+    }
+    if (!hasCommits) {
+      fs.rmSync(path.join(base, '.git'), { recursive: true, force: true });
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn('git', ['clone', '--depth', '1', '--progress', cleanUrl, target], { cwd: '/' });
+    let output = '';
+    const onData = (d: Buffer) => {
+      output += d.toString('utf8');
+      if (output.length > 5000) output = output.slice(-5000);
+    };
+    proc.stdout?.on('data', onData);
+    proc.stderr?.on('data', onData);
+    const timer = setTimeout(() => proc.kill('SIGKILL'), 300000);
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        touchActivity(projectSlug, 'cloned');
+        resolve({ target: path.relative(base, target).split(path.sep).join('/'), output });
+      } else {
+        reject(new Error(`git clone failed (exit ${code}): ${output.slice(-2000)}`));
+      }
+    });
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+function repoName(url: string): string {
+  const cleaned = url.replace(/\/+$/, '').replace(/\.git$/i, '');
+  const name = cleaned.split('/').pop() || cleaned.split(':').pop() || 'repo';
+  return name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 80) || 'repo';
+}

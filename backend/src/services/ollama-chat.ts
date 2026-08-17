@@ -1,39 +1,39 @@
 /**
  * ollama-chat.ts
- * WSD-Pro — Streaming chat against any Ollama-compatible endpoint
- * (Ollama Cloud by default, or a local Ollama instance).
- * Streams /api/chat (NDJSON) deltas via fetch. No local Ollama required.
+ * WSD-Pro — Chat dispatcher. Resolves the configured provider and routes to the
+ * matching engine:
+ *   - type 'ollama'    → /api/chat (NDJSON)  — implemented below
+ *   - type 'openai'    → OpenAI-compatible   — openai-chat.ts
+ *   - type 'anthropic' → Anthropic Messages  — anthropic-chat.ts
+ *   - type 'gemini'    → native Gemini API   — gemini-chat.ts
  */
 
 import {
   getChatConfig,
   resolveProvider,
   buildSystemPrompt,
-  type Provider,
+  type ProviderEndpoint,
 } from './chat-config';
+import { consumeLines } from './stream-lines';
+import { streamChatOpenAI } from './openai-chat';
+import { streamChatAnthropic } from './anthropic-chat';
+import { streamChatGemini } from './gemini-chat';
 
-export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-  /** Base64-encoded images (no data-URI prefix), for vision-capable models. */
-  images?: string[];
-}
-
-export interface StreamHandlers {
-  onDelta: (text: string) => void;
-  onDone: (full: string) => void;
-  onError: (error: string) => void;
-}
-
-export interface RunControl {
-  cancelled: boolean;
-  abort: (() => void) | null;
-}
+export type { ChatMessage, StreamHandlers, RunControl } from './chat-types';
+import type { ChatMessage, StreamHandlers, RunControl } from './chat-types';
 
 export interface StreamOptions {
-  provider: Provider;
+  provider: string;
   model: string;
   temperature: number;
+  /** System prompt override (e.g. with project context injected). */
+  system?: string;
+}
+
+/** Strip the data-URI prefix (Ollama expects raw base64). */
+function stripDataUrl(dataUrl: string): string {
+  const idx = dataUrl.indexOf(',');
+  return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
 }
 
 export async function streamChat(
@@ -46,17 +46,40 @@ export async function streamChat(
   const provider = opts.provider || cfg.provider;
   const model = opts.model || cfg.model;
   const temperature = opts.temperature ?? cfg.temperature;
-  const { baseUrl, apiKey } = resolveProvider(provider);
+  const ep = resolveProvider(provider);
+  const system = opts.system ?? buildSystemPrompt(cfg);
 
-  if (provider === 'ollama' && !apiKey) {
-    const error = 'OLLAMA_API_KEY is not set (see .env.example)';
-    handlers.onError(error);
-    throw new Error(error);
+  if (ep.type === 'openai') {
+    return streamChatOpenAI(ep, model, temperature, system, messages, handlers, control);
   }
+  if (ep.type === 'anthropic') {
+    return streamChatAnthropic(ep, model, temperature, system, messages, handlers, control);
+  }
+  if (ep.type === 'gemini') {
+    return streamChatGemini(ep, model, temperature, system, messages, handlers, control);
+  }
+  return streamChatOllama(ep, model, temperature, system, messages, handlers, control);
+}
 
+async function streamChatOllama(
+  ep: ProviderEndpoint,
+  model: string,
+  temperature: number,
+  system: string,
+  messages: ChatMessage[],
+  handlers: StreamHandlers,
+  control: RunControl
+): Promise<string> {
   const body = JSON.stringify({
     model,
-    messages: [{ role: 'system', content: buildSystemPrompt(cfg) }, ...messages],
+    messages: [
+      { role: 'system', content: system },
+      ...messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        ...(m.images && m.images.length > 0 ? { images: m.images.map(stripDataUrl) } : {}),
+      })),
+    ],
     stream: true,
     options: { temperature },
   });
@@ -64,49 +87,37 @@ export async function streamChat(
   const controller = new AbortController();
   control.abort = () => controller.abort();
 
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (ep.apiKey) headers['Authorization'] = `Bearer ${ep.apiKey}`;
+
   let full = '';
   try {
-    const res = await fetch(`${baseUrl}/api/chat`, {
+    const res = await fetch(`${ep.baseUrl}/api/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-      },
+      headers,
       body,
       signal: controller.signal,
     });
 
     if (!res.ok || !res.body) {
       const detail = await res.text().catch(() => '');
-      throw new Error(`${baseUrl} request failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`);
+      throw new Error(
+        `${ep.baseUrl} request failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 200)}` : ''}`
+      );
     }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '';
-
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-
-      let idx: number;
-      while ((idx = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, idx).trim();
-        buf = buf.slice(idx + 1);
-        if (!line) continue;
-        try {
-          const parsed = JSON.parse(line);
-          const delta: string = parsed?.message?.content || '';
-          if (delta) {
-            full += delta;
-            handlers.onDelta(delta);
-          }
-        } catch {
-          // skip malformed line
+    await consumeLines(res.body, (line) => {
+      try {
+        const parsed = JSON.parse(line);
+        const delta: string = parsed?.message?.content || '';
+        if (delta) {
+          full += delta;
+          handlers.onDelta(delta);
         }
+      } catch {
+        // skip malformed line
       }
-    }
+    });
 
     if (control.cancelled) throw new Error('Chat stopped');
     handlers.onDone(full);

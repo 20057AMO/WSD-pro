@@ -1,6 +1,22 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { marked } from 'marked';
-import { getChatInfo, getChatModels, saveChatConfig, wsUrl, type ChatLanguage, type ChatProvider } from '../api';
+import { useHashLocation } from 'wouter/use-hash-location';
+import {
+  getChatInfo,
+  getChatModels,
+  saveChatConfig,
+  listProjects,
+  getChatContext,
+  listChatSessions,
+  createChatSession,
+  renameChatSession,
+  deleteChatSession,
+  type ChatLanguage,
+  type ChatProvider,
+  type Project,
+  type ChatSession,
+  type IndexStats,
+} from '../api';
 import { useChatSocket, type Attachment } from '../useChatSocket';
 
 const MAX_ATTACHMENTS = 5;
@@ -22,6 +38,14 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function relTime(iso: string): string {
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'now';
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
 function isTextLike(name: string, type: string): boolean {
   return type.startsWith('text/') || TEXT_EXT.test(name);
 }
@@ -39,13 +63,25 @@ function renderMarkdown(src: string): string {
 }
 
 export function Chat() {
-  const { messages, connected, running, error, send, stop } = useChatSocket(
-    wsUrl('/ws/chat/main'),
-    'prompt'
-  );
+  const [location] = useHashLocation();
+  // Chat socket path depends on the active scope + session so switching reconnects.
+  const [contextScope, setContextScope] = useState<string>(''); // '' = none | 'all' | slug
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSession, setActiveSession] = useState<ChatSession | null>(null);
+  const [ctxPreview, setCtxPreview] = useState('');
+  const [ctxStats, setCtxStats] = useState<IndexStats | null>(null);
+  const [ctxOpen, setCtxOpen] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+
+  const chatSlug = contextScope === '' || contextScope === 'all' ? 'global' : contextScope;
+  const projectForScope = chatSlug === 'global' ? undefined : chatSlug;
+  const wsPath = `/ws/chat/${chatSlug}/${activeSession?.chatId || 'main'}`;
+
+  const { messages, running, status, error, send, stop, reconnect } = useChatSocket(wsPath, 'prompt');
 
   const [prompt, setPrompt] = useState('');
   const [provider, setProvider] = useState<ChatProvider>('ollama');
+  const [providers, setProviders] = useState<{ id: string; name: string }[]>([]);
   const [model, setModel] = useState('');
   const [customModel, setCustomModel] = useState('');
   const [models, setModels] = useState<string[]>([]);
@@ -64,17 +100,34 @@ export function Chat() {
 
   const effectiveModel = model === 'custom' ? customModel.trim() : model;
   const badgeModel = model === 'custom' ? customModel.trim() || '…' : model;
+  const contextLabel =
+    contextScope === 'all' ? 'All projects' : contextScope ? projects.find((p) => p.slug === contextScope)?.name || contextScope : '';
 
   useEffect(() => {
     getChatInfo()
       .then((info) => {
         setProvider(info.provider);
+        setProviders(info.providers || []);
         setModel(info.model);
         setLanguage(info.language);
         setSystemPrompt(info.systemPrompt);
         setModels((prev) => (prev.includes(info.model) ? prev : [info.model, ...prev]));
       })
       .catch(() => {});
+    listProjects()
+      .then(({ projects: list }) => {
+        setProjects(list);
+        // Deep link: /chat?project=slug selects the scope immediately.
+        const q = new URLSearchParams(location.split('?')[1] || '');
+        const p = (q.get('project') || '').trim();
+        if (p === 'all') {
+          setContextScope('all');
+        } else if (p && list.some((pr) => pr.slug === p)) {
+          setContextScope(p);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -99,6 +152,57 @@ export function Chat() {
     };
   }, [provider]);
 
+  // Load (and lazily create) sessions for the current scope.
+  useEffect(() => {
+    let cancelled = false;
+    setSessions([]);
+    setActiveSession(null);
+    listChatSessions(projectForScope)
+      .then(async ({ sessions: list }) => {
+        if (cancelled) return;
+        let current = list;
+        let active = current[0] || null;
+        if (!active) {
+          const { session } = await createChatSession({ project: projectForScope });
+          if (cancelled) return;
+          current = [session];
+          active = session;
+        }
+        setSessions(current);
+        setActiveSession(active);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [chatSlug]);
+
+  // Refresh the context preview when the scope changes.
+  useEffect(() => {
+    if (contextScope === '') {
+      setCtxPreview('');
+      setCtxStats(null);
+      setCtxOpen(false);
+      return;
+    }
+    let cancelled = false;
+    getChatContext(contextScope)
+      .then((ctx) => {
+        if (cancelled) return;
+        setCtxPreview(ctx.text);
+        setCtxStats(ctx.indexStats ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCtxPreview('');
+          setCtxStats(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [contextScope]);
+
   useEffect(() => {
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -114,6 +218,43 @@ export function Chat() {
       setTimeout(() => setSaveMsg(null), 2500);
     } catch (err: any) {
       setSaveError(err.message);
+    }
+  };
+
+  const handleNewSession = async () => {
+    try {
+      const { session } = await createChatSession({ project: projectForScope });
+      setSessions((cur) => [session, ...cur]);
+      setActiveSession(session);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleRenameSession = async (s: ChatSession) => {
+    const name = window.prompt('Session name:', s.name);
+    if (!name || !name.trim() || name.trim() === s.name) return;
+    try {
+      const { session } = await renameChatSession(s.chatId, name.trim(), projectForScope);
+      setSessions((cur) => cur.map((x) => (x.chatId === session.chatId ? session : x)));
+      if (activeSession?.chatId === session.chatId) setActiveSession(session);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const handleDeleteSession = async (s: ChatSession) => {
+    if (!confirm(`Delete session '${s.name}'? Its history will be removed.`)) return;
+    try {
+      await deleteChatSession(s.chatId, projectForScope);
+      const next = sessions.filter((x) => x.chatId !== s.chatId);
+      setSessions(next);
+      if (activeSession?.chatId === s.chatId) {
+        if (next.length > 0) setActiveSession(next[0]);
+        else handleNewSession();
+      }
+    } catch {
+      /* ignore */
     }
   };
 
@@ -174,24 +315,24 @@ export function Chat() {
     setSendError(null);
     try {
       const attachments = await Promise.all(pending.map(toAttachment));
-      send(text, attachments);
+      send(text, attachments, contextScope || undefined);
+      setPrompt('');
+      setPending([]);
     } catch (err: any) {
       setSendError(err.message || 'Failed to read attachment');
     } finally {
       setReading(false);
     }
-    setPrompt('');
-    setPending([]);
   };
 
   return (
-    <div class="view" style="max-width: 760px; display: flex; flex-direction: column; height: calc(100dvh - 120px);">
+    <div class="view" style="max-width: 860px; display: flex; flex-direction: column; height: calc(100dvh - 120px);">
       <div class="hero" style="margin-bottom: 14px">
         <span class="hero-badge">Chat · {badgeModel || '…'}</span>
         <h1 class="hero-title" style="font-size: 1.5rem">Plan & Design</h1>
         <p class="hero-sub">
-          Discuss ideas, architecture and project structure. This assistant only plans —
-          use opencode in the sidebar to build. Attach images or files to give it context.
+          Discuss ideas, architecture and project structure. Link a project below and the assistant
+          will be aware of its goals and files — use opencode in the sidebar to build.
         </p>
       </div>
 
@@ -204,8 +345,10 @@ export function Chat() {
               value={provider}
               onChange={(e: any) => setProvider(e.target.value as ChatProvider)}
             >
-              <option value="ollama">Ollama Cloud</option>
-              <option value="local">Local Ollama</option>
+              {providers.length === 0 ? <option value="ollama">Ollama Cloud</option> : null}
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
             </select>
           </label>
           <label class="chat-settings-label">
@@ -245,6 +388,20 @@ export function Chat() {
               <option value="en">English</option>
             </select>
           </label>
+          <label class="chat-settings-label">
+            <span>Project context</span>
+            <select
+              class="modern-input chat-sel"
+              value={contextScope}
+              onChange={(e: any) => setContextScope(e.target.value)}
+            >
+              <option value="">None</option>
+              <option value="all">All projects</option>
+              {projects.map((p) => (
+                <option key={p.slug} value={p.slug}>{p.name}</option>
+              ))}
+            </select>
+          </label>
           <button class="btn-primary sm chat-save-btn" type="button" onClick={save} disabled={!effectiveModel}>
             Save
           </button>
@@ -263,15 +420,54 @@ export function Chat() {
             />
           </div>
         )}
+        {contextScope !== '' && (
+          <div class="chat-ctx-row">
+            <span class="chat-ctx-chip">
+              Context: {contextLabel}
+              {ctxStats && contextScope !== 'all' && ctxStats.files > 0 && (
+                <span class="chat-ctx-stats">
+                  · {ctxStats.files} file{ctxStats.files === 1 ? '' : 's'} · {ctxStats.chunks} chunks
+                  {ctxStats.rebuilt ? ' · rebuilt' : ''}
+                </span>
+              )}
+            </span>
+            <button class="btn-ghost sm" type="button" onClick={() => setCtxOpen(!ctxOpen)}>
+              {ctxOpen ? 'Hide preview ▴' : 'Preview ▾'}
+            </button>
+          </div>
+        )}
+        {ctxOpen && (
+          <div class="ctx-preview mono scrollbar">{ctxPreview || 'Loading context…'}</div>
+        )}
         {saveMsg && <div class="chat-save-msg">{saveMsg}</div>}
         {saveError && <div class="login-error" style="margin: 6px 0 0">{saveError}</div>}
       </div>
 
+      <div class="sessions-bar scrollbar">
+        {sessions.map((s) => (
+          <div class={`session-chip ${s.chatId === activeSession?.chatId ? 'active' : ''}`} key={s.chatId}>
+            <button class="session-chip-main" type="button" onClick={() => setActiveSession(s)}>
+              <span class="session-chip-name">{s.name}</span>
+              <span class="session-chip-meta">{relTime(s.updatedAt)} · {s.messageCount}</span>
+            </button>
+            <span class="session-chip-actions">
+              <button class="session-chip-act" type="button" title="Rename" onClick={() => handleRenameSession(s)}>✎</button>
+              <button class="session-chip-act" type="button" title="Delete" onClick={() => handleDeleteSession(s)}>×</button>
+            </span>
+          </div>
+        ))}
+        <button class="session-new-btn" type="button" onClick={handleNewSession} title="New session">+ New</button>
+      </div>
+
       <div class="chat-panel" style="flex: 1; display: flex; flex-direction: column; min-height: 0;">
         <div class="chat-head">
-          Assistant
-          <span style="float: right; font-size: 0.7rem; font-weight: 400; color: var(--text-2)">
-            {connected ? 'connected' : 'offline'} {running ? ' · typing…' : ''}
+          {activeSession ? activeSession.name : 'Assistant'}
+          <span style="float: right; font-size: 0.7rem; font-weight: 400; color: var(--text-2); display: flex; align-items: center; gap: 8px;">
+            {status === 'connected' ? 'connected' : status === 'connecting' ? 'connecting…' : status === 'disconnected' ? 'offline' : 'error'}
+            {running && ' · typing…'}
+            {(status === 'disconnected' || status === 'error') && (
+              <button class="term-reconnect-btn" type="button" onClick={reconnect} title="Reconnect">↻</button>
+            )}
           </span>
         </div>
         <div class="chat-body scrollbar" ref={bodyRef} style="flex: 1; height: auto; min-height: 0;">
@@ -348,9 +544,10 @@ export function Chat() {
               e.target.value = '';
             }}
           />
-          <input
+          <textarea
             class="modern-input agent-prompt-input"
             dir="auto"
+            rows={1}
             placeholder={
               language === 'ar'
                 ? 'اكتب رسالتك…'
@@ -359,7 +556,18 @@ export function Chat() {
                   : 'Type a message or اكتب رسالة…'
             }
             value={prompt}
-            onInput={(e: any) => setPrompt(e.target.value)}
+            onInput={(e: any) => {
+              setPrompt(e.target.value);
+              const el = e.target as HTMLTextAreaElement;
+              el.style.height = 'auto';
+              el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+            }}
+            onKeyDown={(e: KeyboardEvent) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submit(e);
+              }
+            }}
             disabled={running}
           />
           {running && (

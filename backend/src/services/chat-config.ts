@@ -6,12 +6,12 @@
 
 import fs from 'fs';
 import path from 'path';
-import { getProviderConfig } from './provider-store';
+import { getProviderConfig, getProviderMeta, listProviders, type AuthMode, type ProviderType } from './provider-store';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const CONFIG_FILE = path.join(DATA_DIR, 'chat-config.json');
 
-export type Provider = 'ollama' | 'local';
+export type Provider = string;
 export type ReplyLanguage = 'auto' | 'ar' | 'en';
 
 export interface ChatConfig {
@@ -31,6 +31,8 @@ export const DEFAULT_SYSTEM_PROMPT =
 export interface ProviderEndpoint {
   baseUrl: string;
   apiKey: string;
+  type: ProviderType;
+  auth?: AuthMode;
 }
 
 function defaults(): ChatConfig {
@@ -46,19 +48,35 @@ function defaults(): ChatConfig {
 let cached: ChatConfig | null = null;
 
 export function getChatConfig(): ChatConfig {
-  if (cached) return cached;
-  const base = defaults();
-  try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) as Partial<ChatConfig>;
-      cached = { ...base, ...raw };
-    } else {
+  if (!cached) {
+    const base = defaults();
+    try {
+      if (fs.existsSync(CONFIG_FILE)) {
+        const raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) as Partial<ChatConfig>;
+        cached = { ...base, ...raw };
+      } else {
+        cached = base;
+      }
+    } catch {
       cached = base;
     }
-  } catch {
-    cached = base;
   }
-  return cached!;
+  // Self-heal on every read: if the saved provider no longer exists (e.g.
+  // deleted from the Providers page), fall back to the first available provider.
+  const cur = cached;
+  if (cur.provider && !getProviderMeta(cur.provider)) {
+    const first = listProviders()[0];
+    if (first && first.id !== cur.provider) {
+      cur.provider = first.id;
+      try {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(cur, null, 2), 'utf8');
+      } catch {
+        // non-fatal
+      }
+    }
+  }
+  return cached;
 }
 
 export function updateChatConfig(patch: Partial<ChatConfig>): ChatConfig {
@@ -69,14 +87,13 @@ export function updateChatConfig(patch: Partial<ChatConfig>): ChatConfig {
   return next;
 }
 
-/** Resolve the active provider endpoint (base URL + optional bearer key). */
+/**
+ * Resolve a provider endpoint. The requested id is used when it exists;
+ * otherwise the first available provider is used (auto-fallback after a delete).
+ */
 export function resolveProvider(provider: Provider): ProviderEndpoint {
-  if (provider === 'local') {
-    const cfg = getProviderConfig('local');
-    return { baseUrl: cfg.host, apiKey: cfg.apiKey };
-  }
-  const cfg = getProviderConfig('ollama');
-  return { baseUrl: cfg.host, apiKey: cfg.apiKey };
+  const cfg = getProviderConfig(provider);
+  return { baseUrl: cfg.host, apiKey: cfg.apiKey, type: cfg.type, auth: cfg.auth };
 }
 
 /** Language directive appended to the system prompt when a fixed reply language is set. */
@@ -87,12 +104,52 @@ export function buildSystemPrompt(cfg: ChatConfig): string {
   return prompt;
 }
 
-/** Fetch available models from the provider's /api/tags. Empty list on any failure. */
+/** Fetch available models from the provider (empty list on any failure). */
 export async function listModels(provider: Provider): Promise<string[]> {
-  const { baseUrl, apiKey } = resolveProvider(provider);
+  const ep = resolveProvider(provider);
   try {
-    const res = await fetch(`${baseUrl}/api/tags`, {
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined,
+    if (ep.type === 'gemini') {
+      const res = await fetch(`${ep.baseUrl}/models`, {
+        headers: ep.apiKey ? { 'x-goog-api-key': ep.apiKey } : undefined,
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return [];
+      const data = (await res.json()) as {
+        models?: { name?: string; supportedGenerationMethods?: string[] }[];
+      };
+      return (data.models || [])
+        .filter(
+          (m) =>
+            m.name &&
+            Array.isArray(m.supportedGenerationMethods) &&
+            m.supportedGenerationMethods.includes('generateContent')
+        )
+        .map((m) => String(m.name).replace(/^models\//, ''))
+        .sort();
+    }
+    if (ep.type === 'openai' || ep.type === 'anthropic') {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (ep.apiKey) {
+        if (ep.type === 'anthropic') {
+          headers['x-api-key'] = ep.apiKey;
+          headers['anthropic-version'] = '2023-06-01';
+        } else if (ep.auth === 'api-key') {
+          headers['api-key'] = ep.apiKey;
+        } else {
+          headers['Authorization'] = `Bearer ${ep.apiKey}`;
+        }
+      }
+      const modelsUrl = ep.type === 'anthropic' ? `${ep.baseUrl}/v1/models` : `${ep.baseUrl}/models`;
+      const res = await fetch(modelsUrl, {
+        headers,
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return [];
+      const data = (await res.json()) as { data?: { id?: string }[] };
+      return (data.data || []).map((m) => m.id).filter((id): id is string => !!id).sort();
+    }
+    const res = await fetch(`${ep.baseUrl}/api/tags`, {
+      headers: ep.apiKey ? { Authorization: `Bearer ${ep.apiKey}` } : undefined,
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return [];
