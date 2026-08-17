@@ -26,8 +26,8 @@ nano .env
 
 | المتغير | الوصف |
 | --- | --- |
-| `OLLAMA_API_KEY` | **إلزامي** — للدردشة (qwen3:30b على Ollama Cloud) |
-| `OPENCODE_API_KEY` | **إلزامي** — مفتاح Zen المجاني (نموذج Big Pickle) من https://opencode.ai/auth |
+| `OLLAMA_API_KEY` | **اختياري** — فقط إذا أردت استخدام Ollama Cloud. يمكن تركه فارغًا والاستفادة من Ollama المحلي أو إضافة المزود لاحقًا من واجهة التطبيق. |
+| `OPENCODE_API_KEY` | **اختياري** — فقط إذا أردت تمكين OpenCode/Zen. يمكن تركه فارغًا وتفعيله لاحقًا عند الحاجة. |
 | `WSD_CHAT_MODEL` | اسم النموذج (افتراضي `qwen3:30b`) |
 | `WSD_IDE_PASSWORD` | كلمة مرور المحرر الثابتة (افتراضي `admin123`) |
 | `WSD_IDE_PORT` | منفذ المحرر الخارجي (افتراضي `8100`) |
@@ -67,8 +67,8 @@ docker compose up -d
 
 | المشكلة | الحل |
 | --- | --- |
-| `OLLAMA_API_KEY: set OLLAMA_API_KEY in .env` | أضف المفتاح إلى `.env` وأعد `docker compose up -d` |
-| `OPENCODE_API_KEY: set OPENCODE_API_KEY in .env` | أنشئ مفتاح Zen مجاني من https://opencode.ai/auth وأضفه إلى `.env` |
+| `OLLAMA_API_KEY: set OLLAMA_API_KEY in .env` | هذا خطأ قديم عندما يكون المفتاح مطلوبًا. الآن يمكن تركه فارغًا، أو إضافته فقط إذا أردت استخدام Ollama Cloud. |
+| `OPENCODE_API_KEY: set OPENCODE_API_KEY in .env` | اختياري؛ أضفه فقط إذا أردت تشغيل OpenCode/Zen مع API key. |
 | إنشاء المشروع يفشل | تأكد أن مقبس `/var/run/docker.sock` مسموح للحاوية `app` |
 | المحرر لا يفتح | تأكد أن منفذ `8100` غير محجوب، وأن `app` شغّال (`docker compose ps`) |
 | opencode لا يعمل | افحص `docker compose logs app` لسجل `/tmp/opencode-web.log` |

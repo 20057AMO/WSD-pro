@@ -18,7 +18,7 @@ services:
       WSD_CHAT_MODEL: ${WSD_CHAT_MODEL:-qwen3:30b}
       WSD_DATA_DIR: /app/data
       OLLAMA_HOST: https://ollama.com
-      OLLAMA_API_KEY: ${OLLAMA_API_KEY:?set OLLAMA_API_KEY in .env}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
       WSD_IDE_PASSWORD: ${WSD_IDE_PASSWORD:-admin123}
       WSD_OPENCODE_PORT: ${WSD_OPENCODE_PORT:-4096}
