@@ -401,7 +401,14 @@ app.get('/api/antigravity/status', async (_req, res) => {
 });
 
 // Antigravity project context
-import { analyzeProject } from './services/antigravity-context';
+const analyzeProject = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('./services/antigravity-context').analyzeProject;
+  } catch {
+    return null;
+  }
+})();
 app.get('/api/antigravity/context', (req, res) => {
   const slug = String(req.query.project || '').trim();
   const dir = slug ? path.join(WORKSPACES_ROOT, slug) : WORKSPACES_ROOT;
