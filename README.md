@@ -1,4 +1,6 @@
-# WSD-Pro
+<p align="center"> <img src="frontend/public/logo.png" alt="WSD-Pro Logo" width="100"   /> </p>
+
+# WSD-Pro 
 
 <p align="center">
   <img src="frontend/public/logo.png" alt="WSD-Pro Logo" width="180" />
