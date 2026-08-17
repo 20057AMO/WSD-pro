@@ -12,7 +12,7 @@ services:
       # Host-side absolute path of ./workspaces, used as the bind source when
       # launching project containers so their /workspace sees the same files
       # (bind sources resolve on the Docker Desktop VM, not inside this container).
-      WSD_WORKSPACES_HOST_DIR: ${WSD_WORKSPACES_HOST_DIR:?set in .env}
+      WSD_WORKSPACES_HOST_DIR: ${WSD_WORKSPACES_HOST_DIR:- .env}
       WSD_WORKSPACE_IMAGE: wsd/workspace:latest
       WSD_IDE_PORT: 8100
       WSD_CHAT_MODEL: ${WSD_CHAT_MODEL:-qwen3:30b}
