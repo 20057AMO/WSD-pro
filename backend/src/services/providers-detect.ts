@@ -69,7 +69,8 @@ export async function probeProvider(
     const body = (await res.json().catch(() => ({}))) as any;
     if (type === 'ollama') {
       const models = Array.isArray(body.models) ? (body.models as { name?: string }[]) : [];
-      return { ok: true, status: res.status, modelCount: models.length, firstModel: models[0]?.name };
+      const modelNames = models.map((m) => m.name).filter((n): n is string => !!n);
+      return { ok: true, status: res.status, modelCount: models.length, firstModel: modelNames[0], models: modelNames };
     }
     if (type === 'gemini') {
       const models = Array.isArray(body.models) ? (body.models as { name?: string; supportedGenerationMethods?: string[] }[]) : [];
@@ -207,6 +208,7 @@ function keyHint(key: string): string | null {
   if (k.startsWith('xai-') || k.startsWith('xai_')) return 'xai-';
   if (k.startsWith('sk-')) return 'sk-';
   if (/^az/i.test(k)) return 'az';
+  if (k.startsWith('ollama_')) return 'ollama_';
   return null;
 }
 
@@ -220,9 +222,9 @@ export interface DetectResult {
 /**
  * Auto-detect a provider. Returns null when nothing matched.
  * - With an explicit host: probe that host as openai → anthropic → ollama.
- * - With only an API key: probe known openai/anthropic templates, ordered by
- *   key-prefix heuristic. Ollama templates are excluded here to avoid false
- *   positives (their /api/tags endpoint often answers 200 without auth).
+ * - With only an API key: probe known openai/anthropic/ollama templates, ordered
+ *   by key-prefix heuristic. Ollama templates are included — false positives are
+ *   prevented by the verifyChat() call which sends an actual chat request.
  */
 export async function detectProvider(input: DetectInput): Promise<{
   provider: DetectResult | null;
@@ -243,7 +245,7 @@ export async function detectProvider(input: DetectInput): Promise<{
     ];
   } else {
     const hint = keyHint(apiKey);
-    const scored = KNOWN_TEMPLATES.filter((t) => t.type !== 'ollama').map((t) => ({
+    const scored = KNOWN_TEMPLATES.map((t) => ({
       name: t.name,
       host: t.host,
       type: t.type,

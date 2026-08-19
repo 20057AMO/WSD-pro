@@ -3,12 +3,11 @@ import { Router, Route } from 'wouter';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { Dashboard } from './views/Dashboard';
 import { Project } from './views/Project';
-import { Chat } from './views/Chat';
 import { Opencode } from './views/Opencode';
-import { Antigravity } from './views/Antigravity';
-import { AntigravitySettings } from './views/AntigravitySettings';
+import { Agents } from './views/Agents';
 import { EmbeddedIDE } from './views/EmbeddedIDE';
 import { Providers } from './views/Providers';
+
 
 interface ErrorBoundaryProps { children: ComponentChildren; }
 interface ErrorBoundaryState { error: Error | null; }
@@ -81,9 +80,8 @@ function Sidebar() {
       </div>
       <nav class="sidebar-nav">
         <NavButton href="/" label="Dashboard" icon="◈" />
-        <NavButton href="/chat" label="Chat & Design" icon="✎" />
+        <NavButton href="/agents" label="Agents" icon="🤖" />
         <NavButton href="/opencode" label="opencode" icon="⌁" />
-        <NavButton href="/antigravity" label="Antigravity" icon="✦" />
         <NavButton href="/providers" label="Providers" icon="🔑" />
         <NavButton href="/ide" label="Web IDE" icon="▦" />
       </nav>
@@ -104,12 +102,8 @@ function Shell() {
     return <Opencode />;
   }
 
-  if (location.startsWith('/antigravity/settings')) {
-    return <AntigravitySettings />;
-  }
-
-  if (location.startsWith('/antigravity')) {
-    return <Antigravity />;
+  if (location.startsWith('/agents')) {
+    return <Agents />;
   }
 
   if (location.startsWith('/ide')) {
@@ -122,7 +116,6 @@ function Shell() {
       <main class="main">
         <Route path="/" component={Dashboard} />
         <Route path="/project/:slug" component={Project} />
-        <Route path="/chat" component={Chat} />
         <Route path="/providers" component={Providers} />
       </main>
     </div>

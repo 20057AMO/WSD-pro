@@ -11,7 +11,7 @@ import http from 'http';
 import { handleChatSocket } from './ws-chat';
 import { handleTerminalSocket } from './ws-terminal';
 import { handleProjectLogsSocket } from './ws-project-logs';
-import { handleAntigravitySocket } from './ws-antigravity';
+import { handleAgentSocket } from './ws-agent';
 
 const MAX_CONNECTIONS_PER_ROOM = 8;
 const roomConnections = new Map<string, number>();
@@ -103,14 +103,20 @@ export function attachWebSockets(server: http.Server): void {
       return;
     }
 
-    const antiMatch = url.pathname === '/ws/antigravity';
-    if (antiMatch) {
-      const room = 'antigravity:main';
-      if (!acquireRoom(room)) {
-        ws.close(1013, 'too many connections for antigravity');
+    const agentMatch = url.pathname.match(/^\/ws\/agent\/([^/]+)\/([^/]+)$/);
+    if (agentMatch) {
+      const agentId = decodeURIComponent(agentMatch[1]);
+      const chatId = decodeURIComponent(agentMatch[2]);
+      if (!isSafeChatId(agentId) || !isSafeChatId(chatId)) {
+        ws.close(1008, 'invalid agent id');
         return;
       }
-      handleAntigravitySocket(ws, releaseRoom(room));
+      const room = `agent:${agentId}:${chatId}`;
+      if (!acquireRoom(room)) {
+        ws.close(1013, 'too many connections for agent');
+        return;
+      }
+      handleAgentSocket(ws, agentId, chatId, releaseRoom(room));
       return;
     }
 

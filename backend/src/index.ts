@@ -379,66 +379,77 @@ app.get('/api/opencode/status', async (_req, res) => {
 });
 
 
-// ── Antigravity CLI status ──────────────────────────────────
-app.get('/api/antigravity/status', async (_req, res) => {
-  const { execFile } = await import('child_process');
-  const agyPath = '/root/.local/bin/agy';
-  let installed = false;
-  let version = '';
-  try {
-    const result = await new Promise<string>((resolve, reject) => {
-      execFile(agyPath, ['--version'], { timeout: 5000 }, (err, stdout) => {
-        if (err) reject(err);
-        else resolve(stdout.trim());
-      });
-    });
-    installed = true;
-    version = result;
-  } catch {
-    installed = false;
-  }
-  res.json({ installed, version });
+// ── Agents API ────────────────────────────────────────────────
+import {
+  listAgents,
+  listAllAgents,
+  getAgent,
+  createAgent,
+  updateAgent,
+  deleteAgent,
+  listAgentSessions,
+  createAgentSession,
+  deleteAgentSession,
+  renameAgentSession,
+} from './services/agent-store';
+
+app.get('/api/agents', (_req, res) => {
+  res.json({ agents: listAllAgents() });
 });
 
-// Antigravity project context
-const analyzeProject = (() => {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require('./services/antigravity-context').analyzeProject;
-  } catch {
-    return null;
-  }
-})();
-app.get('/api/antigravity/context', (req, res) => {
-  const slug = String(req.query.project || '').trim();
-  const dir = slug ? path.join(WORKSPACES_ROOT, slug) : WORKSPACES_ROOT;
-  const analysis = analyzeProject(dir);
-  if (!analysis) {
-    res.json({ project: null, framework: null, language: null, structure: [], conventions: [] });
-    return;
-  }
-  res.json(analysis);
+app.post('/api/agents', (req, res) => {
+  const body = req.body as any;
+  const agent = createAgent({
+    name: body.name,
+    icon: body.icon,
+    description: body.description,
+    systemPrompt: body.systemPrompt,
+    provider: body.provider,
+    model: body.model,
+  });
+  res.json({ agent });
 });
 
-
-// Antigravity settings
-import { loadSettings, saveSettings, isConfigured } from './services/antigravity-settings';
-
-app.get('/api/antigravity/settings', (_req, res) => {
-  const s = loadSettings();
-  res.json({ configured: isConfigured(), apiKey: s.apiKey ? '••••••••' : '' });
+app.put('/api/agents/:id', (req, res) => {
+  const agent = updateAgent(req.params.id, req.body as any);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  res.json({ agent });
 });
 
-app.post('/api/antigravity/settings', (req, res) => {
-  const body = req.body as { apiKey?: string };
-  if (!body || typeof body.apiKey !== 'string') {
-    res.status(400).json({ error: 'apiKey required' });
-    return;
+app.delete('/api/agents/:id', (req, res) => {
+  if (!deleteAgent(req.params.id)) return res.status(404).json({ error: 'Agent not found' });
+  res.json({ ok: true });
+});
+
+app.get('/api/agents/:id/sessions', (req, res) => {
+  const agent = getAgent(req.params.id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  res.json({ sessions: listAgentSessions(req.params.id) });
+});
+
+app.post('/api/agents/:id/sessions', (req, res) => {
+  const agent = getAgent(req.params.id);
+  if (!agent) return res.status(404).json({ error: 'Agent not found' });
+  const session = createAgentSession(req.params.id, (req.body as any)?.name);
+  res.json({ session });
+});
+
+app.delete('/api/agents/:id/sessions/:chatId', (req, res) => {
+  if (!deleteAgentSession(req.params.id, req.params.chatId)) {
+    return res.status(404).json({ error: 'Session not found' });
   }
-  saveSettings({ apiKey: body.apiKey.trim() });
-  res.json({ ok: true, configured: isConfigured() });
+  res.json({ ok: true });
 });
 
+app.put('/api/agents/:id/sessions/:chatId', (req, res) => {
+  const name = (req.body as any)?.name;
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Name is required' });
+  }
+  const session = renameAgentSession(req.params.id, req.params.chatId, name.trim());
+  if (!session) return res.status(404).json({ error: 'Session not found' });
+  res.json({ session });
+});
 
 // ── Projects API ─────────────────────────────────────────────
 

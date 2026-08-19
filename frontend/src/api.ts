@@ -250,33 +250,58 @@ export const deleteChatSession = (chatId: string, project?: string) =>
   );
 export const getOpencodeStatus = () => api<OpencodeStatus>('/api/opencode/status');
 
-export interface AntigravityStatus {
-  installed: boolean;
-  version: string;
-}
-export const getAntigravityStatus = () => api<AntigravityStatus>('/api/antigravity/status');
-
-export interface AntiProjectContext {
+export interface AgentDef {
+  id: string;
   name: string;
-  framework: string;
-  language: string;
-  dependencies: string[];
-  structure: string[];
-  conventions: string[];
+  icon: string;
+  description: string;
+  systemPrompt: string;
+  provider?: string;
+  model?: string;
+  enabled: boolean;
+  toolsEnabled: boolean;
 }
-export const getAntiProjectContext = (project?: string) =>
-  api<AntiProjectContext>(`/api/antigravity/context${project ? `?project=${encodeURIComponent(project)}` : ''}`);
 
-export interface AntiGravitySettings {
-  configured: boolean;
-  apiKey: string;
+export interface AgentSession {
+  chatId: string;
+  agentId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
 }
-export const getAntiGravitySettings = () => api<AntiGravitySettings>('/api/antigravity/settings');
-export const saveAntiGravitySettings = (apiKey: string) =>
-  api<{ ok: boolean; configured: boolean }>('/api/antigravity/settings', {
+
+export const listAgents = () => api<{ agents: AgentDef[] }>('/api/agents');
+export const createAgent = (body: Partial<Omit<AgentDef, 'id'>>) =>
+  api<{ agent: AgentDef }>('/api/agents', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ apiKey }),
+    body: JSON.stringify(body),
+  });
+export const updateAgent = (id: string, patch: Partial<Omit<AgentDef, 'id'>>) =>
+  api<{ agent: AgentDef }>(`/api/agents/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+export const deleteAgent = (id: string) =>
+  api<{ ok: boolean }>(`/api/agents/${id}`, { method: 'DELETE' });
+
+export const listAgentSessions = (agentId: string) =>
+  api<{ sessions: AgentSession[] }>(`/api/agents/${agentId}/sessions`);
+export const createAgentSession = (agentId: string, name?: string) =>
+  api<{ session: AgentSession }>(`/api/agents/${agentId}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+export const deleteAgentSession = (agentId: string, chatId: string) =>
+  api<{ ok: boolean }>(`/api/agents/${agentId}/sessions/${chatId}`, { method: 'DELETE' });
+export const renameAgentSession = (agentId: string, chatId: string, name: string) =>
+  api<{ session: AgentSession }>(`/api/agents/${agentId}/sessions/${chatId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
   });
 
 export const getLogs = (slug: string, tail = 200) =>

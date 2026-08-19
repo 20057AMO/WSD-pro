@@ -139,7 +139,7 @@ export function maskKey(key: string): string {
   return '••••••••' + key.slice(-4);
 }
 
-/** Find an existing provider that already uses the same API key (or, when key is empty, the same host+type). */
+/** Find an existing provider that already uses the same API key (or, when key is empty, the same host+type with no key). */
 export function findDuplicateByKeyOrHost(apiKey: string, host?: string, type?: ProviderType): ProviderMeta | null {
   const cfg = load();
   const key = String(apiKey ?? '').trim();
@@ -149,7 +149,9 @@ export function findDuplicateByKeyOrHost(apiKey: string, host?: string, type?: P
   }
   if (host && type) {
     const h = normalizeHost(host);
-    const id = Object.keys(cfg).find((x) => !cfg[x].apiKey && cfg[x].type === type && normalizeHost(cfg[x].host) === h);
+    const id = Object.keys(cfg).find(
+      (x) => !cfg[x].apiKey && !key && cfg[x].type === type && normalizeHost(cfg[x].host) === h
+    );
     if (id) return listProviders().find((p) => p.id === id) || null;
   }
   return null;

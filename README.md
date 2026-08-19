@@ -56,7 +56,7 @@ Default Web IDE password:
 ### 3. AI-assisted workflows
 - Chat-based planning and design assistant
 - Project-aware context for codebase understanding
-- Antigravity support for code-generation and review-oriented assistance
+- Multi-agent system with built-in tools (file ops, commands, project tree)
 - Provider-based model configuration for multiple AI backends
 
 ### 4. Workflow automation

@@ -83,28 +83,6 @@ if opencode_ready; then
   done
 fi
 
-# ── Antigravity CLI (agy) ────────────────────────────────
-mkdir -p /root/.local/bin /root/.gemini/antigravity-cli
-export PATH="/root/.local/bin:${PATH}"
-export AGY_CLI_DISABLE_AUTO_UPDATE=true
-# Sync Gemini API key from persisted settings into agy config
-ANTI_SETTINGS="$DATA_DIR/antigravity-settings.json"
-if [ -f "$ANTI_SETTINGS" ]; then
-  API_KEY=$(grep -o '"apiKey"[[:space:]]*:[[:space:]]*"[^"]*"' "$ANTI_SETTINGS" | sed 's/.*"apiKey"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
-  if [ -n "$API_KEY" ]; then
-    export GEMINI_API_KEY="$API_KEY"
-    cat > /root/.gemini/antigravity-cli/settings.json << SEOF
-{"modelProvider": "gemini"}
-SEOF
-    echo "WSD-Pro: Antigravity Gemini API key configured"
-  fi
-fi
-if command -v agy &>/dev/null; then
-  echo "WSD-Pro: Antigravity CLI (agy) ready at $(agy --version 2>/dev/null || echo 'unknown')"
-else
-  echo "WSD-Pro: WARNING — agy binary not found in PATH"
-fi
-
 cleanup() {
   kill "$CODE_SERVER_PID" "$OPENCODE_PID" 2>/dev/null || true
 }

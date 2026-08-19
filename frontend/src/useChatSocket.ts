@@ -9,17 +9,20 @@ export interface Attachment {
 }
 
 export interface Msg {
-  role: 'user' | 'agent' | 'error';
+  role: 'user' | 'agent' | 'error' | 'tool_call' | 'tool_result';
   text: string;
   attachments?: Attachment[];
+  toolName?: string;
+  toolArgs?: Record<string, string>;
 }
 
 interface ChatEvent {
   seq: number;
-  type: 'user_message' | 'agent_chunk' | 'agent_done' | 'agent_error';
+  type: 'user_message' | 'agent_chunk' | 'agent_done' | 'agent_error' | 'tool_call' | 'tool_result' | 'session_renamed';
   content: string;
   timestamp: string;
   attachments?: Attachment[];
+  name?: string;
 }
 
 interface ServerMsg {
@@ -42,6 +45,20 @@ function applyEvent(ev: ChatEvent, cur: Msg[]): Msg[] {
     }
   } else if (ev.type === 'agent_error') {
     next.push({ role: 'error', text: ev.content });
+  } else if (ev.type === 'tool_call') {
+    try {
+      const data = JSON.parse(ev.content);
+      next.push({ role: 'tool_call', text: ev.content, toolName: data.name, toolArgs: data.args });
+    } catch {
+      next.push({ role: 'tool_call', text: ev.content });
+    }
+  } else if (ev.type === 'tool_result') {
+    try {
+      const data = JSON.parse(ev.content);
+      next.push({ role: 'tool_result', text: data.output || ev.content, toolName: data.name, toolArgs: data.args });
+    } catch {
+      next.push({ role: 'tool_result', text: ev.content });
+    }
   }
   return next;
 }
@@ -57,6 +74,7 @@ export interface ChatSocketState {
   running: boolean;
   status: ChatStatus;
   error: string | null;
+  sessionName: string | null;
   send: (text: string, attachments?: Attachment[], project?: string) => void;
   stop: () => void;
   reconnect: () => void;
@@ -68,10 +86,12 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState<ChatStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
+  const [sessionName, setSessionName] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptRef = useRef(0);
   const disposedRef = useRef(false);
+  const isManualReconnectRef = useRef(false);
 
   const cleanupReconnect = () => {
     if (reconnectTimer.current) {
@@ -96,7 +116,7 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
 
     ws.onclose = () => {
       setConnected(false);
-      if (!disposedRef.current) {
+      if (!disposedRef.current && !isManualReconnectRef.current) {
         setStatus('disconnected');
         scheduleReconnect();
       }
@@ -116,9 +136,15 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
         return;
       }
       if (msg.type === 'replay' && Array.isArray(msg.events)) {
-        setMessages(msg.events.reduce((acc, ev) => applyEvent(ev, acc), [] as Msg[]));
+        let acc: Msg[] = [];
+        for (const ev of msg.events) acc = applyEvent(ev, acc);
+        setMessages(acc);
       } else if (msg.type === 'event' && msg.event) {
-        setMessages((cur) => applyEvent(msg.event!, cur));
+        if (msg.event.type === 'session_renamed') {
+          setSessionName(msg.event.name || null);
+        } else {
+          setMessages((cur) => applyEvent(msg.event!, cur));
+        }
         if (msg.event.type === 'agent_done' || msg.event.type === 'agent_error') {
           setRunning(false);
         }
@@ -143,9 +169,11 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
   }, [openWs]);
 
   const reconnect = useCallback(() => {
+    isManualReconnectRef.current = true;
     attemptRef.current = 0;
     setError(null);
     wsRef.current?.close();
+    isManualReconnectRef.current = false;
     openWs();
   }, [openWs]);
 
@@ -154,6 +182,7 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
     setMessages([]);
     setRunning(false);
     setError(null);
+    setSessionName(null);
     attemptRef.current = 0;
     openWs();
 
@@ -168,7 +197,10 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
   const send = useCallback(
     (text: string, attachments?: Attachment[], project?: string) => {
       const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setError('Not connected. Check your connection.');
+        return;
+      }
       setError(null);
       setRunning(true);
       const payload: any = { type: runType, text };
@@ -186,5 +218,5 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
     setRunning(false);
   }, []);
 
-  return { messages, connected, running, status, error, send, stop, reconnect };
+  return { messages, connected, running, status, error, sessionName, send, stop, reconnect };
 }

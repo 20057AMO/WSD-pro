@@ -9,7 +9,7 @@ import path from 'path';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 
-export type ChatEventType = 'user_message' | 'agent_chunk' | 'agent_done' | 'agent_error';
+export type ChatEventType = 'user_message' | 'agent_chunk' | 'agent_done' | 'agent_error' | 'tool_call' | 'tool_result';
 
 export interface ChatAttachment {
   kind: 'image' | 'text' | 'file';

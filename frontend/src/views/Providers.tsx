@@ -404,7 +404,7 @@ function AddProviderModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
       if (err.code === 'detection_required') {
         setShowAdvanced(true);
         setDetectState('fail');
-        setDetectMsg('✗ Could not auto-detect — pick a template or enter the host below.');
+        setDetectMsg('✗ Could not auto-detect — pick a template above or enter the host manually.');
       }
       setError(err.message || 'Failed to add provider');
       setSaving(false);
@@ -432,7 +432,7 @@ function AddProviderModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
         <input
           class="modern-input"
           type="password"
-          placeholder="sk-… / AIza… / gsk_…"
+          placeholder="sk-… / AIza… / gsk_… / ollama_…"
           autoFocus
           value={apiKey}
           onInput={(e: any) => setApiKey(e.target.value)}
@@ -441,6 +441,16 @@ function AddProviderModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
         <div class="detect-row">
           {statusLabel() && <div class="detect-status">{statusLabel()}</div>}
           {detectMsg && <div class={`detect-status ${detectState === 'ok' ? 'detect-ok' : detectState === 'fail' ? 'detect-fail' : ''}`}>{detectMsg}</div>}
+          {detectState === 'fail' && (
+            <div class="detect-quick-picks">
+              <span class="detect-quick-label">Quick pick:</span>
+              {templates.filter((t) => !t.host.includes('host.docker.internal')).map((t) => (
+                <button key={t.name} class="btn-ghost sm" type="button" onClick={() => applyTemplate(t.name)}>
+                  {t.name}
+                </button>
+              ))}
+            </div>
+          )}
           {detectState === 'fail' && (
             <button class="btn-ghost sm" type="button" onClick={retryDetect}>
               ↻ Retry

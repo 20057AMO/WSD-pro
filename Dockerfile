@@ -54,10 +54,6 @@ RUN npm install -g opencode-ai --no-fund --no-audit
 # `opencode web`; provide a no-op stub so it never errors out.
 RUN printf '#!/bin/sh\nexit 0\n' > /usr/local/bin/xdg-open && chmod +x /usr/local/bin/xdg-open
 
-# Antigravity CLI (agy) — AI coding agent for frontend building
-RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
-ENV PATH="/root/.local/bin:${PATH}"
-
 WORKDIR /app
 
 # App
