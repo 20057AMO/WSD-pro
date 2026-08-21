@@ -35,6 +35,7 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 | Suite | File | Coverage |
 |-------|------|----------|
 | Auth & access control | `tests/auth.test.ts` | 401s, forged/tampered/expired tokens, setup guard |
+| Session revocation | `tests/auth-revoke.test.ts` | logout-everywhere + token rotation (needs `WSD_TEST_ACCOUNT_PASSWORD`; self-skips) |
 | Project lifecycle | `tests/projects.lifecycle.test.ts` | Real Docker: create → env → files → logs/stats/ports → stop/start → delete → 404 |
 | Providers/Agents/Chat CRUD | `tests/providers-agents-chat.test.ts` | Full CRUD + sessions + templates |
 | Providers lock & backup | `tests/providers-lock.test.ts` | Lock flow E2E (needs `WSD_TEST_ACCOUNT_PASSWORD`; self-skips without it) |
@@ -104,6 +105,12 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - `GET /api/settings/export?accountPassword=…` → JSON backup; **provider API keys are stripped by design**
 - `POST /api/settings/import` merges by id — existing items always win, secrets are never imported
 - Both operations require account-password re-auth
+
+### Session revocation (logout everywhere)
+- Every login token carries a `tv` claim matching `users.json → tokenVersion`; `verifyToken` rejects stale versions
+- `POST /api/auth/logout-all` (account-password re-auth) bumps the version → all sessions die
+- `changePassword` also bumps the version but returns a fresh token so the current session survives
+- Legacy tokens without a `tv` claim are treated as version 0
 
 ### Beta
 - App version: `2.0.0-beta` — badge shown in sidebar footer, login page and Settings → About

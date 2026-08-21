@@ -66,6 +66,7 @@ import {
   issueUnlockToken,
   verifyUnlockToken,
   verifyAccountPassword,
+  revokeAllSessions,
 } from './services/user-store';
 import { buildBackup, restoreFromBackup } from './services/settings-export';
 import { authMiddleware } from './middleware/auth';
@@ -182,10 +183,24 @@ app.post('/api/auth/change-password', (req: any, res) => {
   try {
     const { currentPassword, newPassword } = req.body || {};
     if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required.' });
-    changePassword(String(currentPassword), String(newPassword));
-    res.json({ ok: true });
+    const { token } = changePassword(String(currentPassword), String(newPassword));
+    // Other sessions are revoked; the caller receives a fresh token to keep
+    // its current session alive.
+    res.json({ ok: true, token });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// Logout everywhere: invalidate every issued session token.
+app.post('/api/auth/logout-all', (req: any, res) => {
+  try {
+    const { accountPassword } = req.body || {};
+    if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
+    revokeAllSessions(String(accountPassword));
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(err?.status || 400).json({ error: err.message });
   }
 });
 

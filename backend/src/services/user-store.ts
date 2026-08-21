@@ -20,9 +20,28 @@ interface StoredUser {
   providersPasswordHash?: string;
   /** Bumped whenever the providers password changes; invalidates old unlock tokens. */
   providersPasswordVersion?: number;
+  /**
+   * Bumped to invalidate every issued login token (logout everywhere /
+   * password change). Tokens carry a matching `tv` claim; legacy tokens
+   * without the claim are treated as version 0.
+   */
+  tokenVersion?: number;
 }
 
 let cachedUser: StoredUser | null = null;
+
+function currentTokenVersion(): number {
+  return cachedUser?.tokenVersion || 0;
+}
+
+function signSessionToken(): string {
+  if (!cachedUser) throw new Error('No user configured.');
+  return jwt.sign(
+    { id: cachedUser.id, username: cachedUser.username, tv: currentTokenVersion() },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRY }
+  );
+}
 
 function loadUsers(): void {
   try {
@@ -75,12 +94,12 @@ export function setup(username: string, password: string): { id: string; usernam
     createdAt: now,
     passwordChangedAt: now,
     providersPasswordVersion: 0,
+    tokenVersion: 0,
   };
 
   saveUsers();
 
-  const token = jwt.sign({ id, username: cleanUsername }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
-  return { id, username: cleanUsername, token };
+  return { id, username: cleanUsername, token: signSessionToken() };
 }
 
 export function login(username: string, password: string): { id: string; username: string; token: string } {
@@ -91,14 +110,16 @@ export function login(username: string, password: string): { id: string; usernam
   if (cleanUsername !== cachedUser.username) throw new Error('Invalid username or password.');
   if (!bcrypt.compareSync(password, cachedUser.passwordHash)) throw new Error('Invalid username or password.');
 
-  const token = jwt.sign({ id: cachedUser.id, username: cachedUser.username }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
-  return { id: cachedUser.id, username: cachedUser.username, token };
+  return { id: cachedUser.id, username: cachedUser.username, token: signSessionToken() };
 }
 
 export function verifyToken(token: string | null): { id: string; username: string } | null {
+  if (cachedUser === null) loadUsers();
   if (!token) return null;
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string; username: string };
+    const decoded = jwt.verify(String(token), JWT_SECRET) as { id: string; username: string; tv?: number };
+    // Tokens issued before a revocation carry a stale version → rejected.
+    if ((decoded.tv || 0) !== currentTokenVersion()) return null;
     return { id: decoded.id, username: decoded.username };
   } catch {
     return null;
@@ -112,7 +133,12 @@ export function verifyAccountPassword(accountPassword: string): boolean {
   return bcrypt.compareSync(String(accountPassword || ''), cachedUser.passwordHash);
 }
 
-export function changePassword(currentPassword: string, newPassword: string): void {
+/**
+ * Change the account password. Security best practice: bump the token
+ * version so every OTHER session is invalidated, then return a fresh
+ * token so the current session stays signed in.
+ */
+export function changePassword(currentPassword: string, newPassword: string): { token: string } {
   if (cachedUser === null) loadUsers();
   if (!cachedUser) throw new Error('No user configured.');
 
@@ -126,6 +152,22 @@ export function changePassword(currentPassword: string, newPassword: string): vo
 
   cachedUser.passwordHash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
   cachedUser.passwordChangedAt = new Date().toISOString();
+  cachedUser.tokenVersion = currentTokenVersion() + 1;
+  saveUsers();
+  return { token: signSessionToken() };
+}
+
+/**
+ * Invalidate every issued session token (logout everywhere).
+ * Requires account-password re-auth. Returns nothing; callers must re-login.
+ */
+export function revokeAllSessions(accountPassword: string): void {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser) throw new Error('No user configured.');
+  if (!verifyAccountPassword(accountPassword)) {
+    throw Object.assign(new Error('Account password is incorrect.'), { status: 401 });
+  }
+  cachedUser.tokenVersion = currentTokenVersion() + 1;
   saveUsers();
 }
 

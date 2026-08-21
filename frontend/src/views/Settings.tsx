@@ -33,6 +33,11 @@ export function Settings() {
   const [pwLoading, setPwLoading] = useState(false);
   const [pwMsg, setPwMsg] = useState<Msg>(null);
 
+  // ── Logout everywhere ──
+  const [revokePw, setRevokePw] = useState('');
+  const [revokeLoading, setRevokeLoading] = useState(false);
+  const [revokeMsg, setRevokeMsg] = useState<Msg>(null);
+
   // ── Providers security lock ──
   const [lockEnabled, setLockEnabled] = useState<boolean | null>(null);
   const [lockAccountPw, setLockAccountPw] = useState('');
@@ -94,7 +99,10 @@ export function Settings() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
-      setPwMsg({ type: 'ok', text: 'Password changed successfully.' });
+      // Password change revokes all other sessions; server issued a fresh
+      // token so this one stays signed in.
+      if (data.token) localStorage.setItem('wsd.token', data.token);
+      setPwMsg({ type: 'ok', text: 'Password changed. Other devices were signed out.' });
       setCurrentPw('');
       setNewPw('');
       setConfirmPw('');
@@ -226,6 +234,32 @@ export function Settings() {
     }
   };
 
+  const revokeAll = async () => {
+    if (revokeLoading) return;
+    if (!revokePw) {
+      setRevokeMsg({ type: 'err', text: 'Enter your account password to sign out everywhere.' });
+      return;
+    }
+    setRevokeLoading(true);
+    setRevokeMsg(null);
+    try {
+      const token = localStorage.getItem('wsd.token');
+      const res = await fetch('/api/auth/logout-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ accountPassword: revokePw }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      // Every session (including this one) is now invalid → hard logout.
+      logout();
+      window.location.hash = '/login';
+    } catch (err: any) {
+      setRevokeMsg({ type: 'err', text: err.message || 'Failed' });
+      setRevokeLoading(false);
+    }
+  };
+
   const handleLogout = () => {
     logout();
     window.location.hash = '/login';
@@ -262,6 +296,33 @@ export function Settings() {
         </div>
         <div style="margin-top: 12px">
           <button class="btn-danger sm" onClick={handleLogout}>Logout</button>
+        </div>
+      </div>
+
+      {/* Logout everywhere */}
+      <div class="panel settings-section">
+        <div class="panel-title">Logout Everywhere</div>
+        <p class="settings-hint">
+          Invalidate every signed-in session — all browser tabs and devices will
+          be required to log in again. You will be logged out here too.
+        </p>
+        <label class="field-label">Account password (verification)</label>
+        <input
+          class="modern-input"
+          type="password"
+          placeholder="Confirm your account password"
+          value={revokePw}
+          onInput={(e: any) => setRevokePw(e.target.value)}
+        />
+        {revokeMsg && (
+          <div class={revokeMsg.type === 'ok' ? 'chat-save-msg' : 'login-error'} style="margin-top: 8px">
+            {revokeMsg.text}
+          </div>
+        )}
+        <div style="margin-top: 12px">
+          <button class="btn-danger sm" onClick={revokeAll} disabled={revokeLoading}>
+            {revokeLoading ? 'Signing out…' : '⏻ Sign out everywhere'}
+          </button>
         </div>
       </div>
 
