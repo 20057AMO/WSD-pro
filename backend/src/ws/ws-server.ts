@@ -4,7 +4,7 @@
  * Manual upgrade routing (noServer) so nested paths work:
  *   /ws/chat/:slug/:chatId  → chatbot scoped to a project (slug = project or 'global')
  *   /ws/chat/:chatId        → legacy alias for slug = 'global'
- * No authentication (open app).
+ * Auth: JWT token via ?token= query param on upgrade.
  */
 import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
@@ -14,6 +14,7 @@ import { handleProjectLogsSocket } from './ws-project-logs';
 import { handleAgentSocket } from './ws-agent';
 import { handleProjectStatusSocket } from './ws-project-status';
 import { handleProjectsStatusSocket } from './ws-projects-status';
+import { verifyToken } from '../services/user-store';
 
 const MAX_CONNECTIONS_PER_ROOM = 8;
 const roomConnections = new Map<string, number>();
@@ -28,6 +29,12 @@ export function attachWebSockets(server: http.Server): void {
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url || '/', 'http://localhost');
     if (!url.pathname.startsWith('/ws/')) {
+      socket.destroy();
+      return;
+    }
+    const token = url.searchParams.get('token');
+    if (!token || !verifyToken(token)) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       socket.destroy();
       return;
     }

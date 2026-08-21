@@ -54,7 +54,7 @@ import {
   renameSession,
   deleteSession,
 } from './services/chat-sessions';
-import { setup, login, changePassword, hasUser, getUser, verifyToken } from './services/user-store';
+import { setup, login, changePassword, hasUser, getUser } from './services/user-store';
 import { authMiddleware } from './middleware/auth';
 import { attachWebSockets } from './ws/ws-server';
 

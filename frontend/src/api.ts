@@ -163,16 +163,24 @@ function getAuthToken(): string | null {
   }
 }
 
-function authHeaders(json = true): Record<string, string> {
-  const headers: Record<string, string> = {};
-  const token = getAuthToken();
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  if (json) headers['Content-Type'] = 'application/json';
-  return headers;
-}
-
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init);
+  const merged: RequestInit = { ...init };
+  const existingHeaders = new Headers(merged.headers || {});
+  if (!existingHeaders.has('Authorization')) {
+    const token = getAuthToken();
+    if (token) existingHeaders.set('Authorization', `Bearer ${token}`);
+  }
+  if (!existingHeaders.has('Content-Type') && !(merged.body instanceof FormData)) {
+    existingHeaders.set('Content-Type', 'application/json');
+  }
+  merged.headers = existingHeaders;
+
+  const res = await fetch(path, merged);
+  if (res.status === 401) {
+    localStorage.removeItem('wsd.token');
+    window.location.hash = '/login';
+    throw new Error('Session expired');
+  }
   let data: any = {};
   try {
     data = await res.json();
@@ -296,13 +304,12 @@ export const getLogs = (slug: string, tail = 200) =>
   api<{ logs: string }>(`/api/projects/${slug}/logs?tail=${tail}`);
 
 export const getProviders = () =>
-  api<{ providers: ProviderInfo[] }>('/api/providers', { headers: authHeaders(false) });
+  api<{ providers: ProviderInfo[] }>('/api/providers');
 export const getProviderTemplates = () =>
-  api<{ templates: KnownTemplate[] }>('/api/providers/templates', { headers: authHeaders(false) });
+  api<{ templates: KnownTemplate[] }>('/api/providers/templates');
 export const detectProvider = (body: { apiKey?: string; host?: string }) =>
   api<DetectResult>('/api/providers/detect', {
     method: 'POST',
-    headers: authHeaders(),
     body: JSON.stringify(body),
   });
 export const createProvider = (body: {
@@ -314,7 +321,6 @@ export const createProvider = (body: {
 }) =>
   api<{ provider: ProviderInfo }>('/api/providers', {
     method: 'POST',
-    headers: authHeaders(),
     body: JSON.stringify(body),
   });
 export const updateProvider = (
@@ -323,18 +329,15 @@ export const updateProvider = (
 ) =>
   api<{ provider: ProviderInfo }>(`/api/providers/${id}`, {
     method: 'PUT',
-    headers: authHeaders(),
     body: JSON.stringify(patch),
   });
 export const deleteProvider = (id: string) =>
   api<{ ok: boolean }>(`/api/providers/${id}`, {
     method: 'DELETE',
-    headers: authHeaders(),
   });
 export const testProvider = (id: string) =>
   api<ProviderTestResult>(`/api/providers/${id}/test`, {
     method: 'POST',
-    headers: authHeaders(),
   });
 
 export function uploadFiles(
@@ -404,5 +407,8 @@ export const getProjectSubdir = (slug: string) =>
 
 export function wsUrl(path: string): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${proto}://${location.host}${path}`;
+  const token = getAuthToken();
+  const sep = path.includes('?') ? '&' : '?';
+  const tokenParam = token ? `${sep}token=${encodeURIComponent(token)}` : '';
+  return `${proto}://${location.host}${path}${tokenParam}`;
 }

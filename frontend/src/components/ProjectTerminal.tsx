@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { wsUrl } from '../api';
 
 type TermMode = 'project' | 'control';
 type TermStatus = 'connecting' | 'ready' | 'closed' | 'error';
@@ -271,8 +272,8 @@ export function ProjectTerminal({ slug }: { slug: string }) {
     let ro: ResizeObserver | null = null;
     const startTimer = window.setTimeout(() => fit.fit(), 100);
 
-    const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/projects/${encodeURIComponent(slug)}/terminal?mode=${currentMode}`;
-    ws = new WebSocket(wsUrl);
+    const url = wsUrl(`/ws/projects/${encodeURIComponent(slug)}/terminal?mode=${currentMode}`);
+    ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
     setStatus('connecting');

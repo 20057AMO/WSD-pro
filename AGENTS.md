@@ -48,18 +48,28 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 ### Frontend Pages
 | Route | Component | Notes |
 |-------|-----------|-------|
+| `/login` | Login | Setup + login (unauthenticated only) |
 | `/` | Dashboard | Minimal overview: stats + quick actions |
 | `/projects` | Projects | Cards/table, search, filter, sort, bulk ops |
 | `/project/:slug` | Project | Detail: overview, files, logs, terminal, scripts |
 | `/agents` | Agents | AI agents with chat, RTL/LTR, presets |
 | `/providers` | Providers | LLM provider config |
+| `/settings` | Settings | Change password, account info, logout |
 | `/ide` | EmbeddedIDE | code-server iframe |
 | `/opencode` | Opencode | opencode web iframe |
+
+### Authentication
+- **Unified auth**: Single user password = providers password
+- **Backend**: bcrypt (10 rounds) + JWT (24h expiry) stored in `data/users.json`
+- **Frontend**: `auth.tsx` AuthProvider context, token in `localStorage` as `wsd.token`
+- **HTTP**: `authMiddleware` on all routes after `/api/auth/*` (returns 401 without Bearer token)
+- **WebSocket**: JWT token passed via `?token=` query param on upgrade, validated server-side
+- **API helper**: `api()` auto-attaches `Authorization` header; 401 responses redirect to `/login`
+- **Routes**: `/login` accessible without auth, all other routes require authenticated user
 
 ### Key Patterns
 - **WebSocket with HTTP fallback**: All WS hooks try WS first, fall back to 5s polling
 - **Room-based connection limits**: Max 8 connections per WS room
-- **No authentication**: Open app, no login required
 
 ## Working Methodology
 

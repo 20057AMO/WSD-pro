@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'preact/hooks';
+import { wsUrl } from './api';
 
 export interface Attachment {
   kind: 'image' | 'text' | 'file';
@@ -103,7 +104,7 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
     cleanupReconnect();
     if (disposedRef.current) return;
 
-    const ws = new WebSocket(path);
+    const ws = new WebSocket(wsUrl(path));
     wsRef.current = ws;
     setStatus('connecting');
 

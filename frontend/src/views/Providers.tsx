@@ -21,14 +21,16 @@ const TYPE_LABEL: Record<ProviderType, string> = {
 
 export function Providers() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   const refresh = async () => {
     try {
       const { providers: list } = await getProviders();
       setProviders(list);
-    } catch {
-      // token may be invalid
+      setError(null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to load providers');
     }
   };
 
@@ -51,6 +53,8 @@ export function Providers() {
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 14px">
         <button class="btn-primary sm" onClick={() => setAdding(true)}>+ Add provider</button>
       </div>
+
+      {error && <div class="chat-save-msg" style="margin-bottom: 12px">{error}</div>}
 
       <div class="providers-grid">
         {providers.map((p) => (

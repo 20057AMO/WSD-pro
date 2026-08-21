@@ -73,6 +73,7 @@ function navigate(href: string): void {
 }
 
 function Sidebar() {
+  const { user } = useAuth();
   return (
     <aside class="sidebar">
       <div class="sidebar-brand">
@@ -94,7 +95,7 @@ function Sidebar() {
       <div class="sidebar-footer">
         <div class="sys-row">
           <span class="sys-dot ok" />
-          open · no login
+          {user?.username || 'authenticated'}
         </div>
       </div>
     </aside>
