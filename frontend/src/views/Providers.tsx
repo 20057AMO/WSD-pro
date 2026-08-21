@@ -7,6 +7,11 @@ import {
   updateProvider,
   testProvider,
   deleteProvider,
+  getProvidersLockStatus,
+  unlockProviders,
+  getProvidersUnlock,
+  setProvidersUnlock,
+  clearProvidersUnlock,
   type ProviderInfo,
   type ProviderType,
   type KnownTemplate,
@@ -24,19 +29,131 @@ export function Providers() {
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
+  // Lock state: null = still checking
+  const [locked, setLocked] = useState<boolean | null>(null);
+  const [lockConfigured, setLockConfigured] = useState(false);
+  const [unlockPw, setUnlockPw] = useState('');
+  const [unlockLoading, setUnlockLoading] = useState(false);
+  const [unlockErr, setUnlockErr] = useState<string | null>(null);
+  const [, forceTick] = useState(0);
+
   const refresh = async () => {
     try {
       const { providers: list } = await getProviders();
       setProviders(list);
       setError(null);
     } catch (err: any) {
-      setError(err.message || 'Failed to load providers');
+      if (err?.code === 'providers_locked') setLocked(true);
+      else setError(err.message || 'Failed to load providers');
     }
   };
 
   useEffect(() => {
-    refresh();
+    getProvidersLockStatus()
+      .then((r) => setLockConfigured(r.enabled))
+      .catch(() => setLockConfigured(false));
+    if (getProvidersUnlock()) {
+      setLocked(false);
+      refresh();
+    } else {
+      getProvidersLockStatus()
+        .then((r) => {
+          if (!r.enabled) refresh();
+          else setLocked(true);
+        })
+        .catch(() => refresh());
+    }
   }, []);
+
+  // Countdown ticker while unlocked — re-render every 30s so the badge stays honest.
+  useEffect(() => {
+    if (locked !== false) return;
+    const t = setInterval(() => forceTick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [locked]);
+
+  // Auto-lock the view when the stored unlock expires.
+  useEffect(() => {
+    if (locked !== false) return;
+    const t = setInterval(() => {
+      if (!getProvidersUnlock()) {
+        setLocked(true);
+        setProviders([]);
+      }
+    }, 15_000);
+    return () => clearInterval(t);
+  }, [locked]);
+
+  const doUnlock = async (e: Event) => {
+    e.preventDefault();
+    if (unlockLoading || !unlockPw) return;
+    setUnlockLoading(true);
+    setUnlockErr(null);
+    try {
+      const res = await unlockProviders(unlockPw);
+      if (!res.unlockToken) throw new Error('Incorrect providers password.');
+      setProvidersUnlock(res.unlockToken, res.expiresInSec || 1800);
+      setUnlockPw('');
+      setLocked(false);
+      await refresh();
+    } catch (err: any) {
+      setUnlockErr(err.message || 'Unlock failed');
+    } finally {
+      setUnlockLoading(false);
+    }
+  };
+
+  const lockNow = () => {
+    clearProvidersUnlock();
+    setProviders([]);
+    setLocked(true);
+  };
+
+  // ── Locked gate ──
+  if (locked === true) {
+    return (
+      <div class="view">
+        <div class="hero">
+          <span class="hero-badge">Providers · 🔒</span>
+          <h1 class="hero-title" style="font-size: 1.5rem">Providers</h1>
+          <p class="hero-sub">This page is protected by an additional password.</p>
+        </div>
+        <form class="panel settings-section providers-unlock-card" onSubmit={doUnlock}>
+          <div class="panel-title">🔒 Unlock Providers</div>
+          <p class="settings-hint">
+            Enter the Providers password you configured in Settings → Providers Security.
+            The page stays open for 30 minutes.
+          </p>
+          <input
+            class="modern-input"
+            type="password"
+            placeholder="Providers password"
+            autoFocus
+            value={unlockPw}
+            onInput={(e: any) => setUnlockPw(e.target.value)}
+          />
+          {unlockErr && <div class="login-error">{unlockErr}</div>}
+          <button class="btn-primary sm" type="submit" disabled={unlockLoading || !unlockPw}>
+            {unlockLoading ? 'Checking…' : 'Unlock'}
+          </button>
+          <p class="settings-hint" style="margin-top: 10px;">
+            Forgot it? Reset it from <a href="#/settings" style="color: var(--accent)">Settings → Providers Security</a> using your account password.
+          </p>
+        </form>
+      </div>
+    );
+  }
+
+  if (locked === null) {
+    return (
+      <div class="view">
+        <div class="dim" style="padding: 24px; font-size: 0.85rem;">Loading…</div>
+      </div>
+    );
+  }
+
+  const unlockLeft = getProvidersUnlock();
+  const minutesLeft = unlockLeft ? Math.max(0, Math.ceil((unlockLeft.expiresAt - Date.now()) / 60_000)) : 0;
 
   return (
     <div class="view">
@@ -50,7 +167,15 @@ export function Providers() {
         </p>
       </div>
 
-      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 14px">
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 14px; align-items: center;">
+        {minutesLeft > 0 && (
+          <span class="badge-ok unlock-countdown" title="Time remaining before this page locks again">
+            🔓 unlocked · {minutesLeft} min left
+          </span>
+        )}
+        {lockConfigured && (
+          <button class="btn-ghost sm" onClick={lockNow}>Lock now</button>
+        )}
         <button class="btn-primary sm" onClick={() => setAdding(true)}>+ Add provider</button>
       </div>
 

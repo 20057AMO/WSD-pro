@@ -1484,4 +1484,41 @@ textarea.agent-prompt-input {
   padding: 8px 0; border-bottom: 1px solid var(--border);
 }
 .settings-row:last-child { border-bottom: none; }
+.settings-hint {
+  font-size: 0.72rem; color: var(--text-3);
+  margin: 6px 0 12px; line-height: 1.5;
+}
+
+/* ── Beta chip ── */
+.beta-chip {
+  display: inline-block;
+  font-size: 0.58rem; font-weight: 700; letter-spacing: 0.08em;
+  padding: 2px 7px; border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #6ea8fe) 18%, transparent);
+  color: var(--accent, #6ea8fe);
+  border: 1px solid color-mix(in srgb, var(--accent, #6ea8fe) 45%, transparent);
+  vertical-align: middle;
+  user-select: none;
+}
+.login-beta { margin-top: 8px; }
+
+/* ── Providers lock badges / countdown ── */
+.badge-ok {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.68rem; color: var(--green, #4ade80);
+  background: color-mix(in srgb, var(--green, #4ade80) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green, #4ade80) 35%, transparent);
+  border-radius: 999px; padding: 3px 9px;
+}
+.badge-off {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.68rem; color: var(--text-3);
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 9px;
+}
+.unlock-countdown { font-variant-numeric: tabular-nums; }
+.providers-unlock-card {
+  max-width: 420px;
+  display: flex; flex-direction: column; gap: 10px;
+}
 

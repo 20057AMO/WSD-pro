@@ -7,6 +7,7 @@ const DATA_DIR = process.env.WSD_DATA_DIR || '/app/data';
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'wsd-pro-default-secret-change-me';
 const JWT_EXPIRY = '24h';
+const PROVIDERS_UNLOCK_EXPIRY = '30m';
 const BCRYPT_ROUNDS = 10;
 
 interface StoredUser {
@@ -14,6 +15,11 @@ interface StoredUser {
   username: string;
   passwordHash: string;
   createdAt: string;
+  passwordChangedAt?: string;
+  /** Optional second-layer password guarding the Providers management page. */
+  providersPasswordHash?: string;
+  /** Bumped whenever the providers password changes; invalidates old unlock tokens. */
+  providersPasswordVersion?: number;
 }
 
 let cachedUser: StoredUser | null = null;
@@ -39,10 +45,15 @@ export function hasUser(): boolean {
   return cachedUser !== null;
 }
 
-export function getUser(): { id: string; username: string; createdAt: string } | null {
+export function getUser(): { id: string; username: string; createdAt: string; passwordChangedAt?: string } | null {
   if (cachedUser === null) loadUsers();
   if (!cachedUser) return null;
-  return { id: cachedUser.id, username: cachedUser.username, createdAt: cachedUser.createdAt };
+  return {
+    id: cachedUser.id,
+    username: cachedUser.username,
+    createdAt: cachedUser.createdAt,
+    passwordChangedAt: cachedUser.passwordChangedAt,
+  };
 }
 
 export function setup(username: string, password: string): { id: string; username: string; token: string } {
@@ -53,6 +64,7 @@ export function setup(username: string, password: string): { id: string; usernam
   if (cleanUsername.length > 50) throw new Error('Username must be at most 50 characters.');
   if (!password || password.length < 4) throw new Error('Password must be at least 4 characters.');
 
+  const now = new Date().toISOString();
   const passwordHash = bcrypt.hashSync(password, BCRYPT_ROUNDS);
   const id = `user-${Date.now()}`;
 
@@ -60,7 +72,9 @@ export function setup(username: string, password: string): { id: string; usernam
     id,
     username: cleanUsername,
     passwordHash,
-    createdAt: new Date().toISOString(),
+    createdAt: now,
+    passwordChangedAt: now,
+    providersPasswordVersion: 0,
   };
 
   saveUsers();
@@ -91,6 +105,13 @@ export function verifyToken(token: string | null): { id: string; username: strin
   }
 }
 
+/** Re-authenticate with the account password (used to authorize sensitive ops). */
+export function verifyAccountPassword(accountPassword: string): boolean {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser) return false;
+  return bcrypt.compareSync(String(accountPassword || ''), cachedUser.passwordHash);
+}
+
 export function changePassword(currentPassword: string, newPassword: string): void {
   if (cachedUser === null) loadUsers();
   if (!cachedUser) throw new Error('No user configured.');
@@ -104,5 +125,92 @@ export function changePassword(currentPassword: string, newPassword: string): vo
   }
 
   cachedUser.passwordHash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
+  cachedUser.passwordChangedAt = new Date().toISOString();
   saveUsers();
+}
+
+// ── Providers lock (optional second-layer password) ───────────
+
+function assertProvidersPassword(newPassword: string): void {
+  if (!newPassword || newPassword.length < 4) {
+    throw new Error('Providers password must be at least 4 characters.');
+  }
+  if (newPassword.length > 128) {
+    throw new Error('Providers password must be at most 128 characters.');
+  }
+}
+
+export function hasProvidersPassword(): boolean {
+  if (cachedUser === null) loadUsers();
+  return Boolean(cachedUser?.providersPasswordHash);
+}
+
+/**
+ * Set or change the Providers lock password.
+ * Always requires re-verification of the account password first.
+ */
+export function setProvidersPassword(accountPassword: string, newPassword: string): void {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser) throw new Error('No user configured.');
+
+  if (!verifyAccountPassword(accountPassword)) {
+    throw new Error('Account password is incorrect.');
+  }
+  assertProvidersPassword(newPassword);
+
+  cachedUser.providersPasswordHash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
+  cachedUser.providersPasswordVersion = (cachedUser.providersPasswordVersion || 0) + 1;
+  saveUsers();
+}
+
+/** Disable the Providers lock entirely. Requires account password verification. */
+export function removeProvidersPassword(accountPassword: string): void {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser) throw new Error('No user configured.');
+
+  if (!verifyAccountPassword(accountPassword)) {
+    throw new Error('Account password is incorrect.');
+  }
+  if (!cachedUser.providersPasswordHash) {
+    throw new Error('Providers lock is not enabled.');
+  }
+
+  delete cachedUser.providersPasswordHash;
+  cachedUser.providersPasswordVersion = (cachedUser.providersPasswordVersion || 0) + 1;
+  saveUsers();
+}
+
+/**
+ * Verify a providers-lock password and issue a short-lived scoped unlock
+ * token. The token carries the current password version so changing or
+ * removing the lock instantly invalidates every previously issued token.
+ */
+export function issueUnlockToken(providersPassword: string): { unlockToken: string; expiresInSec: number } | null {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser?.providersPasswordHash) return null;
+
+  if (!bcrypt.compareSync(String(providersPassword || ''), cachedUser.providersPasswordHash)) {
+    return null;
+  }
+
+  const unlockToken = jwt.sign(
+    { scope: 'providers', pv: cachedUser.providersPasswordVersion || 0 },
+    JWT_SECRET,
+    { expiresIn: PROVIDERS_UNLOCK_EXPIRY }
+  );
+  // 30 minutes in seconds — keep in sync with PROVIDERS_UNLOCK_EXPIRY
+  return { unlockToken, expiresInSec: 30 * 60 };
+}
+
+export function verifyUnlockToken(token: string | null): boolean {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser?.providersPasswordHash) return false;
+  if (!token) return false;
+
+  try {
+    const decoded = jwt.verify(String(token), JWT_SECRET) as { scope?: string; pv?: number };
+    return decoded.scope === 'providers' && decoded.pv === (cachedUser.providersPasswordVersion || 0);
+  } catch {
+    return false;
+  }
 }

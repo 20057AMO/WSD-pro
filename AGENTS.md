@@ -37,6 +37,7 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 | Auth & access control | `tests/auth.test.ts` | 401s, forged/tampered/expired tokens, setup guard |
 | Project lifecycle | `tests/projects.lifecycle.test.ts` | Real Docker: create → env → files → logs/stats/ports → stop/start → delete → 404 |
 | Providers/Agents/Chat CRUD | `tests/providers-agents-chat.test.ts` | Full CRUD + sessions + templates |
+| Providers lock & backup | `tests/providers-lock.test.ts` | Lock flow E2E (needs `WSD_TEST_ACCOUNT_PASSWORD`; self-skips without it) |
 | Security | `tests/security.test.ts` | Path traversal, upload sanitization, malformed auth headers |
 | Smoke | `tests/smoke.test.ts` | Health, core endpoints, project roundtrip |
 | WebSocket matrix | `tests/websocket.test.ts` | 6 endpoints × {no token→401, valid→open, invalid→401} |
@@ -90,6 +91,22 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - **WebSocket**: JWT token passed via `?token=` query param on upgrade, validated server-side
 - **API helper**: `api()` auto-attaches `Authorization` header; 401 responses redirect to `/login`
 - **Routes**: `/login` accessible without auth, all other routes require authenticated user
+
+### Providers Security Lock (optional second layer)
+- Separate bcrypt password stored in `users.json` (`providersPasswordHash`) — independent from the account password
+- Managed exclusively from Settings → Providers Security; every add/change/remove requires account-password re-auth
+- Unlock issues a scoped JWT (`scope:'providers'`, 30 min) sent as `X-Providers-Unlock`; version counter (`pv`) invalidates all unlock tokens on password change
+- When enabled, management endpoints return `403 {error:'providers_locked'}` without a valid token
+- Always-open endpoints: `GET /api/providers/options` (id/name/type only) and `GET /api/providers/templates`
+- Chat/agent LLM usage is server-side and never blocked by the lock
+
+### Settings Backup (export/import)
+- `GET /api/settings/export?accountPassword=…` → JSON backup; **provider API keys are stripped by design**
+- `POST /api/settings/import` merges by id — existing items always win, secrets are never imported
+- Both operations require account-password re-auth
+
+### Beta
+- App version: `2.0.0-beta` — badge shown in sidebar footer, login page and Settings → About
 
 ### Key Patterns
 - **WebSocket with HTTP fallback**: All WS hooks try WS first, fall back to 5s polling

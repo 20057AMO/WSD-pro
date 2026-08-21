@@ -96,6 +96,7 @@ function Sidebar() {
         <div class="sys-row">
           <span class="sys-dot ok" />
           {user?.username || 'authenticated'}
+          <span class="beta-chip" title="Beta software — features and data format may change">BETA</span>
         </div>
       </div>
     </aside>

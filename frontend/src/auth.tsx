@@ -5,6 +5,7 @@ interface AuthUser {
   id: string;
   username: string;
   createdAt: string;
+  passwordChangedAt?: string;
 }
 
 interface AuthState {
@@ -100,6 +101,46 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
     setToken(null);
     setUser(null);
   }, []);
+
+  // ── Auto-logout on inactivity ─────────────────────────────────
+  // Reads the idle timeout (minutes) from localStorage ('wsd.idleTimeout':
+  // 'off' | '30' | '60' | '120'). Activity events throttle-refresh the clock.
+  useEffect(() => {
+    if (!token) return;
+    const raw = (() => {
+      try { return localStorage.getItem('wsd.idleTimeout'); } catch { return 'off'; }
+    })();
+    if (!raw || raw === 'off') return;
+    const limitMs = Math.max(1, parseInt(raw, 10) || 0) * 60_000;
+
+    let lastActivity = Date.now();
+    let throttled = false;
+    const markActive = () => {
+      if (throttled) return;
+      throttled = true;
+      lastActivity = Date.now();
+      setTimeout(() => { throttled = false; }, 5_000);
+    };
+
+    const events = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
+    events.forEach((ev) => window.addEventListener(ev, markActive, { passive: true }));
+
+    const checker = setInterval(() => {
+      if (Date.now() - lastActivity > limitMs) {
+        clearInterval(checker);
+        events.forEach((ev) => window.removeEventListener(ev, markActive));
+        localStorage.removeItem('wsd.token');
+        setToken(null);
+        setUser(null);
+        window.location.hash = '/login';
+      }
+    }, 15_000);
+
+    return () => {
+      clearInterval(checker);
+      events.forEach((ev) => window.removeEventListener(ev, markActive));
+    };
+  }, [token]);
 
   return (
     <AuthContext.Provider value={{ user, token, loading, hasUser, login: doLogin, setup: doSetup, logout }}>

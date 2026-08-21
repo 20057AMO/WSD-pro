@@ -54,7 +54,20 @@ import {
   renameSession,
   deleteSession,
 } from './services/chat-sessions';
-import { setup, login, changePassword, hasUser, getUser } from './services/user-store';
+import {
+  setup,
+  login,
+  changePassword,
+  hasUser,
+  getUser,
+  hasProvidersPassword,
+  setProvidersPassword,
+  removeProvidersPassword,
+  issueUnlockToken,
+  verifyUnlockToken,
+  verifyAccountPassword,
+} from './services/user-store';
+import { buildBackup, restoreFromBackup } from './services/settings-export';
 import { authMiddleware } from './middleware/auth';
 import { attachWebSockets } from './ws/ws-server';
 
@@ -176,6 +189,80 @@ app.post('/api/auth/change-password', (req: any, res) => {
   }
 });
 
+// ── Providers lock (optional second-layer password) ───────────
+
+app.get('/api/providers-lock', (_req, res) => {
+  res.json({ enabled: hasProvidersPassword() });
+});
+
+app.post('/api/providers/unlock', (req, res) => {
+  const { password } = req.body || {};
+  if (!hasProvidersPassword()) return res.json({ ok: true, unlocked: true });
+  const result = issueUnlockToken(String(password || ''));
+  if (!result) return res.status(401).json({ error: 'Incorrect providers password.' });
+  res.json({ ok: true, unlockToken: result.unlockToken, expiresInSec: result.expiresInSec });
+});
+
+// Set or change the providers lock password — requires account re-auth.
+app.post('/api/auth/providers-password', (req: any, res) => {
+  try {
+    const { accountPassword, newPassword } = req.body || {};
+    if (!accountPassword || !newPassword) {
+      return res.status(400).json({ error: 'Account password and new providers password are required.' });
+    }
+    setProvidersPassword(String(accountPassword), String(newPassword));
+    res.json({ ok: true, enabled: true });
+  } catch (err: any) {
+    res.status(err?.message?.includes('incorrect') ? 401 : 400).json({ error: err.message });
+  }
+});
+
+// Remove the providers lock entirely — requires account re-auth.
+app.delete('/api/auth/providers-password', (req: any, res) => {
+  try {
+    const { accountPassword } = req.body || {};
+    if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
+    removeProvidersPassword(String(accountPassword));
+    res.json({ ok: true, enabled: false });
+  } catch (err: any) {
+    res.status(err?.message?.includes('not enabled') ? 409 : 401).json({ error: err.message });
+  }
+});
+
+// ── Settings backup (export / import) ─────────────────────────
+// Both operations require account re-auth. Exports never contain API keys.
+
+app.get('/api/settings/export', (req: any, res) => {
+  const accountPassword = String(req.query.accountPassword || '');
+  if (!verifyAccountPassword(accountPassword)) {
+    return res.status(401).json({ error: 'Account password is incorrect.' });
+  }
+  try {
+    const backup = buildBackup('2.0.0-beta');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="wsd-pro-backup-${new Date().toISOString().slice(0, 10)}.json"`
+    );
+    res.json(backup);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/settings/import', async (req: any, res) => {
+  try {
+    const { accountPassword, backup } = req.body || {};
+    if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
+    if (!verifyAccountPassword(String(accountPassword))) {
+      return res.status(401).json({ error: 'Account password is incorrect.' });
+    }
+    const result = restoreFromBackup(backup);
+    res.json({ ok: true, ...result });
+  } catch (err: any) {
+    res.status(err?.status || 500).json({ error: err.message });
+  }
+});
+
 // ── Server info / networking ─────────────────────────────────
 app.get('/api/server/info', (_req, res) => {
   const ips = detectIp();
@@ -274,15 +361,35 @@ app.delete('/api/chat/sessions/:chatId', (req, res) => {
 });
 
 // ── Providers (API key management, protected by authMiddleware) ──
-app.get('/api/providers', (_req, res) => {
-  res.json({ providers: listProviders() });
+
+// Optional second-layer lock: when a providers password is configured, all
+// management endpoints require a short-lived scoped unlock token. Chat and
+// agent LLM calls are server-side and unaffected.
+function providersLockMiddleware(req: any, res: any, next: any) {
+  if (!hasProvidersPassword()) return next();
+  const token = String(req.headers['x-providers-unlock'] || '');
+  if (verifyUnlockToken(token)) return next();
+  res.status(403).json({ error: 'providers_locked' });
+}
+
+// Lightweight picker list for dropdowns (Agents modal etc.) — no secrets,
+// stays reachable even when the providers lock is enabled.
+app.get('/api/providers/options', (_req, res) => {
+  const options = listProviders().map((p) => ({ id: p.id, name: p.name, type: p.type, enabled: p.enabled }));
+  res.json({ providers: options });
 });
 
 app.get('/api/providers/templates', (_req, res) => {
   res.json({ templates: KNOWN_TEMPLATES });
 });
 
-app.post('/api/providers/detect', async (req, res) => {
+const providersManagement: Array<(req: any, res: any, next: any) => void> = [providersLockMiddleware];
+
+app.get('/api/providers', providersManagement, (_req: any, res: any) => {
+  res.json({ providers: listProviders() });
+});
+
+app.post('/api/providers/detect', providersManagement, async (req: any, res: any) => {
   try {
     const { apiKey, host } = req.body || {};
     const result = await detectProvider({ apiKey, host });
@@ -292,7 +399,7 @@ app.post('/api/providers/detect', async (req, res) => {
   }
 });
 
-app.post('/api/providers', async (req, res) => {
+app.post('/api/providers', providersManagement, async (req: any, res: any) => {
   try {
     const { name, host, type, apiKey, enabled, auth } = req.body || {};
     const key = typeof apiKey === 'string' ? apiKey.trim() : '';
@@ -332,7 +439,7 @@ app.post('/api/providers', async (req, res) => {
   }
 });
 
-app.put('/api/providers/:id', (req, res) => {
+app.put('/api/providers/:id', providersManagement, (req: any, res: any) => {
   try {
     const id = String(req.params.id || '');
     if (!getProviderMeta(id)) {
@@ -347,7 +454,7 @@ app.put('/api/providers/:id', (req, res) => {
   }
 });
 
-app.delete('/api/providers/:id', (req, res) => {
+app.delete('/api/providers/:id', providersManagement, (req: any, res: any) => {
   try {
     const id = String(req.params.id || '');
     deleteProvider(id);
@@ -357,7 +464,7 @@ app.delete('/api/providers/:id', (req, res) => {
   }
 });
 
-app.post('/api/providers/:id/test', async (req, res) => {
+app.post('/api/providers/:id/test', providersManagement, async (req: any, res: any) => {
   const id = String(req.params.id || '');
   if (!getProviderMeta(id)) {
     res.status(404).json({ error: 'Unknown provider' });
@@ -800,3 +907,5 @@ server.listen(PORT, HOST, () => {
   console.log(`[WSD-Pro] Chat model: ${getChatConfig().model}`);
   console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
 });
+
+

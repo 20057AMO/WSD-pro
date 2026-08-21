@@ -163,12 +163,56 @@ function getAuthToken(): string | null {
   }
 }
 
+// ── Providers unlock token (second-layer lock) ────────────────
+const UNLOCK_KEY = 'wsd.providers.unlock';
+
+export interface UnlockState {
+  token: string;
+  /** epoch ms when the unlock expires */
+  expiresAt: number;
+}
+
+export function getProvidersUnlock(): UnlockState | null {
+  try {
+    const raw = sessionStorage.getItem(UNLOCK_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as UnlockState;
+    if (!parsed?.token || !parsed?.expiresAt || Date.now() >= parsed.expiresAt) {
+      sessionStorage.removeItem(UNLOCK_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function setProvidersUnlock(token: string, expiresInSec: number): void {
+  try {
+    sessionStorage.setItem(UNLOCK_KEY, JSON.stringify({ token, expiresAt: Date.now() + expiresInSec * 1000 }));
+  } catch { /* storage unavailable */ }
+}
+
+export function clearProvidersUnlock(): void {
+  try {
+    sessionStorage.removeItem(UNLOCK_KEY);
+  } catch { /* ignore */ }
+}
+
+export type ApiError = Error & { status?: number; code?: string };
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const merged: RequestInit = { ...init };
   const existingHeaders = new Headers(merged.headers || {});
   if (!existingHeaders.has('Authorization')) {
     const token = getAuthToken();
     if (token) existingHeaders.set('Authorization', `Bearer ${token}`);
+  }
+  // Providers-lock scoped token — attached opportunistically; the server
+  // ignores it on unlocked routes.
+  if (!existingHeaders.has('X-Providers-Unlock')) {
+    const unlock = getProvidersUnlock();
+    if (unlock) existingHeaders.set('X-Providers-Unlock', unlock.token);
   }
   if (!existingHeaders.has('Content-Type') && !(merged.body instanceof FormData)) {
     existingHeaders.set('Content-Type', 'application/json');
@@ -188,7 +232,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     /* non-JSON body */
   }
   if (!res.ok) {
-    const err = new Error(data?.error || `Request failed (HTTP ${res.status})`) as Error & { status?: number; code?: string; message?: string };
+    if (res.status === 403 && data?.error === 'providers_locked') {
+      clearProvidersUnlock();
+    }
+    const err = new Error(data?.error || `Request failed (HTTP ${res.status})`) as ApiError;
     err.code = data?.error;
     if (data?.message && data?.error) err.message = `${data.error}: ${data.message}`;
     err.status = res.status;
@@ -338,6 +385,51 @@ export const deleteProvider = (id: string) =>
 export const testProvider = (id: string) =>
   api<ProviderTestResult>(`/api/providers/${id}/test`, {
     method: 'POST',
+  });
+
+// Lightweight picker list (no secrets, works even when providers are locked)
+export const getProviderOptions = () =>
+  api<{ providers: Array<{ id: string; name: string; type: ProviderType; enabled: boolean }> }>('/api/providers/options');
+
+// ── Providers lock management ─────────────────────────────────
+export const getProvidersLockStatus = () =>
+  api<{ enabled: boolean }>('/api/providers-lock');
+export const unlockProviders = (password: string) =>
+  api<{ ok: boolean; unlocked?: boolean; unlockToken?: string; expiresInSec?: number }>('/api/providers/unlock', {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  });
+export const setProvidersPassword = (accountPassword: string, newPassword: string) =>
+  api<{ ok: boolean; enabled: boolean }>('/api/auth/providers-password', {
+    method: 'POST',
+    body: JSON.stringify({ accountPassword, newPassword }),
+  });
+export const removeProvidersPassword = (accountPassword: string) =>
+  api<{ ok: boolean; enabled: boolean }>('/api/auth/providers-password', {
+    method: 'DELETE',
+    body: JSON.stringify({ accountPassword }),
+  });
+
+// ── Settings backup ───────────────────────────────────────────
+export interface BackupFile {
+  kind: string;
+  version: string;
+  exportedAt: string;
+  sanitized: boolean;
+  data: Record<string, unknown>;
+}
+export const exportSettings = (accountPassword: string): Promise<BackupFile> =>
+  fetch(`/api/settings/export?accountPassword=${encodeURIComponent(accountPassword)}`, {
+    headers: { Authorization: `Bearer ${getAuthToken() || ''}` },
+  }).then(async (res) => {
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || `Export failed (HTTP ${res.status})`);
+    return data as BackupFile;
+  });
+export const importSettings = (accountPassword: string, backup: unknown) =>
+  api<{ ok: boolean; imported: Record<string, number>; skipped: number }>('/api/settings/import', {
+    method: 'POST',
+    body: JSON.stringify({ accountPassword, backup }),
   });
 
 export function uploadFiles(
