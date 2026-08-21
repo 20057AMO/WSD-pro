@@ -1,6 +1,8 @@
 import { Component, type ComponentChildren } from 'preact';
 import { Router, Route } from 'wouter';
 import { useHashLocation } from 'wouter/use-hash-location';
+import { AuthProvider, useAuth } from './auth';
+import { Login } from './views/Login';
 import { Dashboard } from './views/Dashboard';
 import { Projects } from './views/Projects';
 import { Project } from './views/Project';
@@ -8,6 +10,7 @@ import { Opencode } from './views/Opencode';
 import { Agents } from './views/Agents';
 import { EmbeddedIDE } from './views/EmbeddedIDE';
 import { Providers } from './views/Providers';
+import { Settings } from './views/Settings';
 
 
 interface ErrorBoundaryProps { children: ComponentChildren; }
@@ -85,6 +88,7 @@ function Sidebar() {
         <NavButton href="/agents" label="Agents" icon="🤖" />
         <NavButton href="/opencode" label="opencode" icon="⌁" />
         <NavButton href="/providers" label="Providers" icon="🔑" />
+        <NavButton href="/settings" label="Settings" icon="⚙" />
         <NavButton href="/ide" label="Web IDE" icon="▦" />
       </nav>
       <div class="sidebar-footer">
@@ -99,6 +103,28 @@ function Sidebar() {
 
 function Shell() {
   const [location] = useHashLocation();
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div class="app-view" style="display:flex;align-items:center;justify-content:center;height:100vh;">
+        <div class="dim" style="font-size:0.85rem">Loading…</div>
+      </div>
+    );
+  }
+
+  // Not logged in → redirect to login
+  if (!user) {
+    if (location === '/login') return <Login />;
+    window.location.hash = '/login';
+    return null;
+  }
+
+  // Logged in, but on /login → redirect to home
+  if (location === '/login') {
+    window.location.hash = '/';
+    return null;
+  }
 
   if (location.startsWith('/opencode')) {
     return <Opencode />;
@@ -120,6 +146,7 @@ function Shell() {
         <Route path="/projects" component={Projects} />
         <Route path="/project/:slug" component={Project} />
         <Route path="/providers" component={Providers} />
+        <Route path="/settings" component={Settings} />
       </main>
     </div>
   );
@@ -128,12 +155,14 @@ function Shell() {
 export function App() {
   return (
     <ErrorBoundary>
-      <Router hook={useHashLocation}>
-        <Shell />
-        <div class="watermark" aria-hidden="true">
-          <img src="/logo.png" alt="" />
-        </div>
-      </Router>
+      <AuthProvider>
+        <Router hook={useHashLocation}>
+          <Shell />
+          <div class="watermark" aria-hidden="true">
+            <img src="/logo.png" alt="" />
+          </div>
+        </Router>
+      </AuthProvider>
     </ErrorBoundary>
   );
 }

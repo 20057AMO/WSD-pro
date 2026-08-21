@@ -155,30 +155,18 @@ export interface ProviderTestResult {
   error?: string;
 }
 
-let providersToken: string | null = null;
-try {
-  providersToken = sessionStorage.getItem('wsd.providers.token');
-} catch {
-  providersToken = null;
-}
-
-export function getProvidersToken(): string | null {
-  return providersToken;
-}
-
-export function setProvidersToken(token: string | null): void {
-  providersToken = token;
+function getAuthToken(): string | null {
   try {
-    if (token) sessionStorage.setItem('wsd.providers.token', token);
-    else sessionStorage.removeItem('wsd.providers.token');
+    return localStorage.getItem('wsd.token');
   } catch {
-    /* storage unavailable */
+    return null;
   }
 }
 
-function authedHeaders(json = true): Record<string, string> {
+function authHeaders(json = true): Record<string, string> {
   const headers: Record<string, string> = {};
-  if (providersToken) headers['Authorization'] = `Bearer ${providersToken}`;
+  const token = getAuthToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   if (json) headers['Content-Type'] = 'application/json';
   return headers;
 }
@@ -307,22 +295,14 @@ export const renameAgentSession = (agentId: string, chatId: string, name: string
 export const getLogs = (slug: string, tail = 200) =>
   api<{ logs: string }>(`/api/projects/${slug}/logs?tail=${tail}`);
 
-export const authProviders = (password: string) =>
-  api<{ token: string }>('/api/providers/auth', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
-  });
-export const logoutProviders = () =>
-  api<{ ok: boolean }>('/api/providers/logout', { method: 'POST', headers: authedHeaders() });
 export const getProviders = () =>
-  api<{ providers: ProviderInfo[] }>('/api/providers', { headers: authedHeaders(false) });
+  api<{ providers: ProviderInfo[] }>('/api/providers', { headers: authHeaders(false) });
 export const getProviderTemplates = () =>
-  api<{ templates: KnownTemplate[] }>('/api/providers/templates', { headers: authedHeaders(false) });
+  api<{ templates: KnownTemplate[] }>('/api/providers/templates', { headers: authHeaders(false) });
 export const detectProvider = (body: { apiKey?: string; host?: string }) =>
   api<DetectResult>('/api/providers/detect', {
     method: 'POST',
-    headers: authedHeaders(),
+    headers: authHeaders(),
     body: JSON.stringify(body),
   });
 export const createProvider = (body: {
@@ -334,7 +314,7 @@ export const createProvider = (body: {
 }) =>
   api<{ provider: ProviderInfo }>('/api/providers', {
     method: 'POST',
-    headers: authedHeaders(),
+    headers: authHeaders(),
     body: JSON.stringify(body),
   });
 export const updateProvider = (
@@ -343,18 +323,18 @@ export const updateProvider = (
 ) =>
   api<{ provider: ProviderInfo }>(`/api/providers/${id}`, {
     method: 'PUT',
-    headers: authedHeaders(),
+    headers: authHeaders(),
     body: JSON.stringify(patch),
   });
 export const deleteProvider = (id: string) =>
   api<{ ok: boolean }>(`/api/providers/${id}`, {
     method: 'DELETE',
-    headers: authedHeaders(),
+    headers: authHeaders(),
   });
 export const testProvider = (id: string) =>
   api<ProviderTestResult>(`/api/providers/${id}/test`, {
     method: 'POST',
-    headers: authedHeaders(),
+    headers: authHeaders(),
   });
 
 export function uploadFiles(

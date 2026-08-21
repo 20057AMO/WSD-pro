@@ -2,7 +2,7 @@
  * index.ts
  * WSD-Pro — Work Space Development Pro v2
  * Docker-compose app: dashboard + unified code-server IDE + opencode + chat.
- * No login. Each project = isolated container with durable workspace.
+ * Each project = isolated container with durable workspace.
  */
 
 import express from 'express';
@@ -46,7 +46,6 @@ import {
   KNOWN_TEMPLATES,
 } from './services/provider-store';
 import { detectProvider, checkProvider } from './services/providers-detect';
-import { authenticate, verifyToken, revokeToken } from './services/providers-auth';
 import { getProjectContext, listProjectsBrief, capText } from './services/project-context';
 import { getIndexStats, retrieveProject, formatRetrievedChunks } from './services/project-index';
 import {
@@ -55,6 +54,8 @@ import {
   renameSession,
   deleteSession,
 } from './services/chat-sessions';
+import { setup, login, changePassword, hasUser, getUser, verifyToken } from './services/user-store';
+import { authMiddleware } from './middleware/auth';
 import { attachWebSockets } from './ws/ws-server';
 
 dotenv.config();
@@ -126,6 +127,48 @@ app.get('/api/health', (_req, res) => {
     version: '2.0.0',
     timestamp: new Date().toISOString(),
   });
+});
+
+// ── Auth: setup / login / status / change-password ───────────
+app.get('/api/auth/status', (_req, res) => {
+  const user = getUser();
+  res.json({ hasUser: hasUser(), user });
+});
+
+app.post('/api/auth/setup', (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
+    const result = setup(String(username), String(password));
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
+    const result = login(String(username), String(password));
+    res.json(result);
+  } catch (err: any) {
+    res.status(401).json({ error: err.message });
+  }
+});
+
+// ── Auth middleware (protect everything below) ────────────────
+app.use(authMiddleware);
+
+app.post('/api/auth/change-password', (req: any, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required.' });
+    changePassword(String(currentPassword), String(newPassword));
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // ── Server info / networking ─────────────────────────────────
@@ -225,47 +268,16 @@ app.delete('/api/chat/sessions/:chatId', (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Providers (password-protected API key management) ────────
-function requireProvidersAuth(req: any, res: any, next: any): void {
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-  if (!verifyToken(token)) {
-    res.status(401).json({ error: 'Authentication required' });
-    return;
-  }
-  next();
-}
-
-function bearerToken(req: any): string | null {
-  const header = req.headers.authorization || '';
-  return header.startsWith('Bearer ') ? header.slice(7) : null;
-}
-
-app.post('/api/providers/auth', (req, res) => {
-  const password = (req.body || {}).password;
-  const token = authenticate(typeof password === 'string' ? password : '');
-  if (!token) {
-    res.status(401).json({ error: 'Invalid password' });
-    return;
-  }
-  res.json({ token });
-});
-
-app.post('/api/providers/logout', requireProvidersAuth, (req, res) => {
-  const token = bearerToken(req);
-  if (token) revokeToken(token);
-  res.json({ ok: true });
-});
-
-app.get('/api/providers', requireProvidersAuth, (_req, res) => {
+// ── Providers (API key management, protected by authMiddleware) ──
+app.get('/api/providers', (_req, res) => {
   res.json({ providers: listProviders() });
 });
 
-app.get('/api/providers/templates', requireProvidersAuth, (_req, res) => {
+app.get('/api/providers/templates', (_req, res) => {
   res.json({ templates: KNOWN_TEMPLATES });
 });
 
-app.post('/api/providers/detect', requireProvidersAuth, async (req, res) => {
+app.post('/api/providers/detect', async (req, res) => {
   try {
     const { apiKey, host } = req.body || {};
     const result = await detectProvider({ apiKey, host });
@@ -275,7 +287,7 @@ app.post('/api/providers/detect', requireProvidersAuth, async (req, res) => {
   }
 });
 
-app.post('/api/providers', requireProvidersAuth, async (req, res) => {
+app.post('/api/providers', async (req, res) => {
   try {
     const { name, host, type, apiKey, enabled, auth } = req.body || {};
     const key = typeof apiKey === 'string' ? apiKey.trim() : '';
@@ -315,7 +327,7 @@ app.post('/api/providers', requireProvidersAuth, async (req, res) => {
   }
 });
 
-app.put('/api/providers/:id', requireProvidersAuth, (req, res) => {
+app.put('/api/providers/:id', (req, res) => {
   try {
     const id = String(req.params.id || '');
     if (!getProviderMeta(id)) {
@@ -330,7 +342,7 @@ app.put('/api/providers/:id', requireProvidersAuth, (req, res) => {
   }
 });
 
-app.delete('/api/providers/:id', requireProvidersAuth, (req, res) => {
+app.delete('/api/providers/:id', (req, res) => {
   try {
     const id = String(req.params.id || '');
     deleteProvider(id);
@@ -340,7 +352,7 @@ app.delete('/api/providers/:id', requireProvidersAuth, (req, res) => {
   }
 });
 
-app.post('/api/providers/:id/test', requireProvidersAuth, async (req, res) => {
+app.post('/api/providers/:id/test', async (req, res) => {
   const id = String(req.params.id || '');
   if (!getProviderMeta(id)) {
     res.status(404).json({ error: 'Unknown provider' });

@@ -1,8 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { useHashLocation } from 'wouter/use-hash-location';
 import {
-  authProviders,
-  logoutProviders,
   getProviders,
   getProviderTemplates,
   detectProvider,
@@ -10,8 +7,6 @@ import {
   updateProvider,
   testProvider,
   deleteProvider,
-  getProvidersToken,
-  setProvidersToken,
   type ProviderInfo,
   type ProviderType,
   type KnownTemplate,
@@ -25,89 +20,21 @@ const TYPE_LABEL: Record<ProviderType, string> = {
 };
 
 export function Providers() {
-  const [, setLocation] = useHashLocation();
-  const [authed, setAuthed] = useState(false);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-
-  // password popup state
-  const [password, setPassword] = useState('');
-  const [checking, setChecking] = useState(false);
-  const [passError, setPassError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   const refresh = async () => {
-    const { providers: list } = await getProviders();
-    setProviders(list);
+    try {
+      const { providers: list } = await getProviders();
+      setProviders(list);
+    } catch {
+      // token may be invalid
+    }
   };
 
   useEffect(() => {
-    if (!getProvidersToken()) return;
-    getProviders()
-      .then(({ providers: list }) => {
-        setProviders(list);
-        setAuthed(true);
-      })
-      .catch(() => {
-        setProvidersToken(null);
-      });
+    refresh();
   }, []);
-
-  const login = async (e: Event) => {
-    e.preventDefault();
-    if (!password || checking) return;
-    setChecking(true);
-    setPassError(null);
-    try {
-      const { token } = await authProviders(password);
-      setProvidersToken(token);
-      await refresh();
-      setAuthed(true);
-      setPassword('');
-    } catch (err: any) {
-      setPassError(err.message || 'Invalid password');
-    } finally {
-      setChecking(false);
-    }
-  };
-
-  const doLogout = async () => {
-    try {
-      await logoutProviders();
-    } catch {
-      /* token may already be invalid */
-    }
-    setProvidersToken(null);
-    setAuthed(false);
-    setProviders([]);
-  };
-
-  if (!authed) {
-    return (
-      <div class="modal-overlay">
-        <form class="modal-card" onSubmit={login}>
-          <div class="modal-title">Providers 🔑</div>
-          <div class="modal-sub">This page manages provider API keys. Enter the password to continue.</div>
-          <input
-            class="modern-input"
-            type="password"
-            placeholder="Password"
-            autoFocus
-            value={password}
-            onInput={(e: any) => setPassword(e.target.value)}
-          />
-          <div class="login-error">{passError}</div>
-          <div style="display: flex; gap: 8px; margin-top: 14px; justify-content: flex-end">
-            <button class="btn-ghost sm" type="button" onClick={() => setLocation('/')}>
-              Cancel
-            </button>
-            <button class="btn-primary sm" type="submit" disabled={checking || !password}>
-              {checking ? 'Checking…' : 'Unlock'}
-            </button>
-          </div>
-        </form>
-      </div>
-    );
-  }
 
   return (
     <div class="view">
@@ -123,7 +50,6 @@ export function Providers() {
 
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 14px">
         <button class="btn-primary sm" onClick={() => setAdding(true)}>+ Add provider</button>
-        <button class="btn-ghost sm" onClick={doLogout}>Logout</button>
       </div>
 
       <div class="providers-grid">
