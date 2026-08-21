@@ -17,6 +17,9 @@ services:
       WSD_IDE_PORT: 8100
       WSD_CHAT_MODEL: ${WSD_CHAT_MODEL:-qwen3:30b}
       WSD_DATA_DIR: /app/data
+      # JWT signing secret — set JWT_SECRET in .env (see .env.example) or tokens
+      # are signed with this publicly known fallback (dev only!).
+      JWT_SECRET: ${JWT_SECRET:-wsd-pro-insecure-default}
       OLLAMA_HOST: https://ollama.com
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}

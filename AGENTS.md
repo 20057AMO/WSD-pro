@@ -24,6 +24,30 @@ cd backend && node node_modules\typescript\bin\tsc --noEmit
 docker compose build app && docker compose up -d app
 ```
 
+## Testing
+
+Full backend suite against the running container (server must be up on port 3000):
+
+```bash
+cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
+```
+
+| Suite | File | Coverage |
+|-------|------|----------|
+| Auth & access control | `tests/auth.test.ts` | 401s, forged/tampered/expired tokens, setup guard |
+| Project lifecycle | `tests/projects.lifecycle.test.ts` | Real Docker: create → env → files → logs/stats/ports → stop/start → delete → 404 |
+| Providers/Agents/Chat CRUD | `tests/providers-agents-chat.test.ts` | Full CRUD + sessions + templates |
+| Security | `tests/security.test.ts` | Path traversal, upload sanitization, malformed auth headers |
+| Smoke | `tests/smoke.test.ts` | Health, core endpoints, project roundtrip |
+| WebSocket matrix | `tests/websocket.test.ts` | 6 endpoints × {no token→401, valid→open, invalid→401} |
+
+**Test notes:**
+- Tests sign their own JWT using `JWT_SECRET` from repo-root `.env` (no real password needed)
+- Run serially (`--test-concurrency=1`) — parallel runs + browser polling can trip the rate limiter
+- Optional real-login test activates with `WSD_TEST_USER` / `WSD_TEST_PASS` env vars
+- Every suite cleans up its own data (projects, agents, providers, sessions)
+- Change-password is intentionally NOT auto-tested (would mutate the real account)
+
 ## Project Structure
 
 ```

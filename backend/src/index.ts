@@ -71,23 +71,27 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// ── Rate limiting (simple in-memory, per IP) ─────────────────
-const rateBuckets = new Map<string, { count: number; resetAt: number }[]>();
+// ── Rate limiting (simple in-memory, per IP, per scope) ───────
+// Fixed-window counters, namespaced per scope so the global limit and the
+// stricter dangerous-endpoint limit never contaminate each other's budget.
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 const RATE_WINDOW = 60_000; // 1 minute
-const RATE_MAX = 120; // max requests per window
+const RATE_MAX = 240; // max requests per window (global)
 const RATE_STRICT_MAX = 10; // for dangerous endpoints
 
-function rateLimit(windowMs: number, max: number) {
+function rateLimit(scope: string, windowMs: number, max: number) {
   return (req: any, res: any, next: any) => {
     const ip = req.ip || req.socket?.remoteAddress || 'unknown';
     const now = Date.now();
-    const buckets = rateBuckets.get(ip) || [];
-    const active = buckets.filter((b) => b.resetAt > now);
-    active.push({ count: 1, resetAt: now + windowMs });
-    const total = active.reduce((s, b) => s + b.count, 0);
-    rateBuckets.set(ip, active);
-    if (total > max) {
-      res.set('Retry-After', String(Math.ceil(windowMs / 1000)));
+    const key = `${scope}:${ip}`;
+    const entry = rateBuckets.get(key);
+    if (!entry || entry.resetAt <= now) {
+      rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+    entry.count += 1;
+    if (entry.count > max) {
+      res.set('Retry-After', String(Math.max(1, Math.ceil((entry.resetAt - now) / 1000))));
       return res.status(429).json({ error: 'Too many requests. Try again later.' });
     }
     next();
@@ -97,15 +101,13 @@ function rateLimit(windowMs: number, max: number) {
 // Clean up stale buckets every 2 minutes
 setInterval(() => {
   const now = Date.now();
-  for (const [ip, buckets] of rateBuckets) {
-    const active = buckets.filter((b) => b.resetAt > now);
-    if (active.length === 0) rateBuckets.delete(ip);
-    else rateBuckets.set(ip, active);
+  for (const [key, entry] of rateBuckets) {
+    if (entry.resetAt <= now) rateBuckets.delete(key);
   }
 }, 120_000);
 
 // Global rate limit
-app.use(rateLimit(RATE_WINDOW, RATE_MAX));
+app.use(rateLimit('global', RATE_WINDOW, RATE_MAX));
 
 // ── Uploads (files into an existing project workspace) ────────
 const UPLOADS_TMP = '/tmp/wsd-uploads';
@@ -158,7 +160,10 @@ app.post('/api/auth/login', (req, res) => {
 });
 
 // ── Auth middleware (protect everything below) ────────────────
-app.use(authMiddleware);
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) return next();
+  authMiddleware(req, res, next);
+});
 
 app.post('/api/auth/change-password', (req: any, res) => {
   try {
@@ -521,7 +526,7 @@ app.post('/api/projects/:slug/stop', async (req, res) => {
 });
 
 // Remove project (container only; workspace kept)
-app.delete('/api/projects/:slug', rateLimit(RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
+app.delete('/api/projects/:slug', rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
   try {
     await removeProject(req.params.slug);
     res.json({ ok: true });
@@ -710,7 +715,7 @@ app.get('/api/projects/:slug/scripts', (req, res) => {
   }
 });
 
-app.post('/api/projects/:slug/scripts/run', rateLimit(RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
+app.post('/api/projects/:slug/scripts/run', rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
   try {
     const name = String((req.body || {}).script || '').trim();
     if (!/^[A-Za-z0-9:_-]{1,64}$/.test(name)) {
