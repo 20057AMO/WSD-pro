@@ -40,7 +40,10 @@ export function EmbeddedIDE() {
   const folder = params.get('folder') || '/workspaces';
 
   const host = window.location.hostname;
-  const ideUrl = `http://${host}:${port}/?folder=${encodeURIComponent(folder)}`;
+  // Match the page protocol so the iframe is not blocked as mixed content
+  // when the dashboard itself is served over HTTPS.
+  const proto = window.location.protocol === 'https:' ? 'https' : 'http';
+  const ideUrl = `${proto}://${host}:${port}/?folder=${encodeURIComponent(folder)}`;
 
   return (
     <div class="opencode-page">

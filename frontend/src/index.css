@@ -1522,3 +1522,19 @@ textarea.agent-prompt-input {
   display: flex; flex-direction: column; gap: 10px;
 }
 
+/* ── Security activity log ── */
+.audit-list { display: flex; flex-direction: column; }
+.audit-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 0; border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+.audit-row:last-child { border-bottom: none; }
+.audit-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.audit-dot.good { background: var(--green, #4ade80); }
+.audit-dot.bad { background: var(--red, #f87171); }
+.audit-label { color: var(--text); flex: 1; }
+.audit-time { color: var(--text-3); font-size: 0.68rem; }
+

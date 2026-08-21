@@ -69,6 +69,7 @@ import {
   revokeAllSessions,
 } from './services/user-store';
 import { buildBackup, restoreFromBackup } from './services/settings-export';
+import { recordAudit, listAudit } from './services/audit-store';
 import { authMiddleware } from './middleware/auth';
 import { attachWebSockets } from './ws/ws-server';
 
@@ -156,6 +157,7 @@ app.post('/api/auth/setup', (req, res) => {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
     const result = setup(String(username), String(password));
+    recordAudit('setup', true, req.ip);
     res.status(201).json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -167,8 +169,10 @@ app.post('/api/auth/login', (req, res) => {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
     const result = login(String(username), String(password));
+    recordAudit('login', true, req.ip);
     res.json(result);
   } catch (err: any) {
+    recordAudit('login-failed', false, req.ip);
     res.status(401).json({ error: err.message });
   }
 });
@@ -179,15 +183,22 @@ app.use((req, res, next) => {
   authMiddleware(req, res, next);
 });
 
+// Security activity log for the authenticated owner.
+app.get('/api/auth/audit', (_req: any, res) => {
+  res.json({ entries: listAudit(50) });
+});
+
 app.post('/api/auth/change-password', (req: any, res) => {
   try {
     const { currentPassword, newPassword } = req.body || {};
     if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required.' });
     const { token } = changePassword(String(currentPassword), String(newPassword));
+    recordAudit('password-change', true, req.ip);
     // Other sessions are revoked; the caller receives a fresh token to keep
     // its current session alive.
     res.json({ ok: true, token });
   } catch (err: any) {
+    recordAudit('password-change-failed', false, req.ip);
     res.status(400).json({ error: err.message });
   }
 });
@@ -198,8 +209,10 @@ app.post('/api/auth/logout-all', (req: any, res) => {
     const { accountPassword } = req.body || {};
     if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
     revokeAllSessions(String(accountPassword));
+    recordAudit('logout-all', true, req.ip);
     res.json({ ok: true });
   } catch (err: any) {
+    recordAudit('logout-all-failed', false, req.ip);
     res.status(err?.status || 400).json({ error: err.message });
   }
 });
@@ -226,6 +239,7 @@ app.post('/api/auth/providers-password', (req: any, res) => {
       return res.status(400).json({ error: 'Account password and new providers password are required.' });
     }
     setProvidersPassword(String(accountPassword), String(newPassword));
+    recordAudit('providers-lock-change', true, req.ip);
     res.json({ ok: true, enabled: true });
   } catch (err: any) {
     res.status(err?.message?.includes('incorrect') ? 401 : 400).json({ error: err.message });
@@ -238,6 +252,7 @@ app.delete('/api/auth/providers-password', (req: any, res) => {
     const { accountPassword } = req.body || {};
     if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
     removeProvidersPassword(String(accountPassword));
+    recordAudit('providers-lock-change', true, req.ip);
     res.json({ ok: true, enabled: false });
   } catch (err: any) {
     res.status(err?.message?.includes('not enabled') ? 409 : 401).json({ error: err.message });
@@ -253,6 +268,7 @@ app.get('/api/settings/export', (req: any, res) => {
     return res.status(401).json({ error: 'Account password is incorrect.' });
   }
   try {
+    recordAudit('backup-export', true, req.ip);
     const backup = buildBackup('2.0.0-beta');
     res.setHeader(
       'Content-Disposition',
@@ -272,6 +288,7 @@ app.post('/api/settings/import', async (req: any, res) => {
       return res.status(401).json({ error: 'Account password is incorrect.' });
     }
     const result = restoreFromBackup(backup);
+    recordAudit('backup-import', true, req.ip);
     res.json({ ok: true, ...result });
   } catch (err: any) {
     res.status(err?.status || 500).json({ error: err.message });
@@ -922,5 +939,6 @@ server.listen(PORT, HOST, () => {
   console.log(`[WSD-Pro] Chat model: ${getChatConfig().model}`);
   console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
 });
+
 
 

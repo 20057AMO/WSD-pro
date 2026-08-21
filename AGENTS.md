@@ -106,6 +106,12 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - `POST /api/settings/import` merges by id — existing items always win, secrets are never imported
 - Both operations require account-password re-auth
 
+### Security activity log (audit)
+- `data/audit.json` — append-only, capped at the last 100 entries
+- Records: setup, login/login-failed, logout-all(+failed), password-change(+failed), providers-lock-change(+failed), backup export/import — with timestamp + IP
+- `GET /api/auth/audit` → last 50 entries, newest first (auth-protected)
+- Shown in Settings → Security Activity; auditing failures never break request flow
+
 ### Session revocation (logout everywhere)
 - Every login token carries a `tv` claim matching `users.json → tokenVersion`; `verifyToken` rejects stale versions
 - `POST /api/auth/logout-all` (account-password re-auth) bumps the version → all sessions die

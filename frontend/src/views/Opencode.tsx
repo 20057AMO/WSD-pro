@@ -28,7 +28,8 @@ export function Opencode() {
   }, []);
 
   const host = window.location.hostname;
-  const url = `http://${host}:${port}`;
+  const proto = window.location.protocol === 'https:' ? 'https' : 'http';
+  const url = `${proto}://${host}:${port}`;
 
   return (
     <div class="opencode-page">

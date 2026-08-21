@@ -7,10 +7,26 @@ import {
   exportSettings,
   importSettings,
   clearProvidersUnlock,
+  getAuditLog,
+  type AuditEntry,
   type BackupFile,
 } from '../api';
 
 const APP_VERSION = '2.0.0-beta';
+
+const AUDIT_LABELS: Record<string, string> = {
+  setup: 'Account created',
+  login: 'Sign in',
+  'login-failed': 'Sign in failed',
+  'logout-all': 'Signed out everywhere',
+  'logout-all-failed': 'Sign-out-everywhere attempt failed',
+  'password-change': 'Password changed',
+  'password-change-failed': 'Password change failed',
+  'providers-lock-change': 'Providers lock updated',
+  'providers-lock-change-failed': 'Providers lock update failed',
+  'backup-export': 'Backup exported',
+  'backup-import': 'Backup imported',
+};
 
 type Msg = { type: 'ok' | 'err'; text: string } | null;
 
@@ -61,10 +77,16 @@ export function Settings() {
   const [backupLoading, setBackupLoading] = useState<'export' | 'import' | null>(null);
   const [backupMsg, setBackupMsg] = useState<Msg>(null);
 
+  // ── Security activity ──
+  const [audit, setAudit] = useState<AuditEntry[] | null>(null);
+
   useEffect(() => {
     getProvidersLockStatus()
       .then((r) => setLockEnabled(r.enabled))
       .catch(() => setLockEnabled(false));
+    getAuditLog()
+      .then((r) => setAudit(r.entries || []))
+      .catch(() => setAudit([]));
   }, []);
 
   const changePassword = async (e: Event) => {
@@ -491,6 +513,31 @@ export function Settings() {
             </button>
           </div>
         </form>
+      </div>
+
+      {/* Security Activity */}
+      <div class="panel settings-section">
+        <div class="panel-title">Security Activity</div>
+        <p class="settings-hint">Recent security-related events (newest first, last 50).</p>
+        {audit === null ? (
+          <div class="settings-hint">Loading…</div>
+        ) : audit.length === 0 ? (
+          <div class="settings-hint">No activity recorded yet.</div>
+        ) : (
+          <div class="audit-list">
+            {audit.map((e, i) => {
+              const label = AUDIT_LABELS[e.event] || e.event;
+              const failed = !e.ok || e.event.endsWith('-failed');
+              return (
+                <div class="audit-row" key={`${e.ts}-${i}`}>
+                  <span class={failed ? 'audit-dot bad' : 'audit-dot good'} title={failed ? 'Failed' : 'Success'} />
+                  <span class="audit-label">{label}</span>
+                  <span class="audit-time">{fmtDate(e.ts)}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* About */}

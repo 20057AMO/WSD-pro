@@ -410,6 +410,16 @@ export const removeProvidersPassword = (accountPassword: string) =>
     body: JSON.stringify({ accountPassword }),
   });
 
+// ── Security activity log ─────────────────────────────────────
+export interface AuditEntry {
+  ts: string;
+  event: string;
+  ok: boolean;
+  ip?: string;
+}
+export const getAuditLog = () =>
+  api<{ entries: AuditEntry[] }>('/api/auth/audit');
+
 // ── Settings backup ───────────────────────────────────────────
 export interface BackupFile {
   kind: string;

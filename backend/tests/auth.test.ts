@@ -50,6 +50,21 @@ describe('Auth & access control', () => {
     assert.ok(Array.isArray(data.projects));
   });
 
+  test('audit log endpoint returns entries array (newest first)', async () => {
+    // generate one real event so the log is non-deterministically empty-safe
+    await req('POST', '/auth/login', { username: 'no-such-user-xyz', password: 'x' });
+    const res = await reqAuth('GET', '/auth/audit');
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.ok(Array.isArray(data.entries));
+    if (data.entries.length > 1) {
+      assert.ok(
+        new Date(data.entries[0].ts).getTime() >= new Date(data.entries[data.entries.length - 1].ts).getTime(),
+        'entries must be newest-first'
+      );
+    }
+  });
+
   test('setup refuses to run when a user already exists', async () => {
     const statusRes = await req('GET', '/auth/status');
     const { hasUser } = await statusRes.json();
