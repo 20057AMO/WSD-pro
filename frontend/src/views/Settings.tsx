@@ -11,6 +11,7 @@ import {
   type AuditEntry,
   type BackupFile,
 } from '../api';
+import { passwordStrength, PW_LABELS, PW_COLORS } from '../theme';
 
 const APP_VERSION = '2.0.0-beta';
 
@@ -101,8 +102,8 @@ export function Settings() {
       setPwMsg({ type: 'err', text: 'New passwords do not match.' });
       return;
     }
-    if (newPw.length < 4) {
-      setPwMsg({ type: 'err', text: 'New password must be at least 4 characters.' });
+    if (newPw.length < 6) {
+      setPwMsg({ type: 'err', text: 'New password must be at least 6 characters.' });
       return;
     }
 
@@ -146,8 +147,8 @@ export function Settings() {
       setLockMsg({ type: 'err', text: 'New providers passwords do not match.' });
       return;
     }
-    if (lockNewPw.length < 4) {
-      setLockMsg({ type: 'err', text: 'Providers password must be at least 4 characters.' });
+    if (lockNewPw.length < 6) {
+      setLockMsg({ type: 'err', text: 'Providers password must be at least 6 characters.' });
       return;
     }
     setLockLoading(true);
@@ -380,10 +381,11 @@ export function Settings() {
           <input
             class="modern-input"
             type="password"
-            placeholder="Min 4 characters"
+            placeholder="Min 6 characters"
             value={lockNewPw}
             onInput={(e: any) => setLockNewPw(e.target.value)}
           />
+          {lockNewPw && <PwMeter pw={lockNewPw} />}
 
           <label class="field-label">Confirm Providers password</label>
           <input
@@ -487,10 +489,11 @@ export function Settings() {
           <input
             class="modern-input"
             type="password"
-            placeholder="New password"
+            placeholder="Min 6 characters"
             value={newPw}
             onInput={(e: any) => setNewPw(e.target.value)}
           />
+          {newPw && <PwMeter pw={newPw} />}
 
           <label class="field-label">Confirm New Password</label>
           <input
@@ -552,6 +555,23 @@ export function Settings() {
           <span style="color: var(--text-2)">MIT</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+function PwMeter({ pw }: { pw: string }) {
+  const score = passwordStrength(pw);
+  return (
+    <div class="pw-meter" title={`Password strength: ${PW_LABELS[score]}`}>
+      {[0, 1, 2, 3].map((i) => (
+        <span
+          key={i}
+          class={i < Math.max(score, 1) ? 'pw-seg on' : 'pw-seg'}
+          style={i < score ? `background:${PW_COLORS[score]}` : undefined}
+        />
+      ))}
+      <span class="pw-label">{PW_LABELS[Math.max(score, 0)]}</span>
     </div>
   );
 }

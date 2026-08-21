@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { useAuth } from '../auth';
+import { passwordStrength, PW_LABELS, PW_COLORS } from '../theme';
 
 export function Login() {
   const { hasUser, login, setup } = useAuth();
@@ -25,8 +26,8 @@ export function Login() {
       return;
     }
 
-    if (isSetup && password.length < 4) {
-      setError('Password must be at least 4 characters.');
+    if (isSetup && password.length < 6) {
+      setError('Password must be at least 6 characters.');
       return;
     }
 
@@ -75,10 +76,11 @@ export function Login() {
           <input
             class="modern-input"
             type="password"
-            placeholder="Enter password"
+            placeholder={isSetup ? 'Min 6 characters' : 'Enter password'}
             value={password}
             onInput={(e: any) => setPassword(e.target.value)}
           />
+          {isSetup && password && <PwMeter pw={password} />}
 
           {isSetup && (
             <>
@@ -109,3 +111,20 @@ export function Login() {
     </div>
   );
 }
+
+function PwMeter({ pw }: { pw: string }) {
+  const score = passwordStrength(pw);
+  return (
+    <div class="pw-meter" title={`Password strength: ${PW_LABELS[score]}`}>
+      {[0, 1, 2, 3].map((i) => (
+        <span
+          key={i}
+          class={i < Math.max(score, 1) ? 'pw-seg on' : 'pw-seg'}
+          style={i < score ? `background:${PW_COLORS[score]}` : undefined}
+        />
+      ))}
+      <span class="pw-label">{PW_LABELS[Math.max(score, 0)]}</span>
+    </div>
+  );
+}
+

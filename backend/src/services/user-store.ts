@@ -81,7 +81,7 @@ export function setup(username: string, password: string): { id: string; usernam
   const cleanUsername = username.trim();
   if (!cleanUsername || cleanUsername.length < 2) throw new Error('Username must be at least 2 characters.');
   if (cleanUsername.length > 50) throw new Error('Username must be at most 50 characters.');
-  if (!password || password.length < 4) throw new Error('Password must be at least 4 characters.');
+  if (!password || password.length < 6) throw new Error('Password must be at least 6 characters.');
 
   const now = new Date().toISOString();
   const passwordHash = bcrypt.hashSync(password, BCRYPT_ROUNDS);
@@ -147,7 +147,7 @@ export function changePassword(currentPassword: string, newPassword: string): { 
   }
 
   if (!newPassword || newPassword.length < 4) {
-    throw new Error('New password must be at least 4 characters.');
+    throw new Error('New password must be at least 6 characters.');
   }
 
   cachedUser.passwordHash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
@@ -175,7 +175,7 @@ export function revokeAllSessions(accountPassword: string): void {
 
 function assertProvidersPassword(newPassword: string): void {
   if (!newPassword || newPassword.length < 4) {
-    throw new Error('Providers password must be at least 4 characters.');
+    throw new Error('Providers password must be at least 6 characters.');
   }
   if (newPassword.length > 128) {
     throw new Error('Providers password must be at most 128 characters.');
@@ -256,3 +256,4 @@ export function verifyUnlockToken(token: string | null): boolean {
     return false;
   }
 }
+

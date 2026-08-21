@@ -12,6 +12,14 @@
   </head>
   <body>
     <div id="app"></div>
+    <script>
+      /* Apply saved theme before first paint to avoid a flash of the wrong theme. */
+      try {
+        if (localStorage.getItem('wsd.theme') === 'light') {
+          document.documentElement.dataset.theme = 'light';
+        }
+      } catch (e) { /* storage unavailable */ }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

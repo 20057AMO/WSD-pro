@@ -25,6 +25,24 @@
   --mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
 }
 
+/* ── Light theme ── (toggle via <html data-theme="light">) */
+[data-theme="light"] {
+  --bg: #f6f7f9;
+  --bg-2: #eef0f3;
+  --panel: #ffffff;
+  --panel-2: #f2f4f8;
+  --border: #dfe3e8;
+  --border-2: #ccd2d9;
+  --text: #1c2128;
+  --text-2: #59636e;
+  --text-3: #8c959f;
+  --accent: #1c2128;
+  --green: #1a7f37;
+  --yellow: #9a6700;
+  --red: #cf222e;
+  --blue: #0969da;
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -37,12 +55,12 @@ body {
 }
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
 input, select { font: inherit; color: inherit; }
-::selection { background: rgba(255,255,255,0.15); }
+::selection { background: color-mix(in srgb, var(--text) 18%, transparent); }
 .scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
 .scrollbar::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
 .scrollbar::-webkit-scrollbar-track { background: transparent; }
 .mono { font-family: var(--mono); }
-.accent { color: var(--text); background: linear-gradient(90deg, #fff, #b8bec8); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.accent { color: var(--text); background: linear-gradient(90deg, var(--text), var(--text-2)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 
 /* ── Preloader ── */
 #preloader {
@@ -106,7 +124,7 @@ input, select { font: inherit; color: inherit; }
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .modern-input::placeholder { color: var(--text-3); }
-.modern-input:focus { border-color: var(--text-3); box-shadow: 0 0 0 3px rgba(255,255,255,0.06); }
+.modern-input:focus { border-color: var(--text-3); box-shadow: 0 0 0 3px color-mix(in srgb, var(--text) 12%, transparent); }
 select.modern-input { appearance: none; cursor: pointer; }
 
 .btn-primary {
@@ -760,7 +778,7 @@ select.modern-input { appearance: none; cursor: pointer; }
 }
 .chat-msg.system { color: var(--text-2); border-left: 2px solid var(--text-3); max-width: 100%; }
 .chat-msg.system.err { border-left-color: var(--red); color: var(--red); }
-.chat-msg.user { align-self: flex-end; background: rgba(255,255,255,0.09); }
+.chat-msg.user { align-self: flex-end; background: color-mix(in srgb, var(--text) 9%, transparent); }
 .chat-msg.user span { display: block; margin-bottom: 4px; font-size: 0.68rem; color: var(--text-2); }
 .chat-msg.agent { align-self: flex-start; background: var(--panel-2); }
 .chat-msg-text { white-space: pre-wrap; word-break: break-word; }
@@ -1537,4 +1555,25 @@ textarea.agent-prompt-input {
 .audit-dot.bad { background: var(--red, #f87171); }
 .audit-label { color: var(--text); flex: 1; }
 .audit-time { color: var(--text-3); font-size: 0.68rem; }
+
+/* ── Theme toggle (sidebar footer) ── */
+.theme-toggle {
+  font-size: 0.9rem; line-height: 1;
+  padding: 5px 8px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  transition: background 0.15s;
+}
+.theme-toggle:hover { background: var(--border); }
+
+/* ── Password strength meter ── */
+.pw-meter { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
+.pw-seg {
+  width: 22px; height: 4px; border-radius: 2px;
+  background: var(--border);
+}
+.pw-seg.on { background: var(--border-2); }
+.pw-label { margin-left: 6px; font-size: 0.65rem; color: var(--text-3); }
+
+
 
