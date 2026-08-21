@@ -75,7 +75,7 @@ export interface ChatSocketState {
   status: ChatStatus;
   error: string | null;
   sessionName: string | null;
-  send: (text: string, attachments?: Attachment[], project?: string) => void;
+  send: (text: string, attachments?: Attachment[], project?: string) => boolean;
   stop: () => void;
   reconnect: () => void;
 }
@@ -91,7 +91,6 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptRef = useRef(0);
   const disposedRef = useRef(false);
-  const isManualReconnectRef = useRef(false);
 
   const cleanupReconnect = () => {
     if (reconnectTimer.current) {
@@ -116,7 +115,8 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
 
     ws.onclose = () => {
       setConnected(false);
-      if (!disposedRef.current && !isManualReconnectRef.current) {
+      setRunning(false);
+      if (!disposedRef.current && wsRef.current === ws) {
         setStatus('disconnected');
         scheduleReconnect();
       }
@@ -169,11 +169,9 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
   }, [openWs]);
 
   const reconnect = useCallback(() => {
-    isManualReconnectRef.current = true;
     attemptRef.current = 0;
     setError(null);
     wsRef.current?.close();
-    isManualReconnectRef.current = false;
     openWs();
   }, [openWs]);
 
@@ -195,11 +193,11 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
   }, [path, openWs]);
 
   const send = useCallback(
-    (text: string, attachments?: Attachment[], project?: string) => {
+    (text: string, attachments?: Attachment[], project?: string): boolean => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         setError('Not connected. Check your connection.');
-        return;
+        return false;
       }
       setError(null);
       setRunning(true);
@@ -207,6 +205,7 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
       if (attachments && attachments.length > 0) payload.attachments = attachments;
       if (project) payload.project = project;
       ws.send(JSON.stringify(payload));
+      return true;
     },
     [runType]
   );

@@ -29,6 +29,7 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
   const [models, setModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -84,11 +85,14 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
 
   const handleDelete = async () => {
     if (!confirm(`Delete agent "${name}"? This cannot be undone.`)) return;
+    if (deleting) return;
+    setDeleting(true);
     try {
       await deleteAgent(agent.id);
       onDelete(agent.id);
     } catch (err: any) {
       setError(err.message || 'Failed to delete');
+      setDeleting(false);
     }
   };
 
@@ -202,7 +206,7 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
         </div>
 
         <div class="agent-settings-footer">
-          <button class="btn-danger sm" onClick={handleDelete}>Delete Agent</button>
+          <button class="btn-danger sm" onClick={handleDelete} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete Agent'}</button>
           <div style="flex:1" />
           <button class="btn-ghost sm" onClick={onClose}>Cancel</button>
           <button class="btn-primary" onClick={handleSave} disabled={saving || !name.trim()}>

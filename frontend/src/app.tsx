@@ -2,6 +2,7 @@ import { Component, type ComponentChildren } from 'preact';
 import { Router, Route } from 'wouter';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { Dashboard } from './views/Dashboard';
+import { Projects } from './views/Projects';
 import { Project } from './views/Project';
 import { Opencode } from './views/Opencode';
 import { Agents } from './views/Agents';
@@ -50,7 +51,7 @@ const NavButton = ({
   onClick?: () => void;
 }) => {
   const [location] = useHashLocation();
-  const active = href ? location === href || (href !== '/' && location.startsWith(href)) : false;
+  const active = href ? location === href || (href !== '/' && (location.startsWith(href) || (href === '/projects' && location.startsWith('/project/')))) : false;
   return (
     <button
       class={`nav-btn ${active ? 'active' : ''}`}
@@ -80,6 +81,7 @@ function Sidebar() {
       </div>
       <nav class="sidebar-nav">
         <NavButton href="/" label="Dashboard" icon="◈" />
+        <NavButton href="/projects" label="Projects" icon="📁" />
         <NavButton href="/agents" label="Agents" icon="🤖" />
         <NavButton href="/opencode" label="opencode" icon="⌁" />
         <NavButton href="/providers" label="Providers" icon="🔑" />
@@ -115,6 +117,7 @@ function Shell() {
       <Sidebar />
       <main class="main">
         <Route path="/" component={Dashboard} />
+        <Route path="/projects" component={Projects} />
         <Route path="/project/:slug" component={Project} />
         <Route path="/providers" component={Providers} />
       </main>

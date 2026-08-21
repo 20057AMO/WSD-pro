@@ -65,6 +65,19 @@ function relTime(iso: string): string {
   return `${Math.floor(s / 86400)}d`;
 }
 
+function fmtAction(action: string): string {
+  switch (action) {
+    case 'created': return 'Created';
+    case 'started': return 'Started';
+    case 'stopped': return 'Stopped';
+    case 'recreated': return 'Recreated';
+    case 'cloned': return 'Git cloned';
+    case 'env_updated': return 'Env updated';
+    case 'deleted': return 'Deleted';
+    default: return action.charAt(0).toUpperCase() + action.slice(1);
+  }
+}
+
 export function Project({ params }: { params: { slug: string } }) {
   const slug = params.slug;
   const [, setLocation] = useHashLocation();
@@ -73,6 +86,8 @@ export function Project({ params }: { params: { slug: string } }) {
   const [error, setError] = useState<string | null>(null);
   const [ideRunning, setIdeRunning] = useState<boolean | null>(null);
   const [subdirInfo, setSubdirInfo] = useState<SubdirInfo | null>(null);
+  const [liveStats, setLiveStats] = useState<ProjectStats | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
 
   const load = async () => {
     try {
@@ -84,10 +99,68 @@ export function Project({ params }: { params: { slug: string } }) {
     }
   };
 
+  // WebSocket for live status + stats updates
   useEffect(() => {
+    let closed = false;
+    let timer: number | null = null;
+    let socket: WebSocket | null = null;
+
+    // Always fetch full project data on mount
     load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
+
+    const connectWs = () => {
+      if (closed) return;
+      try {
+        socket = new WebSocket(wsUrl(`/ws/projects/${slug}/status`));
+      } catch {
+        socket = null;
+      }
+      if (!socket) { startPolling(); return; }
+
+      socket.onmessage = (ev) => {
+        if (closed) return;
+        let msg: any;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'error') { socket?.close(); setWsConnected(false); if (!closed) startPolling(); return; }
+        if (msg.type === 'ready' || msg.type === 'update') {
+          setWsConnected(true);
+          if (msg.status === 'missing') {
+            setError('Project was deleted.');
+            setLiveStats(null);
+            return;
+          }
+          setProject((prev) => {
+            if (!prev) return prev;
+            return { ...prev, status: msg.status };
+          });
+          if (msg.stats !== undefined) setLiveStats(msg.stats);
+        }
+      };
+
+      const fail = () => { socket?.close(); setWsConnected(false); if (!closed) startPolling(); };
+      socket.onerror = fail;
+      socket.onclose = () => { setWsConnected(false); if (!closed) startPolling(); };
+    };
+
+    const startPolling = () => {
+      if (timer) return;
+      const tick = async () => {
+        try {
+          const { project } = await getProject(slug);
+          if (!closed) { setProject(project); setError(null); }
+        } catch { /* ignore */ }
+      };
+      tick();
+      timer = window.setInterval(tick, 5000);
+    };
+
+    connectWs();
+
+    return () => {
+      closed = true;
+      if (timer) clearInterval(timer);
+      try { socket?.close(); } catch { /* ignore */ }
+    };
   }, [slug]);
 
   useEffect(() => {
@@ -166,7 +239,7 @@ export function Project({ params }: { params: { slug: string } }) {
       {error && <div class="login-error" style="margin-bottom: 12px">{error}</div>}
 
       <div class="detail-topbar">
-        <button class="btn-ghost sm" onClick={() => setLocation('/')}>← Back</button>
+        <button class="btn-ghost sm" onClick={() => setLocation('/projects')}>← Projects</button>
         <div class="detail-title-wrap">
           <div class="detail-avatar">{(project?.name || '?').charAt(0).toUpperCase()}</div>
           <div>
@@ -177,6 +250,7 @@ export function Project({ params }: { params: { slug: string } }) {
               <span class="detail-slug">{slug}</span>
               <button class="btn-ghost sm" style="padding: 1px 8px" onClick={() => copy(slug)}>copy</button>
               <span class={`status-badge ${project?.status || 'missing'}`}>{project?.status || '…'}</span>
+              {wsConnected && <span class="ws-live-dot" title="Live updates active" />}
             </div>
           </div>
         </div>
@@ -210,7 +284,7 @@ export function Project({ params }: { params: { slug: string } }) {
         ))}
       </div>
 
-      {tab === 'overview' && <OverviewPanel slug={slug} project={project} onChanged={load} onError={setError} />}
+      {tab === 'overview' && <OverviewPanel slug={slug} project={project} liveStats={liveStats} onChanged={load} onError={setError} />}
       {tab === 'files' && <FilesPanel slug={slug} />}
       {tab === 'logs' && <LogsPanel slug={slug} />}
       {tab === 'terminal' && <ProjectTerminal slug={slug} />}
@@ -223,11 +297,13 @@ export function Project({ params }: { params: { slug: string } }) {
 function OverviewPanel({
   slug,
   project,
+  liveStats,
   onChanged,
   onError,
 }: {
   slug: string;
   project: Project | null;
+  liveStats: ProjectStats | null;
   onChanged: () => void;
   onError: (msg: string) => void;
 }) {
@@ -251,8 +327,11 @@ function OverviewPanel({
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
 
+  // Prefer liveStats from WebSocket; fall back to polling
+  const effectiveStats = liveStats || stats;
+
   useEffect(() => {
-    if (project?.status !== 'running') {
+    if (project?.status !== 'running' || liveStats) {
       setStats(null);
       return;
     }
@@ -269,7 +348,7 @@ function OverviewPanel({
       cancelled = true;
       clearInterval(t);
     };
-  }, [slug, project?.status]);
+  }, [slug, project?.status, liveStats]);
 
   useEffect(() => {
     if (!project?.hostPorts || Object.keys(project.hostPorts).length === 0) {
@@ -431,7 +510,7 @@ function OverviewPanel({
             </div>
             <div class="kv">
               <span>Uptime</span>
-              <b>{stats?.running ? fmtUptime(stats.startedAt) : project?.status === 'running' ? '…' : 'stopped'}</b>
+              <b>{effectiveStats?.running ? fmtUptime(effectiveStats.startedAt) : project?.status === 'running' ? '…' : 'stopped'}</b>
             </div>
             <div class="kv">
               <span>Ports</span>
@@ -442,13 +521,13 @@ function OverviewPanel({
 
         <div class="panel">
           <div class="panel-title">Runtime</div>
-          {stats?.running ? (
+          {effectiveStats?.running ? (
             <div class="kv-list">
-              <div class="kv"><span>CPU</span><b>{stats.cpuPct}%</b></div>
-              <div class="stat-bar"><div class="stat-fill" style={`width: ${Math.min(100, stats.cpuPct)}%`} /></div>
-              <div class="kv"><span>Memory</span><b>{fmtBytes(stats.memBytes)} / {fmtBytes(stats.memLimit)}</b></div>
-              <div class="stat-bar"><div class="stat-fill" style={`width: ${Math.min(100, stats.memPct)}%`} /></div>
-              <div class="kv"><span>Mem %</span><b>{stats.memPct}%</b></div>
+              <div class="kv"><span>CPU</span><b>{effectiveStats.cpuPct}%</b></div>
+              <div class="stat-bar"><div class="stat-fill" style={`width: ${Math.min(100, effectiveStats.cpuPct)}%`} /></div>
+              <div class="kv"><span>Memory</span><b>{fmtBytes(effectiveStats.memBytes)} / {fmtBytes(effectiveStats.memLimit)}</b></div>
+              <div class="stat-bar"><div class="stat-fill" style={`width: ${Math.min(100, effectiveStats.memPct)}%`} /></div>
+              <div class="kv"><span>Mem %</span><b>{effectiveStats.memPct}%</b></div>
             </div>
           ) : (
             <div class="empty-state" style="padding: 24px">Project is {project?.status || 'unknown'}. Start it to see runtime stats.</div>
@@ -545,7 +624,10 @@ function OverviewPanel({
             <div class="activity-list">
               {project.activity.slice().reverse().slice(0, 15).map((a, i) => (
                 <div class="activity-row" key={i}>
-                  <span class="activity-act">{a.action}</span>
+                  <span class="activity-dot-wrap">
+                    <span class={`activity-dot ${a.action}`} />
+                    <span class="activity-act">{fmtAction(a.action)}</span>
+                  </span>
                   <span class="activity-at">{relTime(a.at)} ago</span>
                 </div>
               ))}
@@ -590,18 +672,22 @@ function FilesPanel({ slug }: { slug: string }) {
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const loadSeqRef = useRef(0);
 
   const load = async (dir: string) => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     setError(null);
     try {
       const l = await listProjectFiles(slug, dir || undefined);
+      if (seq !== loadSeqRef.current) return;
       setEntries(l.entries);
       setMeta({ fileCount: l.fileCount, totalBytes: l.totalBytes });
     } catch (err: any) {
+      if (seq !== loadSeqRef.current) return;
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   };
 
@@ -739,7 +825,6 @@ function LogsPanel({ slug }: { slug: string }) {
   const [filter, setFilter] = useState('');
   const [follow, setFollow] = useState(true);
   const bodyRef = useRef<HTMLDivElement | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     let closed = false;
@@ -753,7 +838,6 @@ function LogsPanel({ slug }: { slug: string }) {
       } catch {
         socket = null;
       }
-      wsRef.current = socket;
       if (!socket) {
         startPolling();
         return;
@@ -767,7 +851,8 @@ function LogsPanel({ slug }: { slug: string }) {
         if (!closed && !socketWasClosedByUs) startPolling();
       };
       socket.onmessage = (ev) => {
-        const msg = JSON.parse(ev.data);
+        let msg: any;
+        try { msg = JSON.parse(ev.data); } catch { return; }
         if (msg.type === 'logs' && typeof msg.data === 'string') {
           if (!closed) setLogs((prev) => (prev + msg.data).slice(-200000));
         }
@@ -804,7 +889,6 @@ function LogsPanel({ slug }: { slug: string }) {
       } catch {
         /* ignore */
       }
-      wsRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);

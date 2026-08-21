@@ -12,6 +12,8 @@ import { handleChatSocket } from './ws-chat';
 import { handleTerminalSocket } from './ws-terminal';
 import { handleProjectLogsSocket } from './ws-project-logs';
 import { handleAgentSocket } from './ws-agent';
+import { handleProjectStatusSocket } from './ws-project-status';
+import { handleProjectsStatusSocket } from './ws-projects-status';
 
 const MAX_CONNECTIONS_PER_ROOM = 8;
 const roomConnections = new Map<string, number>();
@@ -84,6 +86,33 @@ export function attachWebSockets(server: http.Server): void {
         return;
       }
       handleProjectLogsSocket(ws, slug, releaseRoom(room));
+      return;
+    }
+
+    const projectsStatusMatch = url.pathname.match(/^\/ws\/projects\/status$/);
+    if (projectsStatusMatch) {
+      const room = 'projects:status';
+      if (!acquireRoom(room)) {
+        ws.close(1013, 'too many connections for projects status');
+        return;
+      }
+      handleProjectsStatusSocket(ws, releaseRoom(room));
+      return;
+    }
+
+    const statusMatch = url.pathname.match(/^\/ws\/projects\/([^/]+)\/status$/);
+    if (statusMatch) {
+      const slug = decodeURIComponent(statusMatch[1]);
+      if (!isSafeChatId(slug)) {
+        ws.close(1008, 'invalid slug');
+        return;
+      }
+      const room = `status:${slug}`;
+      if (!acquireRoom(room)) {
+        ws.close(1013, 'too many connections for status');
+        return;
+      }
+      handleProjectStatusSocket(ws, slug, releaseRoom(room));
       return;
     }
 

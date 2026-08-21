@@ -102,16 +102,18 @@ export function ProjectTerminal({ slug }: { slug: string }) {
   const changeFontSize = useCallback((delta: number) => {
     setFontSize((prev) => {
       const next = Math.max(MIN_FONT_SIZE, Math.min(MAX_FONT_SIZE, prev + delta));
-      localStorage.setItem('wsd.term.fontSize', String(next));
-      const term = termRef.current;
-      if (term) {
-        term.options.fontSize = next;
-        fitRef.current?.fit();
-        const ws = wsRef.current;
-        if (ws && ws.readyState === 1) {
-          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+      try { localStorage.setItem('wsd.term.fontSize', String(next)); } catch { /* blocked */ }
+      requestAnimationFrame(() => {
+        const term = termRef.current;
+        if (term) {
+          term.options.fontSize = next;
+          fitRef.current?.fit();
+          const ws = wsRef.current;
+          if (ws && ws.readyState === 1) {
+            ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+          }
         }
-      }
+      });
       return next;
     });
   }, []);
@@ -285,10 +287,16 @@ export function ProjectTerminal({ slug }: { slug: string }) {
       }
     };
     ws.onclose = () => {
-      if (!disposed) setStatus('closed');
+      if (!disposed) {
+        setStatus('closed');
+        scheduleReconnect();
+      }
     };
     ws.onerror = () => {
-      if (!disposed) setStatus('error');
+      if (!disposed) {
+        setStatus('error');
+        scheduleReconnect();
+      }
     };
     ws.onmessage = (ev: MessageEvent) => {
       if (typeof ev.data === 'string') {
@@ -332,6 +340,8 @@ export function ProjectTerminal({ slug }: { slug: string }) {
     return () => {
       disposed = true;
       window.clearTimeout(startTimer);
+      ws?.close();
+      wsRef.current = null;
       termDisposer.dispose();
       resizeDisposer.dispose();
       ro?.disconnect();
@@ -339,8 +349,6 @@ export function ProjectTerminal({ slug }: { slug: string }) {
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
-      ws?.close();
-      wsRef.current = null;
     };
   }, [slug, currentMode, changeFontSize, scheduleReconnect, cancelReconnect]);
 

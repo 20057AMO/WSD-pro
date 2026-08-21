@@ -350,13 +350,46 @@ export async function listProjects(): Promise<ProjectInfo[]> {
 }
 
 /**
- * Get a single project by slug.
+ * Get a single project by slug — O(1) direct container lookup.
  */
 export async function getProject(slug: string): Promise<ProjectInfo | null> {
   try {
     const projectSlug = validateProjectSlug(slug);
-    const projects = await listProjects();
-    return projects.find((p) => p.slug === projectSlug) || null;
+    const container = docker.getContainer(`wsd-${projectSlug}`);
+    const data = await container.inspect();
+
+    const labels = data.Config?.Labels || {};
+    if (labels['wsd.managed'] !== 'true') return null;
+
+    const ports: Record<string, string> = {};
+    const portBindings = (data.HostConfig?.PortBindings || {}) as Record<string, Array<{ HostPort?: string }>>;
+    for (const [priv, bindings] of Object.entries(portBindings)) {
+      if (bindings && bindings.length > 0 && bindings[0].HostPort) {
+        ports[priv.replace('/tcp', '')] = bindings[0].HostPort;
+      }
+    }
+
+    const project: ProjectInfo = {
+      id: data.Id?.slice(0, 12) || '',
+      name: labels['wsd.name'] || projectSlug,
+      slug: projectSlug,
+      status: data.State?.Running ? 'running' : 'stopped',
+      containerId: data.Id || '',
+      hostPorts: ports,
+      createdAt: labels['wsd.createdAt'],
+    };
+
+    const meta = loadMeta(projectSlug);
+    if (meta) {
+      if (meta.name) project.name = meta.name;
+      project.description = meta.description;
+      project.image = meta.image;
+      project.ports = meta.ports;
+      project.env = meta.env;
+      project.activity = meta.activity;
+    }
+
+    return project;
   } catch {
     return null;
   }
