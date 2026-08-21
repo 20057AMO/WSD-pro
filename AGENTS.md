@@ -78,3 +78,35 @@ After understanding context and goal:
 - Consider edge cases, race conditions, security
 - Test every change (tsc + vite build + Docker)
 - Never break existing functionality
+
+## Git Workflow
+
+After every completed task + test + verification, commit to GitHub.
+No uncommitted changes should remain after finishing a task.
+
+```bash
+git add -A
+git commit -m "descriptive message"
+git push
+```
+
+## Development Phases
+
+The application progresses through three distinct phases:
+
+### Phase 1: New Features
+Adding new capabilities and functionality to the application.
+Every new feature must be built, tested, and committed.
+
+### Phase 2: Improvements
+Enhancing and refining existing features.
+Every improvement must be verified to not break existing behavior.
+
+### Phase 3: Full Testing & Production Readiness
+End-to-end testing based on real-world scenarios.
+Act as a real user configuring the application for deployment.
+The goal: a fully working production machine ready for daily use.
+
+## Current Phase
+
+**Phase 1: New Features**
