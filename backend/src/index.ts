@@ -93,6 +93,7 @@ const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 const RATE_WINDOW = 60_000; // 1 minute
 const RATE_MAX = 240; // max requests per window (global)
 const RATE_STRICT_MAX = 10; // for dangerous endpoints
+const RATE_AUTH_MAX = 10; // password-verification endpoints (brute-force guard)
 
 function rateLimit(scope: string, windowMs: number, max: number) {
   return (req: any, res: any, next: any) => {
@@ -124,6 +125,11 @@ setInterval(() => {
 // Global rate limit
 app.use(rateLimit('global', RATE_WINDOW, RATE_MAX));
 
+// Dedicated brute-force guard for every endpoint that verifies a password.
+// Separate scope so login attempts never consume the general API budget
+// (and vice versa). 10 attempts/min is far above human usage.
+const authLimiter = rateLimit('auth', RATE_WINDOW, RATE_AUTH_MAX);
+
 // ── Uploads (files into an existing project workspace) ────────
 const UPLOADS_TMP = '/tmp/wsd-uploads';
 fs.mkdirSync(UPLOADS_TMP, { recursive: true });
@@ -152,7 +158,7 @@ app.get('/api/auth/status', (_req, res) => {
   res.json({ hasUser: hasUser(), user });
 });
 
-app.post('/api/auth/setup', (req, res) => {
+app.post('/api/auth/setup', authLimiter, (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
@@ -164,7 +170,7 @@ app.post('/api/auth/setup', (req, res) => {
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', authLimiter, (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
@@ -204,7 +210,7 @@ app.post('/api/auth/change-password', (req: any, res) => {
 });
 
 // Logout everywhere: invalidate every issued session token.
-app.post('/api/auth/logout-all', (req: any, res) => {
+app.post('/api/auth/logout-all', authLimiter, (req: any, res) => {
   try {
     const { accountPassword } = req.body || {};
     if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
@@ -232,7 +238,7 @@ app.post('/api/providers/unlock', (req, res) => {
 });
 
 // Set or change the providers lock password — requires account re-auth.
-app.post('/api/auth/providers-password', (req: any, res) => {
+app.post('/api/auth/providers-password', authLimiter, (req: any, res) => {
   try {
     const { accountPassword, newPassword } = req.body || {};
     if (!accountPassword || !newPassword) {
@@ -247,7 +253,7 @@ app.post('/api/auth/providers-password', (req: any, res) => {
 });
 
 // Remove the providers lock entirely — requires account re-auth.
-app.delete('/api/auth/providers-password', (req: any, res) => {
+app.delete('/api/auth/providers-password', authLimiter, (req: any, res) => {
   try {
     const { accountPassword } = req.body || {};
     if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
@@ -262,7 +268,7 @@ app.delete('/api/auth/providers-password', (req: any, res) => {
 // ── Settings backup (export / import) ─────────────────────────
 // Both operations require account re-auth. Exports never contain API keys.
 
-app.get('/api/settings/export', (req: any, res) => {
+app.get('/api/settings/export', authLimiter, (req: any, res) => {
   const accountPassword = String(req.query.accountPassword || '');
   if (!verifyAccountPassword(accountPassword)) {
     return res.status(401).json({ error: 'Account password is incorrect.' });
@@ -280,7 +286,7 @@ app.get('/api/settings/export', (req: any, res) => {
   }
 });
 
-app.post('/api/settings/import', async (req: any, res) => {
+app.post('/api/settings/import', authLimiter, async (req: any, res) => {
   try {
     const { accountPassword, backup } = req.body || {};
     if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
@@ -939,6 +945,7 @@ server.listen(PORT, HOST, () => {
   console.log(`[WSD-Pro] Chat model: ${getChatConfig().model}`);
   console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
 });
+
 
 
 

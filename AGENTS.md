@@ -112,6 +112,11 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - `GET /api/auth/audit` → last 50 entries, newest first (auth-protected)
 - Shown in Settings → Security Activity; auditing failures never break request flow
 
+### Brute-force guard
+- Dedicated `auth` rate-limit scope: **10 password verifications/min per IP** on login, setup, logout-all, providers-password set/remove, settings export/import
+- Separate from the global 240/min budget — login attempts never starve normal API usage
+- Exceeding returns `429` with `Retry-After`; verified via isolated-server hammer test
+
 ### Session revocation (logout everywhere)
 - Every login token carries a `tv` claim matching `users.json → tokenVersion`; `verifyToken` rejects stale versions
 - `POST /api/auth/logout-all` (account-password re-auth) bumps the version → all sessions die
