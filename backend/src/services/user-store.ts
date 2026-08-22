@@ -223,6 +223,17 @@ export function removeProvidersPassword(accountPassword: string): void {
 }
 
 /**
+ * Invalidate every outstanding unlock token WITHOUT touching the stored
+ * providers password ("Lock now" across all tabs/devices).
+ */
+export function revokeProvidersUnlocks(): void {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser?.providersPasswordHash) return;
+  cachedUser.providersPasswordVersion = (cachedUser.providersPasswordVersion || 0) + 1;
+  saveUsers();
+}
+
+/**
  * Verify a providers-lock password and issue a short-lived scoped unlock
  * token. The token carries the current password version so changing or
  * removing the lock instantly invalidates every previously issued token.

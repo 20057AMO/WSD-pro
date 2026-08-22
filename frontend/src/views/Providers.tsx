@@ -21,6 +21,8 @@ import {
   getProvidersUnlock,
   setProvidersUnlock,
   clearProvidersUnlock,
+  relockProviders,
+  UNLOCK_KEY,
   type ProviderInfo,
   type ProviderType,
   type KnownTemplate,
@@ -99,6 +101,16 @@ export function Providers() {
     try { sessionStorage.setItem('wsd.providers.onboarded', '1'); } catch { /* ignore */ }
   };
 
+  // Esc dismisses the welcome modal.
+  useEffect(() => {
+    if (!welcomeOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dismissWelcome();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [welcomeOpen]);
+
   // Countdown ticker while unlocked — re-render every 30s so the badge stays honest.
   useEffect(() => {
     if (locked !== false) return;
@@ -117,6 +129,23 @@ export function Providers() {
     }, 15_000);
     return () => clearInterval(t);
   }, [locked]);
+
+  // Cross-tab sync: when another tab unlocks or locks, follow along.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== UNLOCK_KEY && e.key !== null) return;
+      const has = getProvidersUnlock();
+      if (!has && lockConfigured) {
+        setLocked(true);
+        setProviders([]);
+      } else if (has && locked === true) {
+        setLocked(false);
+        refresh();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [locked, lockConfigured]);
 
   const doUnlock = async (e: Event) => {
     e.preventDefault();
@@ -144,7 +173,12 @@ export function Providers() {
     }
   };
 
-  const lockNow = () => {
+  const lockNow = async () => {
+    // True global lock: the server bumps its token version so every
+    // outstanding unlock token — in any tab or device — dies instantly.
+    try {
+      await relockProviders();
+    } catch { /* local lock still applies */ }
     clearProvidersUnlock();
     setProviders([]);
     setLocked(true);
@@ -182,10 +216,15 @@ export function Providers() {
     );
   }
 
-  // ── Locked gate: centered login-style modal over an empty page ──
+  // ── Locked gate: page context (hero) with the unlock card beneath it ──
   if (locked === true) {
     return (
       <div class="view">
+        <div class="hero">
+          <span class="hero-badge"><KeyRound width={12} height={12} /> Providers</span>
+          <h1 class="hero-title" style="font-size: 1.5rem">Providers</h1>
+          <p class="hero-sub">This page is protected by an additional password.</p>
+        </div>
         <div class="modal-overlay static-overlay">
           <form class="modal-card unlock-card" onSubmit={doUnlock}>
             <div class="reauth-avatar" aria-hidden="true"><Lock width={24} height={24} /></div>
@@ -247,7 +286,7 @@ export function Providers() {
           </span>
         )}
         {lockConfigured && (
-          <button class="btn-ghost sm" onClick={lockNow}>
+          <button class="btn-ghost sm" onClick={lockNow} title="Lock on all tabs and devices">
             <span class="icon-wrap"><Lock width={13} height={13} /></span> Lock now
           </button>
         )}
@@ -676,6 +715,7 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
     </div>
   );
 }
+
 
 
 

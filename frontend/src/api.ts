@@ -164,7 +164,10 @@ function getAuthToken(): string | null {
 }
 
 // ── Providers unlock token (second-layer lock) ────────────────
-const UNLOCK_KEY = 'wsd.providers.unlock';
+// Stored in localStorage (not sessionStorage): the 30-minute expiry
+// timestamp still time-boxes it, while the `storage` event lets all open
+// tabs stay in sync about the lock state.
+export const UNLOCK_KEY = 'wsd.providers.unlock';
 
 export interface UnlockState {
   token: string;
@@ -174,11 +177,11 @@ export interface UnlockState {
 
 export function getProvidersUnlock(): UnlockState | null {
   try {
-    const raw = sessionStorage.getItem(UNLOCK_KEY);
+    const raw = localStorage.getItem(UNLOCK_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as UnlockState;
     if (!parsed?.token || !parsed?.expiresAt || Date.now() >= parsed.expiresAt) {
-      sessionStorage.removeItem(UNLOCK_KEY);
+      localStorage.removeItem(UNLOCK_KEY);
       return null;
     }
     return parsed;
@@ -189,15 +192,19 @@ export function getProvidersUnlock(): UnlockState | null {
 
 export function setProvidersUnlock(token: string, expiresInSec: number): void {
   try {
-    sessionStorage.setItem(UNLOCK_KEY, JSON.stringify({ token, expiresAt: Date.now() + expiresInSec * 1000 }));
+    localStorage.setItem(UNLOCK_KEY, JSON.stringify({ token, expiresAt: Date.now() + expiresInSec * 1000 }));
   } catch { /* storage unavailable */ }
 }
 
 export function clearProvidersUnlock(): void {
   try {
-    sessionStorage.removeItem(UNLOCK_KEY);
+    localStorage.removeItem(UNLOCK_KEY);
   } catch { /* ignore */ }
 }
+
+/** "Lock now" — invalidate every outstanding unlock token server-side. */
+export const relockProviders = () =>
+  api<{ ok: boolean; locked: boolean }>('/api/providers/relock', { method: 'POST' });
 
 export type ApiError = Error & { status?: number; code?: string };
 

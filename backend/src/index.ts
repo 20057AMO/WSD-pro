@@ -67,6 +67,7 @@ import {
   verifyUnlockToken,
   verifyAccountPassword,
   revokeAllSessions,
+  revokeProvidersUnlocks,
 } from './services/user-store';
 import { buildBackup, restoreFromBackup } from './services/settings-export';
 import { recordAudit, listAudit } from './services/audit-store';
@@ -240,6 +241,16 @@ app.post('/api/providers/unlock', authLimiter, (req: any, res) => {
   }
   recordAudit('providers-unlock', true, req.ip);
   res.json({ ok: true, unlockToken: result.unlockToken, expiresInSec: result.expiresInSec });
+});
+
+// "Lock now" — invalidate every outstanding unlock token across all
+// tabs/devices. Main-JWT auth only; no password re-entry needed because
+// locking is the defensive direction.
+app.post('/api/providers/relock', (req: any, res) => {
+  if (!hasProvidersPassword()) return res.json({ ok: true, locked: false });
+  revokeProvidersUnlocks();
+  recordAudit('providers-relock', true, req.ip);
+  res.json({ ok: true, locked: true });
 });
 
 // Set or change the providers lock password — requires account re-auth.
@@ -957,6 +968,7 @@ server.listen(PORT, HOST, () => {
   console.log(`[WSD-Pro] Chat model: ${getChatConfig().model}`);
   console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
 });
+
 
 
 

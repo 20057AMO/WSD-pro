@@ -100,6 +100,8 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Unlock issues a scoped JWT (`scope:'providers'`, 30 min) sent as `X-Providers-Unlock`; version counter (`pv`) invalidates all unlock tokens on password change
 - `POST /api/providers/unlock` is brute-force guarded by the shared `auth` limiter (10/min) and audited (`providers-unlock` / `providers-unlock-failed`)
 - Enabling/changing the lock returns a ready-to-use unlock token — the current session stays open on the Providers page (no immediate re-entry)
+- `POST /api/providers/relock` ("Lock now") bumps the version server-side — kills every outstanding unlock token across all tabs/devices; audited (`providers-relock`)
+- Unlock token lives in `localStorage` (time-boxed by its expiry) so the `storage` event keeps all tabs in sync about lock state
 - When enabled, management endpoints return `403 {error:'providers_locked'}` without a valid token
 - Always-open endpoints: `GET /api/providers/options` (id/name/type only) and `GET /api/providers/templates`
 - Chat/agent LLM usage is server-side and never blocked by the lock

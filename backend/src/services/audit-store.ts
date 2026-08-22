@@ -23,6 +23,7 @@ export type AuditEvent =
   | 'providers-lock-change-failed'
   | 'providers-unlock'
   | 'providers-unlock-failed'
+  | 'providers-relock'
   | 'backup-export'
   | 'backup-import';
 

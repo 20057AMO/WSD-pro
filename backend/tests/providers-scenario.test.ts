@@ -370,6 +370,45 @@ describe('Scenario: Providers lock journey', () => {
       assert.ok(entries.some((e) => e.event === 'providers-unlock'));
     });
 
+    test('"Lock now" invalidates the outstanding token on all devices', async (t) => {
+      if (!accountPassword) return t.skip();
+
+      // fresh token for the current lock password
+      const unlock = await sensitive(`${API_URL}/providers/unlock`, {
+        method: 'POST',
+        headers: { ...h(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: LOCK_V2 }),
+      });
+      assert.strictEqual(unlock.status, 200);
+      const token = (await unlock.json()).unlockToken as string;
+      assert.ok(token);
+
+      // works before relock…
+      const pre = await fetch(`${API_URL}/providers`, {
+        headers: h({ 'X-Providers-Unlock': token }),
+      });
+      assert.strictEqual(pre.status, 200);
+
+      // …relock bumps the version server-side…
+      const rl = await fetch(`${API_URL}/providers/relock`, {
+        method: 'POST',
+        headers: h(),
+      });
+      assert.strictEqual(rl.status, 200);
+      assert.strictEqual((await rl.json()).locked, true);
+
+      // …and the same token is now dead everywhere.
+      const post = await fetch(`${API_URL}/providers`, {
+        headers: h({ 'X-Providers-Unlock': token }),
+      });
+      assert.strictEqual(post.status, 403);
+
+      // audit captured it
+      const audit = await fetch(`${API_URL}/auth/audit`, { headers: h() });
+      const entries = (await audit.json()).entries as Array<{ event: string }>;
+      assert.ok(entries.some((e) => e.event === 'providers-relock'));
+    });
+
     test('unlock endpoint is brute-force guarded (429 after 10/min)', async (t) => {
       if (!accountPassword) return t.skip();
       // Deliberately bypass the rate-limit-aware helper — this test exists
@@ -425,6 +464,13 @@ describe('Scenario: Providers lock journey', () => {
       assert.strictEqual((await status.json()).enabled, false);
       const list = await fetch(`${API_URL}/providers`, { headers: h() });
       assert.strictEqual(list.status, 200);
+    });
+
+    test('relock without any configured lock is a harmless noop', async (t) => {
+      if (!accountPassword) return t.skip();
+      const res = await fetch(`${API_URL}/providers/relock`, { method: 'POST', headers: h() });
+      assert.strictEqual(res.status, 200);
+      assert.strictEqual((await res.json()).locked, false);
     });
   });
 

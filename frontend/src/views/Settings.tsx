@@ -39,6 +39,7 @@ const AUDIT_LABELS: Record<string, string> = {
   'providers-lock-change-failed': 'Providers lock update failed',
   'providers-unlock': 'Providers page unlocked',
   'providers-unlock-failed': 'Providers unlock attempt failed',
+  'providers-relock': 'Providers locked on all devices',
   'backup-export': 'Backup exported',
   'backup-import': 'Backup imported',
 };
