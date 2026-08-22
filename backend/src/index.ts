@@ -147,7 +147,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'WSD-Pro',
-    version: '2.0.0',
+    version: '2.0.0-beta',
     timestamp: new Date().toISOString(),
   });
 });
@@ -305,7 +305,7 @@ app.post('/api/settings/import', authLimiter, async (req: any, res) => {
 app.get('/api/server/info', (_req, res) => {
   const ips = detectIp();
   res.json({
-    version: '2.0.0',
+    version: '2.0.0-beta',
     lanIp: ips.lanIp,
     tailscaleIp: ips.tailscaleIp,
     basePort: PORT,
@@ -945,6 +945,7 @@ server.listen(PORT, HOST, () => {
   console.log(`[WSD-Pro] Chat model: ${getChatConfig().model}`);
   console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
 });
+
 
 
 

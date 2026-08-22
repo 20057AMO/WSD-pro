@@ -95,11 +95,18 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 
 ### Providers Security Lock (optional second layer)
 - Separate bcrypt password stored in `users.json` (`providersPasswordHash`) — independent from the account password
-- Managed exclusively from Settings → Providers Security; every add/change/remove requires account-password re-auth
+- Managed exclusively from Settings → Providers Security via a **two-step sudo-style flow**: pick the new lock password, then confirm identity in `ReAuthModal` (shows the signed-in username, asks for the account password)
+- The same `ReAuthModal` pattern authorizes every sensitive op: lock save/remove, backup export/import, logout-everywhere
 - Unlock issues a scoped JWT (`scope:'providers'`, 30 min) sent as `X-Providers-Unlock`; version counter (`pv`) invalidates all unlock tokens on password change
 - When enabled, management endpoints return `403 {error:'providers_locked'}` without a valid token
 - Always-open endpoints: `GET /api/providers/options` (id/name/type only) and `GET /api/providers/templates`
 - Chat/agent LLM usage is server-side and never blocked by the lock
+- Providers page UX states: skeleton shimmer (checking) → welcome modal explaining protection (when unconfigured, dismissible per tab session) → centered login-style unlock modal (when locked)
+
+### UI conventions
+- Icons: **lucide-preact** everywhere (`class="icon"`, spin via `.icon.spin`) — agent preset icons are stored data and stay as-is
+- App theme: **dark mode only**
+- Version string: `2.0.0-beta` (health, server/info, About panel, backups all aligned)
 
 ### Settings Backup (export/import)
 - `GET /api/settings/export?accountPassword=…` → JSON backup; **provider API keys are stripped by design**
