@@ -146,7 +146,7 @@ export function changePassword(currentPassword: string, newPassword: string): { 
     throw new Error('Current password is incorrect.');
   }
 
-  if (!newPassword || newPassword.length < 4) {
+  if (!newPassword || newPassword.length < 6) {
     throw new Error('New password must be at least 6 characters.');
   }
 
@@ -174,7 +174,7 @@ export function revokeAllSessions(accountPassword: string): void {
 // ── Providers lock (optional second-layer password) ───────────
 
 function assertProvidersPassword(newPassword: string): void {
-  if (!newPassword || newPassword.length < 4) {
+  if (!newPassword || newPassword.length < 6) {
     throw new Error('Providers password must be at least 6 characters.');
   }
   if (newPassword.length > 128) {
