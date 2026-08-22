@@ -98,6 +98,8 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Managed exclusively from Settings → Providers Security via a **two-step sudo-style flow**: pick the new lock password, then confirm identity in `ReAuthModal` (shows the signed-in username, asks for the account password)
 - The same `ReAuthModal` pattern authorizes every sensitive op: lock save/remove, backup export/import, logout-everywhere
 - Unlock issues a scoped JWT (`scope:'providers'`, 30 min) sent as `X-Providers-Unlock`; version counter (`pv`) invalidates all unlock tokens on password change
+- `POST /api/providers/unlock` is brute-force guarded by the shared `auth` limiter (10/min) and audited (`providers-unlock` / `providers-unlock-failed`)
+- Enabling/changing the lock returns a ready-to-use unlock token — the current session stays open on the Providers page (no immediate re-entry)
 - When enabled, management endpoints return `403 {error:'providers_locked'}` without a valid token
 - Always-open endpoints: `GET /api/providers/options` (id/name/type only) and `GET /api/providers/templates`
 - Chat/agent LLM usage is server-side and never blocked by the lock

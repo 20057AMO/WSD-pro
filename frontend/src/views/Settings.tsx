@@ -17,6 +17,7 @@ import {
   exportSettings,
   importSettings,
   clearProvidersUnlock,
+  setProvidersUnlock,
   getAuditLog,
   type AuditEntry,
   type BackupFile,
@@ -36,6 +37,8 @@ const AUDIT_LABELS: Record<string, string> = {
   'password-change-failed': 'Password change failed',
   'providers-lock-change': 'Providers lock updated',
   'providers-lock-change-failed': 'Providers lock update failed',
+  'providers-unlock': 'Providers page unlocked',
+  'providers-unlock-failed': 'Providers unlock attempt failed',
   'backup-export': 'Backup exported',
   'backup-import': 'Backup imported',
 };
@@ -158,29 +161,38 @@ export function Settings() {
     setReauthError(null);
 
     const fail = (msg: string, keepOpen: boolean) => {
-      if (keepOpen) setReauthError(msg);
-      else {
-        setPendingAction(null);
-        if (pendingAction === 'save-lock' || pendingAction === 'disable-lock') {
-          setLockMsg({ type: 'err', text: msg });
-        } else {
-          setBackupMsg({ type: 'err', text: msg });
-        }
-        if (pendingAction === 'revoke-all') setPwMsg({ type: 'err', text: msg });
+      if (keepOpen) {
+        setReauthError(msg);
+        return;
+      }
+      // Route the failure message to exactly ONE panel — never duplicate it.
+      setPendingAction(null);
+      if (pendingAction === 'save-lock' || pendingAction === 'disable-lock') {
+        setLockMsg({ type: 'err', text: msg });
+      } else if (pendingAction === 'revoke-all') {
+        setPwMsg({ type: 'err', text: msg });
+      } else {
+        setBackupMsg({ type: 'err', text: msg });
       }
     };
 
     try {
       switch (pendingAction) {
         case 'save-lock': {
-          await setProvidersPassword(accountPassword, pendingLockPw.current);
+          const result = await setProvidersPassword(accountPassword, pendingLockPw.current);
           const wasEnabled = lockEnabled === true;
           setLockEnabled(true);
           setLockMsg({ type: 'ok', text: wasEnabled ? 'Providers password changed.' : 'Providers lock enabled.' });
+          // The server hands back a fresh unlock token for the new password —
+          // store it so visiting Providers right away is open, not a lockout.
+          if (result.unlockToken) {
+            setProvidersUnlock(result.unlockToken, result.expiresInSec || 1800);
+          } else {
+            clearProvidersUnlock();
+          }
+          pendingLockPw.current = '';
           setLockNewPw('');
           setLockConfirmPw('');
-          pendingLockPw.current = '';
-          clearProvidersUnlock();
           break;
         }
         case 'disable-lock': {

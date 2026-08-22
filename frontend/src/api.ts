@@ -400,7 +400,7 @@ export const unlockProviders = (password: string) =>
     body: JSON.stringify({ password }),
   });
 export const setProvidersPassword = (accountPassword: string, newPassword: string) =>
-  api<{ ok: boolean; enabled: boolean }>('/api/auth/providers-password', {
+  api<{ ok: boolean; enabled: boolean; unlockToken?: string; expiresInSec?: number }>('/api/auth/providers-password', {
     method: 'POST',
     body: JSON.stringify({ accountPassword, newPassword }),
   });

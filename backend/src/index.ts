@@ -229,15 +229,22 @@ app.get('/api/providers-lock', (_req, res) => {
   res.json({ enabled: hasProvidersPassword() });
 });
 
-app.post('/api/providers/unlock', (req, res) => {
+// Unlock verifies a password — brute-force guard + audit trail apply here too.
+app.post('/api/providers/unlock', authLimiter, (req: any, res) => {
   const { password } = req.body || {};
   if (!hasProvidersPassword()) return res.json({ ok: true, unlocked: true });
   const result = issueUnlockToken(String(password || ''));
-  if (!result) return res.status(401).json({ error: 'Incorrect providers password.' });
+  if (!result) {
+    recordAudit('providers-unlock-failed', false, req.ip);
+    return res.status(401).json({ error: 'Incorrect providers password.' });
+  }
+  recordAudit('providers-unlock', true, req.ip);
   res.json({ ok: true, unlockToken: result.unlockToken, expiresInSec: result.expiresInSec });
 });
 
 // Set or change the providers lock password — requires account re-auth.
+// On success the response carries a ready-to-use unlock token so the
+// current session does not get locked out of the page it just protected.
 app.post('/api/auth/providers-password', authLimiter, (req: any, res) => {
   try {
     const { accountPassword, newPassword } = req.body || {};
@@ -246,7 +253,12 @@ app.post('/api/auth/providers-password', authLimiter, (req: any, res) => {
     }
     setProvidersPassword(String(accountPassword), String(newPassword));
     recordAudit('providers-lock-change', true, req.ip);
-    res.json({ ok: true, enabled: true });
+    const unlock = issueUnlockToken(String(newPassword));
+    res.json({
+      ok: true,
+      enabled: true,
+      ...(unlock ? { unlockToken: unlock.unlockToken, expiresInSec: unlock.expiresInSec } : {}),
+    });
   } catch (err: any) {
     res.status(err?.message?.includes('incorrect') ? 401 : 400).json({ error: err.message });
   }

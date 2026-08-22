@@ -53,9 +53,25 @@ export function Providers() {
       setProviders(list);
       setError(null);
     } catch (err: any) {
-      if (err?.code === 'providers_locked') setLocked(true);
-      else setError(err.message || 'Failed to load providers');
+      handleMaybeLocked(err);
     }
+  };
+
+  /**
+   * Single funnel for every providers_locked response — whether it comes
+   * from the initial load, a card toggle/test/delete, or the add-provider
+   * modal. Flips the whole page to the unlock gate instead of leaking raw
+   * error text into small message slots.
+   */
+  const handleMaybeLocked = (err: any): boolean => {
+    if (err?.code === 'providers_locked') {
+      clearProvidersUnlock();
+      setProviders([]);
+      setLocked(true);
+      return true;
+    }
+    setError(err?.message || 'Failed to load providers');
+    return false;
   };
 
   useEffect(() => {
@@ -109,6 +125,13 @@ export function Providers() {
     setUnlockErr(null);
     try {
       const res = await unlockProviders(unlockPw);
+      if (res.unlocked && !res.unlockToken) {
+        // No lock is configured server-side — nothing to enter here.
+        setUnlockPw('');
+        setLocked(false);
+        await refresh();
+        return;
+      }
       if (!res.unlockToken) throw new Error('Incorrect providers password.');
       setProvidersUnlock(res.unlockToken, res.expiresInSec || 1800);
       setUnlockPw('');
@@ -237,11 +260,11 @@ export function Providers() {
 
       <div class="providers-grid">
         {providers.map((p) => (
-          <ProviderCard key={p.id} provider={p} onChanged={refresh} onDeleted={refresh} />
+          <ProviderCard key={p.id} provider={p} onChanged={refresh} onDeleted={refresh} onLocked={handleMaybeLocked} />
         ))}
       </div>
 
-      {adding && <AddProviderModal onClose={() => setAdding(false)} onAdded={async () => { await refresh(); setAdding(false); }} />}
+      {adding && <AddProviderModal onClose={() => setAdding(false)} onAdded={async () => { await refresh(); setAdding(false); }} onLocked={handleMaybeLocked} />}
 
       {/* First-visit guidance while no lock password is configured */}
       {welcomeOpen && lockConfigured === false && (
@@ -270,10 +293,12 @@ function ProviderCard({
   provider,
   onChanged,
   onDeleted,
+  onLocked,
 }: {
   provider: ProviderInfo;
   onChanged: () => void;
   onDeleted: () => void;
+  onLocked: (err: any) => boolean;
 }) {
   const [name, setName] = useState(provider.name);
   const [host, setHost] = useState(provider.host);
@@ -302,6 +327,7 @@ function ProviderCard({
       onChanged();
       setTimeout(() => setSaved(false), 2500);
     } catch (err: any) {
+      if (onLocked(err)) return;
       setError(err.message);
     } finally {
       setSaving(false);
@@ -333,6 +359,7 @@ function ProviderCard({
       await deleteProvider(provider.id);
       onDeleted();
     } catch (err: any) {
+      if (onLocked(err)) return;
       setError(err.message);
       setDeleting(false);
     }
@@ -410,7 +437,7 @@ function ProviderCard({
 
 type DetectState = 'idle' | 'probing' | 'ok' | 'fail';
 
-function AddProviderModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void; onAdded: () => void; onLocked: (err: any) => boolean }) {
   const [name, setName] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [host, setHost] = useState('');
@@ -530,6 +557,7 @@ function AddProviderModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
       });
       onAdded();
     } catch (err: any) {
+      if (onLocked(err)) return;
       if (err.code === 'detection_required') {
         setShowAdvanced(true);
         setDetectState('fail');
@@ -648,3 +676,6 @@ function AddProviderModal({ onClose, onAdded }: { onClose: () => void; onAdded: 
     </div>
   );
 }
+
+
+

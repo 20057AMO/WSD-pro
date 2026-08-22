@@ -32,10 +32,25 @@ export function ReAuthModal({
 }: ReAuthModalProps) {
   const [pw, setPw] = useState('');
 
-  // Fresh field + focus every time the dialog opens.
+  // Fresh field on open AND after every failed attempt (error prop change),
+  // so a stale wrong password is never left sitting in the box.
   useEffect(() => {
     if (open) setPw('');
   }, [open]);
+
+  useEffect(() => {
+    if (error) setPw('');
+  }, [error]);
+
+  // Esc closes (unless a request is in flight).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !loading) onCancel();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, loading]);
 
   if (!open) return null;
 

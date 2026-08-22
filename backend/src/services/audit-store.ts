@@ -21,6 +21,8 @@ export type AuditEvent =
   | 'password-change-failed'
   | 'providers-lock-change'
   | 'providers-lock-change-failed'
+  | 'providers-unlock'
+  | 'providers-unlock-failed'
   | 'backup-export'
   | 'backup-import';
 
