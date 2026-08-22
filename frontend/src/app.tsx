@@ -1,9 +1,7 @@
 import { Component, type ComponentChildren } from 'preact';
-import { useState } from 'preact/hooks';
 import { Router, Route } from 'wouter';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { AuthProvider, useAuth } from './auth';
-import { getTheme, toggleTheme } from './theme';
 import { Login } from './views/Login';
 import { Dashboard } from './views/Dashboard';
 import { Projects } from './views/Projects';
@@ -76,7 +74,6 @@ function navigate(href: string): void {
 
 function Sidebar() {
   const { user } = useAuth();
-  const [, force] = useState(0);
   return (
     <aside class="sidebar">
       <div class="sidebar-brand">
@@ -96,13 +93,6 @@ function Sidebar() {
         <NavButton href="/ide" label="Web IDE" icon="▦" />
       </nav>
       <div class="sidebar-footer">
-        <button
-          class="theme-toggle"
-          title={getTheme() === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
-          onClick={() => { toggleTheme(); force((n: number) => n + 1); }}
-        >
-          {getTheme() === 'light' ? '🌙' : '☀️'}
-        </button>
         <div class="sys-row">
           <span class="sys-dot ok" />
           {user?.username || 'authenticated'}

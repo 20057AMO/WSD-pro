@@ -11,7 +11,7 @@ import {
   type AuditEntry,
   type BackupFile,
 } from '../api';
-import { passwordStrength, PW_LABELS, PW_COLORS } from '../theme';
+import { PwMeter } from '../components/PwMeter';
 
 const APP_VERSION = '2.0.0-beta';
 
@@ -555,23 +555,6 @@ export function Settings() {
           <span style="color: var(--text-2)">MIT</span>
         </div>
       </div>
-    </div>
-  );
-}
-
-
-function PwMeter({ pw }: { pw: string }) {
-  const score = passwordStrength(pw);
-  return (
-    <div class="pw-meter" title={`Password strength: ${PW_LABELS[score]}`}>
-      {[0, 1, 2, 3].map((i) => (
-        <span
-          key={i}
-          class={i < Math.max(score, 1) ? 'pw-seg on' : 'pw-seg'}
-          style={i < score ? `background:${PW_COLORS[score]}` : undefined}
-        />
-      ))}
-      <span class="pw-label">{PW_LABELS[Math.max(score, 0)]}</span>
     </div>
   );
 }

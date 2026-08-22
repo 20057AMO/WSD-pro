@@ -25,24 +25,6 @@
   --mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', Consolas, monospace;
 }
 
-/* ── Light theme ── (toggle via <html data-theme="light">) */
-[data-theme="light"] {
-  --bg: #f6f7f9;
-  --bg-2: #eef0f3;
-  --panel: #ffffff;
-  --panel-2: #f2f4f8;
-  --border: #dfe3e8;
-  --border-2: #ccd2d9;
-  --text: #1c2128;
-  --text-2: #59636e;
-  --text-3: #8c959f;
-  --accent: #1c2128;
-  --green: #1a7f37;
-  --yellow: #9a6700;
-  --red: #cf222e;
-  --blue: #0969da;
-}
-
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -1555,16 +1537,6 @@ textarea.agent-prompt-input {
 .audit-dot.bad { background: var(--red, #f87171); }
 .audit-label { color: var(--text); flex: 1; }
 .audit-time { color: var(--text-3); font-size: 0.68rem; }
-
-/* ── Theme toggle (sidebar footer) ── */
-.theme-toggle {
-  font-size: 0.9rem; line-height: 1;
-  padding: 5px 8px; border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--panel-2);
-  transition: background 0.15s;
-}
-.theme-toggle:hover { background: var(--border); }
 
 /* ── Password strength meter ── */
 .pw-meter { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
