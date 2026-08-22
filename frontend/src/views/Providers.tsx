@@ -1,5 +1,14 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import {
+  Loader2,
+  KeyRound,
+  Lock,
+  LockOpen,
+  ShieldCheck,
+  Plus,
+  Timer,
+} from 'lucide-preact';
+import {
   getProviders,
   getProviderTemplates,
   detectProvider,
@@ -31,11 +40,12 @@ export function Providers() {
 
   // Lock state: null = still checking
   const [locked, setLocked] = useState<boolean | null>(null);
-  const [lockConfigured, setLockConfigured] = useState(false);
+  const [lockConfigured, setLockConfigured] = useState<boolean | null>(null);
   const [unlockPw, setUnlockPw] = useState('');
   const [unlockLoading, setUnlockLoading] = useState(false);
   const [unlockErr, setUnlockErr] = useState<string | null>(null);
   const [, forceTick] = useState(0);
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
 
   const refresh = async () => {
     try {
@@ -50,25 +60,33 @@ export function Providers() {
 
   useEffect(() => {
     getProvidersLockStatus()
-      .then((r) => setLockConfigured(r.enabled))
-      .catch(() => setLockConfigured(false));
-    if (getProvidersUnlock()) {
-      setLocked(false);
-      refresh();
-    } else {
-      getProvidersLockStatus()
-        .then((r) => {
-          if (!r.enabled) refresh();
-          else setLocked(true);
-        })
-        .catch(() => refresh());
-    }
+      .then((r) => {
+        setLockConfigured(r.enabled);
+        if (r.enabled && !getProvidersUnlock()) {
+          setLocked(true);
+        } else {
+          refresh();
+        }
+        // First-visit guidance: when no lock password exists yet, explain what
+        // this page protects and offer to enable it. Dismissible for the tab session.
+        if (!r.enabled) {
+          try {
+            if (!sessionStorage.getItem('wsd.providers.onboarded')) setWelcomeOpen(true);
+          } catch { /* storage unavailable */ }
+        }
+      })
+      .catch(() => refresh());
   }, []);
+
+  const dismissWelcome = () => {
+    setWelcomeOpen(false);
+    try { sessionStorage.setItem('wsd.providers.onboarded', '1'); } catch { /* ignore */ }
+  };
 
   // Countdown ticker while unlocked — re-render every 30s so the badge stays honest.
   useEffect(() => {
     if (locked !== false) return;
-    const t = setInterval(() => forceTick((n) => n + 1), 30_000);
+    const t = setInterval(() => forceTick((n: number) => n + 1), 30_000);
     return () => clearInterval(t);
   }, [locked]);
 
@@ -109,45 +127,77 @@ export function Providers() {
     setLocked(true);
   };
 
-  // ── Locked gate ──
-  if (locked === true) {
+  // ── Checking state: skeleton shimmer instead of a bare "Loading…" ──
+  if (locked === null) {
     return (
       <div class="view">
         <div class="hero">
-          <span class="hero-badge">Providers · 🔒</span>
+          <span class="hero-badge"><KeyRound width={12} height={12} /> Providers</span>
           <h1 class="hero-title" style="font-size: 1.5rem">Providers</h1>
-          <p class="hero-sub">This page is protected by an additional password.</p>
+          <p class="hero-sub">
+            Manage any chat provider (Ollama, OpenRouter, OpenAI, Google AI Studio, Anthropic,
+            Groq, DeepSeek…). Paste an API key — everything else is detected automatically.
+          </p>
         </div>
-        <form class="panel settings-section providers-unlock-card" onSubmit={doUnlock}>
-          <div class="panel-title">🔒 Unlock Providers</div>
-          <p class="settings-hint">
-            Enter the Providers password you configured in Settings → Providers Security.
-            The page stays open for 30 minutes.
-          </p>
-          <input
-            class="modern-input"
-            type="password"
-            placeholder="Providers password"
-            autoFocus
-            value={unlockPw}
-            onInput={(e: any) => setUnlockPw(e.target.value)}
-          />
-          {unlockErr && <div class="login-error">{unlockErr}</div>}
-          <button class="btn-primary sm" type="submit" disabled={unlockLoading || !unlockPw}>
-            {unlockLoading ? 'Checking…' : 'Unlock'}
-          </button>
-          <p class="settings-hint" style="margin-top: 10px;">
-            Forgot it? Reset it from <a href="#/settings" style="color: var(--accent)">Settings → Providers Security</a> using your account password.
-          </p>
-        </form>
+        <div class="providers-grid" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <div class="panel skel-card" key={i}>
+              <div class="skel-line w40" />
+              <div class="skel-line w80" />
+              <div class="skel-line w60" />
+              <div style="display:flex; gap:8px; margin-top:14px;">
+                <span class="skel-chip" />
+                <span class="skel-chip" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div class="inline-loading" style="justify-content:center; margin-top:18px;">
+          <Loader2 width={14} height={14} class="icon spin" /> Checking providers…
+        </div>
       </div>
     );
   }
 
-  if (locked === null) {
+  // ── Locked gate: centered login-style modal over an empty page ──
+  if (locked === true) {
     return (
       <div class="view">
-        <div class="dim" style="padding: 24px; font-size: 0.85rem;">Loading…</div>
+        <div class="modal-overlay static-overlay">
+          <form class="modal-card unlock-card" onSubmit={doUnlock}>
+            <div class="reauth-avatar" aria-hidden="true"><Lock width={24} height={24} /></div>
+            <div class="reauth-title" style="text-align:center;">Providers locked</div>
+            <p class="settings-hint" style="text-align:center;">
+              API keys are protected by an extra password. Enter your Providers
+              password — the page stays open for 30 minutes.
+            </p>
+            <input
+              class="modern-input"
+              type="password"
+              placeholder="Providers password"
+              autoFocus
+              value={unlockPw}
+              onInput={(e: any) => setUnlockPw(e.target.value)}
+            />
+            {unlockErr && <div class="login-error" style="text-align:center">{unlockErr}</div>}
+            <button class="btn-primary sm" type="submit" disabled={unlockLoading || !unlockPw} style="width:100%;">
+              {unlockLoading ? (
+                <span style="display:inline-flex;align-items:center;gap:6px;">
+                  <Loader2 width={14} height={14} class="icon spin" /> Checking…
+                </span>
+              ) : (
+                <span style="display:inline-flex;align-items:center;gap:6px;">
+                  <LockOpen width={14} height={14} /> Unlock
+                </span>
+              )}
+            </button>
+            <p class="settings-hint" style="margin-top:10px; text-align:center;">
+              Forgot it? Reset it from{' '}
+              <a href="#/settings" style="color: var(--accent)">Settings → Providers Security</a>{' '}
+              using your account password.
+            </p>
+          </form>
+        </div>
       </div>
     );
   }
@@ -158,7 +208,7 @@ export function Providers() {
   return (
     <div class="view">
       <div class="hero">
-        <span class="hero-badge">Providers · 🔑</span>
+        <span class="hero-badge"><KeyRound width={12} height={12} /> Providers</span>
         <h1 class="hero-title" style="font-size: 1.5rem">Providers</h1>
         <p class="hero-sub">
           Manage any chat provider (Ollama, OpenRouter, OpenAI, Google AI Studio, Anthropic,
@@ -170,13 +220,17 @@ export function Providers() {
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 14px; align-items: center;">
         {minutesLeft > 0 && (
           <span class="badge-ok unlock-countdown" title="Time remaining before this page locks again">
-            🔓 unlocked · {minutesLeft} min left
+            <Timer width={11} height={11} /> unlocked · {minutesLeft} min left
           </span>
         )}
         {lockConfigured && (
-          <button class="btn-ghost sm" onClick={lockNow}>Lock now</button>
+          <button class="btn-ghost sm" onClick={lockNow}>
+            <span class="icon-wrap"><Lock width={13} height={13} /></span> Lock now
+          </button>
         )}
-        <button class="btn-primary sm" onClick={() => setAdding(true)}>+ Add provider</button>
+        <button class="btn-primary sm" onClick={() => setAdding(true)}>
+          <span class="icon-wrap"><Plus width={13} height={13} /></span> Add provider
+        </button>
       </div>
 
       {error && <div class="chat-save-msg" style="margin-bottom: 12px">{error}</div>}
@@ -188,6 +242,26 @@ export function Providers() {
       </div>
 
       {adding && <AddProviderModal onClose={() => setAdding(false)} onAdded={async () => { await refresh(); setAdding(false); }} />}
+
+      {/* First-visit guidance while no lock password is configured */}
+      {welcomeOpen && lockConfigured === false && (
+        <div class="modal-overlay" onMouseDown={(e: any) => { if (e.target === e.currentTarget) dismissWelcome(); }}>
+          <div class="modal-card reauth-card" role="dialog" aria-label="Protect your API keys">
+            <div class="reauth-avatar" aria-hidden="true"><ShieldCheck width={26} height={26} /></div>
+            <div class="reauth-title" style="text-align:center;">Protect your API keys</div>
+            <p class="settings-hint" style="text-align:center;">
+              This page stores provider API keys. You can add a second-layer password so that
+              opening this page requires a quick unlock — even while you are signed in.
+            </p>
+            <div style="display:flex; gap:8px; margin-top:8px; justify-content:center; flex-wrap:wrap;">
+              <a href="#/settings" class="btn-primary sm" style="text-decoration:none;" onClick={dismissWelcome}>
+                <span class="icon-wrap"><ShieldCheck width={13} height={13} /></span> Enable protection
+              </a>
+              <button class="btn-ghost sm" onClick={dismissWelcome}>Not now</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

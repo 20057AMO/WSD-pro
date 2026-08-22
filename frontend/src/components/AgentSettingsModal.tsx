@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
+import { X, Loader2 } from 'lucide-preact';
 import { updateAgent, deleteAgent, getChatModels, getChatInfo, type AgentDef } from '../api';
 
 interface ProviderBrief {
@@ -117,7 +118,7 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
               />
             </div>
           </div>
-          <button class="btn-ghost sm" onClick={onClose}>×</button>
+          <button class="btn-ghost sm" onClick={onClose} title="Close"><X width={14} height={14} class="icon" /></button>
         </div>
 
         <div class="agent-settings-body scrollbar">
@@ -210,7 +211,7 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
           <div style="flex:1" />
           <button class="btn-ghost sm" onClick={onClose}>Cancel</button>
           <button class="btn-primary" onClick={handleSave} disabled={saving || !name.trim()}>
-            {saving ? '…' : 'Save'}
+            {saving ? <span style="display:inline-flex;align-items:center;gap:6px;"><Loader2 width={13} height={13} class="icon spin" /> Saving…</span> : 'Save'}
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
+import { Paperclip, Wrench, FileOutput, Bot } from 'lucide-preact';
 import { marked } from 'marked';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
@@ -543,7 +544,7 @@ export function Agents() {
                               a.kind === 'image' && a.data ? (
                                 <img class="chat-img" src={a.data} alt={a.name} key={j} />
                               ) : (
-                                <span class="chat-file-chip" key={j}>📎 {a.name}</span>
+                                <span class="chat-file-chip" key={j}><Paperclip width={11} height={11} class="icon" /> {a.name}</span>
                               )
                             )}
                           </div>
@@ -554,13 +555,13 @@ export function Agents() {
                       <div class="chat-msg system err" dir={chatDir} key={i}>{m.text}</div>
                     ) : m.role === 'tool_call' ? (
                       <div class="tool-step tool-call" key={i}>
-                        <span class="tool-step-icon">🔧</span>
+                        <span class="tool-step-icon"><Wrench width={12} height={12} class="icon" /></span>
                         <span class="tool-step-label">Using {m.toolName || 'tool'}</span>
                         <span class="tool-step-args">{m.toolArgs ? Object.entries(m.toolArgs).map(([k, v]) => `${k}=${v}`).join(' ') : ''}</span>
                       </div>
                     ) : m.role === 'tool_result' ? (
                       <div class="tool-step tool-result" key={i}>
-                        <span class="tool-step-icon">📋</span>
+                        <span class="tool-step-icon"><FileOutput width={12} height={12} class="icon" /></span>
                         <span class="tool-step-label">Result</span>
                         <pre class="tool-step-output">{m.text.slice(0, 500)}{m.text.length > 500 ? '\n…(truncated)' : ''}</pre>
                       </div>
@@ -582,7 +583,7 @@ export function Agents() {
                         {p.type.startsWith('image/') && p.data ? (
                           <img class="chat-attach-thumb" src={p.data} alt="" />
                         ) : (
-                          <span class="chat-attach-icon">📎</span>
+                          <span class="chat-attach-icon"><Paperclip width={13} height={13} class="icon" /></span>
                         )}
                         <span class="chat-attach-name">{p.name}</span>
                         <span class="chat-attach-size">{formatSize(p.size)}</span>
@@ -594,7 +595,7 @@ export function Agents() {
 
                 <form class="chat-input-row" onSubmit={submit}>
                   <button class="btn-ghost chat-attach-btn" type="button" title="Attach files"
-                    onClick={() => fileRef.current?.click()} disabled={running || reading}>📎</button>
+                    onClick={() => fileRef.current?.click()} disabled={running || reading}><Paperclip width={14} height={14} class="icon" /></button>
                   <input ref={fileRef} type="file" multiple style="display:none"
                     onChange={(e: any) => { addFiles(e.target.files); e.target.value = ''; }} />
                   <textarea
@@ -622,7 +623,7 @@ export function Agents() {
             </>
           ) : (
             <div class="empty-state" style="margin:60px auto;max-width:480px">
-              <div class="big">🤖</div>
+              <div class="big-icon"><Bot width={30} height={30} class="icon" /></div>
               Select an agent to get started.
             </div>
           )}

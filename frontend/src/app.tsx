@@ -1,6 +1,15 @@
 import { Component, type ComponentChildren } from 'preact';
 import { Router, Route } from 'wouter';
 import { useHashLocation } from 'wouter/use-hash-location';
+import {
+  LayoutDashboard,
+  FolderOpen,
+  Bot,
+  SquareTerminal,
+  KeyRound,
+  Settings as SettingsIcon,
+  Code2,
+} from 'lucide-preact';
 import { AuthProvider, useAuth } from './auth';
 import { Login } from './views/Login';
 import { Dashboard } from './views/Dashboard';
@@ -45,12 +54,12 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 const NavButton = ({
   href,
   label,
-  icon,
+  icon: Icon,
   onClick,
 }: {
   href?: string;
   label: string;
-  icon: string;
+  icon: any;
   onClick?: () => void;
 }) => {
   const [location] = useHashLocation();
@@ -60,9 +69,7 @@ const NavButton = ({
       class={`nav-btn ${active ? 'active' : ''}`}
       onClick={href ? () => navigate(href) : onClick}
     >
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
-        <text x="0" y="13" font-size="11">{icon}</text>
-      </svg>
+      <Icon width={16} height={16} class="icon" />
       <span>{label}</span>
     </button>
   );
@@ -84,13 +91,13 @@ function Sidebar() {
         </div>
       </div>
       <nav class="sidebar-nav">
-        <NavButton href="/" label="Dashboard" icon="◈" />
-        <NavButton href="/projects" label="Projects" icon="📁" />
-        <NavButton href="/agents" label="Agents" icon="🤖" />
-        <NavButton href="/opencode" label="opencode" icon="⌁" />
-        <NavButton href="/providers" label="Providers" icon="🔑" />
-        <NavButton href="/settings" label="Settings" icon="⚙" />
-        <NavButton href="/ide" label="Web IDE" icon="▦" />
+        <NavButton href="/" label="Dashboard" icon={LayoutDashboard} />
+        <NavButton href="/projects" label="Projects" icon={FolderOpen} />
+        <NavButton href="/agents" label="Agents" icon={Bot} />
+        <NavButton href="/opencode" label="opencode" icon={SquareTerminal} />
+        <NavButton href="/providers" label="Providers" icon={KeyRound} />
+        <NavButton href="/settings" label="Settings" icon={SettingsIcon} />
+        <NavButton href="/ide" label="Web IDE" icon={Code2} />
       </nav>
       <div class="sidebar-footer">
         <div class="sys-row">

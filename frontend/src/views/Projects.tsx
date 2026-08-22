@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
+import { FolderSearch } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   listProjects,
@@ -283,7 +284,7 @@ export function Projects() {
 
       {filtered.length === 0 ? (
         <div class="empty-state">
-          <div class="big">📁</div>
+          <div class="big-icon"><FolderSearch width={30} height={30} class="icon" /></div>
           {projects.length === 0 ? 'No projects yet. Create your first one!' : 'No projects match your search.'}
         </div>
       ) : view === 'cards' ? (

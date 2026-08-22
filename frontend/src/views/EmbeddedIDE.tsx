@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
+import { ArrowLeft, Code2 } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { getIdeStatus } from '../api';
 
@@ -48,7 +49,7 @@ export function EmbeddedIDE() {
   return (
     <div class="opencode-page">
       <div class="opencode-toolbar">
-        <button class="btn-ghost sm" onClick={() => setLocation('/')}>← Dashboard</button>
+        <button class="btn-ghost sm" onClick={() => setLocation('/')}><ArrowLeft width={13} height={13} class="icon" /> Dashboard</button>
         <a class="btn-ghost sm" href={ideUrl} target="_blank" rel="noreferrer">Open in new tab</a>
         <span style="flex: 1" />
         <span class="mono" style="font-size: 0.7rem; color: var(--text-3)">
@@ -60,12 +61,12 @@ export function EmbeddedIDE() {
       </div>
       {loading ? (
         <div class="empty-state" style="margin: 60px auto; max-width: 480px">
-          <div class="big">▦</div>
+          <div class="big-icon"><Code2 width={30} height={30} class="icon" /></div>
           Loading IDE status...
         </div>
       ) : running === false ? (
         <div class="empty-state" style="margin: 60px auto; max-width: 480px">
-          <div class="big">▦</div>
+          <div class="big-icon"><Code2 width={30} height={30} class="icon" /></div>
           Web IDE is not running. Start a project first.
           <code class="mono" style="display:block;margin-top:8px">docker compose logs app</code>
         </div>

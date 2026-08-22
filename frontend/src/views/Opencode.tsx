@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
+import { ArrowLeft, SquareTerminal } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { getOpencodeStatus } from '../api';
 
@@ -34,7 +35,7 @@ export function Opencode() {
   return (
     <div class="opencode-page">
       <div class="opencode-toolbar">
-        <button class="btn-ghost sm" onClick={() => setLocation('/')}>← Dashboard</button>
+        <button class="btn-ghost sm" onClick={() => setLocation('/')}><ArrowLeft width={13} height={13} class="icon" /> Dashboard</button>
         <a class="btn-ghost sm" href={url} target="_blank" rel="noreferrer">
           Open in new tab
         </a>
@@ -44,7 +45,7 @@ export function Opencode() {
       </div>
       {running === false ? (
         <div class="empty-state" style="margin: 60px auto; max-width: 480px">
-          <div class="big">⌁</div>
+          <div class="big-icon"><SquareTerminal width={30} height={30} class="icon" /></div>
           opencode غير متاح الآن. تحقق من سجل الحاوية:
           <code class="mono" style="display:block;margin-top:8px">docker compose logs app</code>
         </div>

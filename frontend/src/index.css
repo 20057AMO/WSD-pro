@@ -1547,5 +1547,69 @@ textarea.agent-prompt-input {
 .pw-seg.on { background: var(--border-2); }
 .pw-label { margin-left: 6px; font-size: 0.65rem; color: var(--text-3); }
 
+/* ── Lucide icon helpers ── */
+.icon { flex-shrink: 0; vertical-align: middle; }
+.icon.spin { animation: icon-spin 0.9s linear infinite; }
+@keyframes icon-spin { to { transform: rotate(360deg); } }
+.icon-wrap { display: inline-flex; align-items: center; vertical-align: middle; }
+.inline-loading {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.78rem; color: var(--text-3);
+}
+.big-icon {
+  color: var(--text-3);
+  display: flex; justify-content: center; align-items: center;
+  margin-bottom: 8px;
+}
+
+/* ── ReAuth / unlock / welcome modals ── */
+.reauth-card { max-width: 340px; text-align: left; }
+.reauth-avatar {
+  width: 52px; height: 52px; border-radius: 50%;
+  margin: 0 auto 10px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel-2);
+  border: 1px solid var(--border-2);
+  color: var(--text-2);
+}
+.reauth-username {
+  text-align: center; font-weight: 600; font-size: 0.9rem;
+  color: var(--text);
+}
+.reauth-title {
+  text-align: center; font-size: 1rem; font-weight: 700;
+  margin-top: 2px;
+}
+.modal-overlay.static-overlay {
+  position: static;
+  min-height: 60vh;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+}
+.unlock-card, .reauth-card .modal-card { width: 100%; }
+.unlock-card { max-width: 360px; }
+
+/* ── Skeleton shimmer (Providers checking state) ── */
+.skel-card { pointer-events: none; }
+.skel-line {
+  height: 12px; border-radius: 6px; margin-bottom: 10px;
+  background: linear-gradient(90deg, var(--border) 25%, var(--border-2) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.4s ease infinite;
+}
+.skel-line.w40 { width: 40%; }
+.skel-line.w60 { width: 60%; }
+.skel-line.w80 { width: 80%; }
+.skel-chip {
+  width: 54px; height: 22px; border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--border) 25%, var(--border-2) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: skel-shimmer 1.4s ease infinite;
+}
+@keyframes skel-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 
 

@@ -1,6 +1,17 @@
 import { useState, useEffect } from 'preact/hooks';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
+  FolderOpen,
+  Bot,
+  Code2,
+  KeyRound,
+  Loader2,
+  Play,
+  Square,
+  MonitorCheck,
+  MonitorOff,
+} from 'lucide-preact';
+import {
   listProjects,
   getServerInfo,
   getIdeStatus,
@@ -51,17 +62,17 @@ export function Dashboard() {
   const stopped = projects.filter((p) => p.status === 'stopped' || p.status === 'created').length;
 
   const quickLinks = [
-    { label: 'Projects', icon: '📁', desc: `${projects.length} total`, route: '/projects' },
-    { label: 'Agents', icon: '🤖', desc: `${agents.length} agents`, route: '/agents' },
-    { label: 'Web IDE', icon: '💻', desc: ide?.running ? 'Running' : 'Stopped', route: '/ide' },
-    { label: 'Providers', icon: '⚙', desc: 'LLM config', route: '/providers' },
+    { label: 'Projects', Icon: FolderOpen, desc: `${projects.length} total`, route: '/projects' },
+    { label: 'Agents', Icon: Bot, desc: `${agents.length} agents`, route: '/agents' },
+    { label: 'Web IDE', Icon: Code2, desc: ide?.running ? 'Running' : 'Stopped', route: '/ide' },
+    { label: 'Providers', Icon: KeyRound, desc: 'LLM config', route: '/providers' },
   ];
 
   if (loading) {
     return (
       <div class="view">
         <div class="dash-loading">
-          <div class="big">⏳</div>
+          <Loader2 width={28} height={28} class="icon spin" />
           Loading…
         </div>
       </div>
@@ -80,28 +91,28 @@ export function Dashboard() {
 
       <div class="dash-stats">
         <div class="dash-stat-card" onClick={() => setLocation('/projects')}>
-          <div class="dash-stat-icon">📁</div>
+          <div class="dash-stat-icon"><FolderOpen width={18} height={18} class="icon" /></div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{projects.length}</span>
             <span class="dash-stat-label">Total Projects</span>
           </div>
         </div>
         <div class="dash-stat-card running" onClick={() => setLocation('/projects')}>
-          <div class="dash-stat-icon">▶</div>
+          <div class="dash-stat-icon"><Play width={18} height={18} class="icon" /></div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{running}</span>
             <span class="dash-stat-label">Running</span>
           </div>
         </div>
         <div class="dash-stat-card stopped" onClick={() => setLocation('/projects')}>
-          <div class="dash-stat-icon">⏹</div>
+          <div class="dash-stat-icon"><Square width={18} height={18} class="icon" /></div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{stopped}</span>
             <span class="dash-stat-label">Stopped</span>
           </div>
         </div>
         <div class="dash-stat-card">
-          <div class="dash-stat-icon">{ide?.running ? '🟢' : '🔴'}</div>
+          <div class="dash-stat-icon">{ide?.running ? <MonitorCheck width={18} height={18} class="icon" /> : <MonitorOff width={18} height={18} class="icon" />}</div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{ide?.running ? 'On' : 'Off'}</span>
             <span class="dash-stat-label">Web IDE</span>
@@ -115,7 +126,7 @@ export function Dashboard() {
       <div class="dash-actions">
         {quickLinks.map((l) => (
           <button class="dash-action-card" key={l.label} onClick={() => setLocation(l.route)}>
-            <span class="dash-action-icon">{l.icon}</span>
+            <span class="dash-action-icon"><l.Icon width={20} height={20} class="icon" /></span>
             <span class="dash-action-label">{l.label}</span>
             <span class="dash-action-desc">{l.desc}</span>
           </button>
@@ -142,3 +153,4 @@ export function Dashboard() {
     </div>
   );
 }
+

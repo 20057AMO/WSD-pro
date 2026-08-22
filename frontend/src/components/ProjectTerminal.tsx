@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
+import { Package, Settings2 } from 'lucide-preact';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -435,7 +436,7 @@ export function ProjectTerminal({ slug }: { slug: string }) {
               disabled={currentMode !== 'project' && tabs.some((t) => t.id !== activeTabId && t.mode === 'project')}
               title="Shell inside the project container (dev toolchain)"
             >
-              <span class="term-mode-icon">📦</span> Project
+              <span class="term-mode-icon"><Package width={12} height={12} class="icon" /> Project</span>
             </button>
             <button
               class={`term-mode-btn ${currentMode === 'control' ? 'active' : ''}`}
@@ -443,7 +444,7 @@ export function ProjectTerminal({ slug }: { slug: string }) {
               disabled={currentMode !== 'control' && tabs.some((t) => t.id !== activeTabId && t.mode === 'control')}
               title="Shell in the app container (git + docker CLI)"
             >
-              <span class="term-mode-icon">⚙</span> Control
+              <span class="term-mode-icon"><Settings2 width={12} height={12} class="icon" /> Control</span>
             </button>
           </div>
         </div>

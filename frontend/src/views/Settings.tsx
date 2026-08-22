@@ -1,4 +1,14 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
+import {
+  Loader2,
+  LogOut,
+  Lock,
+  LockOpen,
+  KeyRound,
+  Download,
+  Upload,
+  ShieldCheck,
+} from 'lucide-preact';
 import { useAuth } from '../auth';
 import {
   getProvidersLockStatus,
@@ -12,6 +22,7 @@ import {
   type BackupFile,
 } from '../api';
 import { PwMeter } from '../components/PwMeter';
+import { ReAuthModal } from '../components/ReAuthModal';
 
 const APP_VERSION = '2.0.0-beta';
 
@@ -30,6 +41,8 @@ const AUDIT_LABELS: Record<string, string> = {
 };
 
 type Msg = { type: 'ok' | 'err'; text: string } | null;
+
+type SensitiveAction = 'save-lock' | 'disable-lock' | 'export' | 'import' | 'revoke-all';
 
 function fmtDate(iso?: string): string {
   if (!iso) return '—';
@@ -50,18 +63,12 @@ export function Settings() {
   const [pwLoading, setPwLoading] = useState(false);
   const [pwMsg, setPwMsg] = useState<Msg>(null);
 
-  // ── Logout everywhere ──
-  const [revokePw, setRevokePw] = useState('');
-  const [revokeLoading, setRevokeLoading] = useState(false);
-  const [revokeMsg, setRevokeMsg] = useState<Msg>(null);
-
   // ── Providers security lock ──
   const [lockEnabled, setLockEnabled] = useState<boolean | null>(null);
-  const [lockAccountPw, setLockAccountPw] = useState('');
   const [lockNewPw, setLockNewPw] = useState('');
   const [lockConfirmPw, setLockConfirmPw] = useState('');
-  const [lockLoading, setLockLoading] = useState(false);
   const [lockMsg, setLockMsg] = useState<Msg>(null);
+  const pendingLockPw = useRef('');
 
   // ── Inactivity auto-logout ──
   type IdleChoice = 'off' | '30' | '60' | '120';
@@ -74,9 +81,13 @@ export function Settings() {
   });
 
   // ── Backup ──
-  const [backupAccountPw, setBackupAccountPw] = useState('');
-  const [backupLoading, setBackupLoading] = useState<'export' | 'import' | null>(null);
   const [backupMsg, setBackupMsg] = useState<Msg>(null);
+  const pendingImportRef = useRef<BackupFile | null>(null);
+
+  // ── Unified identity confirmation (sudo-style) ──
+  const [pendingAction, setPendingAction] = useState<SensitiveAction | null>(null);
+  const [reauthLoading, setReauthLoading] = useState(false);
+  const [reauthError, setReauthError] = useState<string | null>(null);
 
   // ── Security activity ──
   const [audit, setAudit] = useState<AuditEntry[] | null>(null);
@@ -90,6 +101,146 @@ export function Settings() {
       .catch(() => setAudit([]));
   }, []);
 
+  // ════ Step 1 handlers: validate locally, then open the ReAuth dialog ════
+
+  const beginSaveLock = (e: Event) => {
+    e.preventDefault();
+    if (!lockNewPw || !lockConfirmPw) {
+      setLockMsg({ type: 'err', text: 'Fill in the new providers password and its confirmation.' });
+      return;
+    }
+    if (lockNewPw !== lockConfirmPw) {
+      setLockMsg({ type: 'err', text: 'New providers passwords do not match.' });
+      return;
+    }
+    if (lockNewPw.length < 6) {
+      setLockMsg({ type: 'err', text: 'Providers password must be at least 6 characters.' });
+      return;
+    }
+    setLockMsg(null);
+    pendingLockPw.current = lockNewPw;
+    setPendingAction('save-lock');
+  };
+
+  const beginDisableLock = () => setPendingAction('disable-lock');
+
+  const beginExport = () => {
+    setBackupMsg(null);
+    setPendingAction('export');
+  };
+
+  const beginImport = async (e: Event) => {
+    e.preventDefault();
+    const input = document.getElementById('import-file') as HTMLInputElement | null;
+    const file = input?.files?.[0];
+    if (!file) {
+      setBackupMsg({ type: 'err', text: 'Choose a backup .json file first.' });
+      return;
+    }
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (parsed?.kind !== 'wsd-pro-backup') throw new Error('Not a WSD-Pro backup file.');
+      pendingImportRef.current = parsed as BackupFile;
+      setBackupMsg(null);
+      setPendingAction('import');
+    } catch (err: any) {
+      setBackupMsg({ type: 'err', text: err.message || 'Invalid backup file.' });
+    }
+  };
+
+  const beginRevokeAll = () => setPendingAction('revoke-all');
+
+  // ════ Step 2: the ReAuth dialog confirmed — execute the real operation ════
+
+  const executeReauth = async (accountPassword: string) => {
+    if (!pendingAction) return;
+    setReauthLoading(true);
+    setReauthError(null);
+
+    const fail = (msg: string, keepOpen: boolean) => {
+      if (keepOpen) setReauthError(msg);
+      else {
+        setPendingAction(null);
+        if (pendingAction === 'save-lock' || pendingAction === 'disable-lock') {
+          setLockMsg({ type: 'err', text: msg });
+        } else {
+          setBackupMsg({ type: 'err', text: msg });
+        }
+        if (pendingAction === 'revoke-all') setPwMsg({ type: 'err', text: msg });
+      }
+    };
+
+    try {
+      switch (pendingAction) {
+        case 'save-lock': {
+          await setProvidersPassword(accountPassword, pendingLockPw.current);
+          const wasEnabled = lockEnabled === true;
+          setLockEnabled(true);
+          setLockMsg({ type: 'ok', text: wasEnabled ? 'Providers password changed.' : 'Providers lock enabled.' });
+          setLockNewPw('');
+          setLockConfirmPw('');
+          pendingLockPw.current = '';
+          clearProvidersUnlock();
+          break;
+        }
+        case 'disable-lock': {
+          await removeProvidersPassword(accountPassword);
+          setLockEnabled(false);
+          setLockMsg({ type: 'ok', text: 'Providers lock disabled.' });
+          clearProvidersUnlock();
+          break;
+        }
+        case 'export': {
+          const backup = await exportSettings(accountPassword);
+          const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `wsd-pro-backup-${new Date().toISOString().slice(0, 10)}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setBackupMsg({ type: 'ok', text: 'Backup downloaded (API keys excluded by design).' });
+          break;
+        }
+        case 'import': {
+          const backup = pendingImportRef.current;
+          if (!backup) throw new Error('Import data is missing — pick the file again.');
+          const result = await importSettings(accountPassword, backup);
+          const total = Object.values(result.imported || {}).reduce((s, n) => s + n, 0);
+          setBackupMsg({
+            type: 'ok',
+            text: `Imported ${total} item(s), skipped ${result.skipped} existing. Re-add provider API keys manually.`,
+          });
+          const input = document.getElementById('import-file') as HTMLInputElement | null;
+          if (input) input.value = '';
+          pendingImportRef.current = null;
+          break;
+        }
+        case 'revoke-all': {
+          const token = localStorage.getItem('wsd.token');
+          const res = await fetch('/api/auth/logout-all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ accountPassword }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || 'Failed to sign out.');
+          logout();
+          window.location.hash = '/login';
+          break;
+        }
+      }
+      setPendingAction(null);
+    } catch (err: any) {
+      const msg = err.message || 'Operation failed.';
+      const looksLikeBadPassword = /incorrect|password/i.test(msg);
+      fail(msg, looksLikeBadPassword);
+    } finally {
+      setReauthLoading(false);
+    }
+  };
+
+  // ── Change account password (unchanged flow) ──
   const changePassword = async (e: Event) => {
     e.preventDefault();
     if (pwLoading) return;
@@ -122,8 +273,6 @@ export function Settings() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
-      // Password change revokes all other sessions; server issued a fresh
-      // token so this one stays signed in.
       if (data.token) localStorage.setItem('wsd.token', data.token);
       setPwMsg({ type: 'ok', text: 'Password changed. Other devices were signed out.' });
       setCurrentPw('');
@@ -136,151 +285,11 @@ export function Settings() {
     }
   };
 
-  const saveLock = async (e: Event) => {
-    e.preventDefault();
-    if (lockLoading) return;
-    if (!lockAccountPw || !lockNewPw) {
-      setLockMsg({ type: 'err', text: 'Fill in your account password and the new providers password.' });
-      return;
-    }
-    if (lockNewPw !== lockConfirmPw) {
-      setLockMsg({ type: 'err', text: 'New providers passwords do not match.' });
-      return;
-    }
-    if (lockNewPw.length < 6) {
-      setLockMsg({ type: 'err', text: 'Providers password must be at least 6 characters.' });
-      return;
-    }
-    setLockLoading(true);
-    setLockMsg(null);
-    try {
-      await setProvidersPassword(lockAccountPw, lockNewPw);
-      setLockEnabled(true);
-      setLockMsg({
-        type: 'ok',
-        text: lockEnabled ? 'Providers password changed.' : 'Providers lock enabled.',
-      });
-      setLockAccountPw('');
-      setLockNewPw('');
-      setLockConfirmPw('');
-      clearProvidersUnlock();
-    } catch (err: any) {
-      setLockMsg({ type: 'err', text: err.message || 'Failed' });
-    } finally {
-      setLockLoading(false);
-    }
-  };
-
-  const disableLock = async () => {
-    if (lockLoading) return;
-    if (!lockAccountPw) {
-      setLockMsg({ type: 'err', text: 'Enter your account password to disable the lock.' });
-      return;
-    }
-    setLockLoading(true);
-    setLockMsg(null);
-    try {
-      await removeProvidersPassword(lockAccountPw);
-      setLockEnabled(false);
-      setLockMsg({ type: 'ok', text: 'Providers lock disabled.' });
-      setLockAccountPw('');
-      clearProvidersUnlock();
-    } catch (err: any) {
-      setLockMsg({ type: 'err', text: err.message || 'Failed' });
-    } finally {
-      setLockLoading(false);
-    }
-  };
-
   const applyIdleChoice = (value: IdleChoice) => {
     setIdleChoice(value);
     try {
       localStorage.setItem('wsd.idleTimeout', value);
     } catch { /* ignore */ }
-  };
-
-  const doExport = async () => {
-    if (backupLoading || !backupAccountPw) {
-      if (!backupAccountPw) setBackupMsg({ type: 'err', text: 'Enter your account password to export.' });
-      return;
-    }
-    setBackupLoading('export');
-    setBackupMsg(null);
-    try {
-      const backup = await exportSettings(backupAccountPw);
-      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `wsd-pro-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setBackupMsg({ type: 'ok', text: 'Backup downloaded (API keys excluded by design).' });
-      setBackupAccountPw('');
-    } catch (err: any) {
-      setBackupMsg({ type: 'err', text: err.message || 'Export failed' });
-    } finally {
-      setBackupLoading(null);
-    }
-  };
-
-  const doImport = async (e: Event) => {
-    e.preventDefault();
-    if (backupLoading || !backupAccountPw) {
-      if (!backupAccountPw) setBackupMsg({ type: 'err', text: 'Enter your account password to import.' });
-      return;
-    }
-    const input = (document.getElementById('import-file') as HTMLInputElement) || null;
-    const file = input?.files?.[0];
-    if (!file) {
-      setBackupMsg({ type: 'err', text: 'Choose a backup .json file first.' });
-      return;
-    }
-    setBackupLoading('import');
-    setBackupMsg(null);
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      if (parsed?.kind !== 'wsd-pro-backup') throw new Error('Not a WSD-Pro backup file.');
-      const result = await importSettings(backupAccountPw, parsed as BackupFile);
-      const total = Object.values(result.imported || {}).reduce((s, n) => s + n, 0);
-      setBackupMsg({
-        type: 'ok',
-        text: `Imported ${total} item(s), skipped ${result.skipped} existing. Re-add provider API keys manually.`,
-      });
-      setBackupAccountPw('');
-      if (input) input.value = '';
-    } catch (err: any) {
-      setBackupMsg({ type: 'err', text: err.message || 'Import failed' });
-    } finally {
-      setBackupLoading(null);
-    }
-  };
-
-  const revokeAll = async () => {
-    if (revokeLoading) return;
-    if (!revokePw) {
-      setRevokeMsg({ type: 'err', text: 'Enter your account password to sign out everywhere.' });
-      return;
-    }
-    setRevokeLoading(true);
-    setRevokeMsg(null);
-    try {
-      const token = localStorage.getItem('wsd.token');
-      const res = await fetch('/api/auth/logout-all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ accountPassword: revokePw }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
-      // Every session (including this one) is now invalid → hard logout.
-      logout();
-      window.location.hash = '/login';
-    } catch (err: any) {
-      setRevokeMsg({ type: 'err', text: err.message || 'Failed' });
-      setRevokeLoading(false);
-    }
   };
 
   const handleLogout = () => {
@@ -318,66 +327,35 @@ export function Settings() {
           </span>
         </div>
         <div style="margin-top: 12px">
-          <button class="btn-danger sm" onClick={handleLogout}>Logout</button>
-        </div>
-      </div>
-
-      {/* Logout everywhere */}
-      <div class="panel settings-section">
-        <div class="panel-title">Logout Everywhere</div>
-        <p class="settings-hint">
-          Invalidate every signed-in session — all browser tabs and devices will
-          be required to log in again. You will be logged out here too.
-        </p>
-        <label class="field-label">Account password (verification)</label>
-        <input
-          class="modern-input"
-          type="password"
-          placeholder="Confirm your account password"
-          value={revokePw}
-          onInput={(e: any) => setRevokePw(e.target.value)}
-        />
-        {revokeMsg && (
-          <div class={revokeMsg.type === 'ok' ? 'chat-save-msg' : 'login-error'} style="margin-top: 8px">
-            {revokeMsg.text}
-          </div>
-        )}
-        <div style="margin-top: 12px">
-          <button class="btn-danger sm" onClick={revokeAll} disabled={revokeLoading}>
-            {revokeLoading ? 'Signing out…' : '⏻ Sign out everywhere'}
+          <button class="btn-danger sm" onClick={handleLogout}>
+            <span class="icon-wrap"><LogOut width={13} height={13} /></span> Logout
           </button>
         </div>
       </div>
 
-      {/* Providers Security Lock */}
+      {/* Providers Security Lock — two-step flow */}
       <div class="panel settings-section">
-        <div class="panel-title">Providers Security</div>
+        <div class="panel-title">
+          <span class="icon-wrap"><KeyRound width={14} height={14} /></span> Providers Security
+        </div>
         <p class="settings-hint">
-          Optional second-layer password guarding the Providers page. Adding, changing
-          or removing it always requires your account password.
+          Optional second-layer password guarding the Providers page.
         </p>
         <div class="settings-row">
           <span class="field-label">Status</span>
           {lockEnabled === null ? (
-            <span style="color: var(--text-3)">Checking…</span>
+            <span class="inline-loading"><Loader2 width={12} height={12} class="icon spin" /> Checking…</span>
           ) : lockEnabled ? (
-            <span class="badge-ok">🔒 Enabled · unlocked for 30 min after entry</span>
+            <span class="badge-ok"><Lock width={11} height={11} /> Enabled · stays open 30 min after entry</span>
           ) : (
-            <span class="badge-off">🔓 Disabled — Providers open to logged-in user</span>
+            <span class="badge-off"><LockOpen width={11} height={11} /> Disabled — Providers open while signed in</span>
           )}
         </div>
 
-        <form onSubmit={saveLock}>
-          <label class="field-label">Account password (verification)</label>
-          <input
-            class="modern-input"
-            type="password"
-            placeholder={lockEnabled ? 'Confirm your account password to change/remove' : 'Your account password'}
-            value={lockAccountPw}
-            onInput={(e: any) => setLockAccountPw(e.target.value)}
-          />
-
-          <label class="field-label">{lockEnabled ? 'New Providers password' : 'Set Providers password'}</label>
+        <form onSubmit={beginSaveLock}>
+          <label class="field-label">
+            {lockEnabled ? 'New Providers password' : 'Set Providers password'}
+          </label>
           <input
             class="modern-input"
             type="password"
@@ -403,16 +381,37 @@ export function Settings() {
           )}
 
           <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
-            <button class="btn-primary sm" type="submit" disabled={lockLoading}>
-              {lockLoading ? 'Saving…' : lockEnabled ? 'Change password' : 'Enable lock'}
+            <button class="btn-primary sm" type="submit">
+              <span class="icon-wrap"><ShieldCheck width={13} height={13} /></span>
+              {lockEnabled ? 'Change password' : 'Enable lock'}
             </button>
             {lockEnabled && (
-              <button class="btn-danger sm" type="button" onClick={disableLock} disabled={lockLoading}>
+              <button class="btn-danger sm" type="button" onClick={beginDisableLock}>
                 Disable lock
               </button>
             )}
           </div>
+          <p class="settings-hint" style="margin-top:10px;">
+            You will confirm your identity with your account password in the next step.
+          </p>
         </form>
+      </div>
+
+      {/* Logout everywhere */}
+      <div class="panel settings-section">
+        <div class="panel-title">Logout Everywhere</div>
+        <p class="settings-hint">
+          Invalidate every signed-in session — all browser tabs and devices will
+          need to log in again. You will be logged out here too.
+        </p>
+        {pwMsg && pendingAction === null && (
+          <div class={pwMsg.type === 'ok' ? 'chat-save-msg' : 'login-error'} style="margin-bottom: 8px">
+            {pwMsg.text}
+          </div>
+        )}
+        <button class="btn-danger sm" onClick={beginRevokeAll}>
+          <span class="icon-wrap"><LogOut width={13} height={13} /></span> Sign out everywhere
+        </button>
       </div>
 
       {/* Auto-logout on inactivity */}
@@ -439,34 +438,24 @@ export function Settings() {
       <div class="panel settings-section">
         <div class="panel-title">Backup &amp; Restore</div>
         <p class="settings-hint">
-          Export agents, agent sessions, provider configs and chat preferences as JSON.
-          <strong> API keys are never included.</strong> Import merges new items only —
-          existing ones stay untouched.
+          Export agents, sessions, provider configs and chat preferences as JSON.
+          <strong> API keys are never included.</strong> Import merges new items only.
         </p>
 
-        <label class="field-label">Account password (verification)</label>
-        <input
-          class="modern-input"
-          type="password"
-          placeholder="Required for both export and import"
-          value={backupAccountPw}
-          onInput={(e: any) => setBackupAccountPw(e.target.value)}
-        />
-
         {backupMsg && (
-          <div class={backupMsg.type === 'ok' ? 'chat-save-msg' : 'login-error'} style="margin-top: 8px">
+          <div class={backupMsg.type === 'ok' ? 'chat-save-msg' : 'login-error'} style="margin-bottom: 8px">
             {backupMsg.text}
           </div>
         )}
 
-        <div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; align-items: center;">
-          <button class="btn-primary sm" onClick={doExport} disabled={backupLoading !== null}>
-            {backupLoading === 'export' ? 'Exporting…' : '⭳ Export backup'}
+        <div style="display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; align-items: center;">
+          <button class="btn-primary sm" onClick={beginExport}>
+            <span class="icon-wrap"><Download width={13} height={13} /></span> Export backup
           </button>
-          <form onSubmit={doImport} style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <form onSubmit={beginImport} style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <input id="import-file" type="file" accept=".json,application/json" class="modern-input" style="max-width: 240px; padding: 4px 6px;" />
-            <button class="btn-ghost sm" type="submit" disabled={backupLoading !== null}>
-              {backupLoading === 'import' ? 'Importing…' : '⭱ Import'}
+            <button class="btn-ghost sm" type="submit">
+              <span class="icon-wrap"><Upload width={13} height={13} /></span> Import
             </button>
           </form>
         </div>
@@ -512,7 +501,11 @@ export function Settings() {
 
           <div style="margin-top: 12px">
             <button class="btn-primary sm" type="submit" disabled={pwLoading}>
-              {pwLoading ? 'Changing…' : 'Change Password'}
+              {pwLoading ? (
+                <span style="display:inline-flex;align-items:center;gap:6px;">
+                  <Loader2 width={13} height={13} class="icon spin" /> Changing…
+                </span>
+              ) : 'Change Password'}
             </button>
           </div>
         </form>
@@ -523,7 +516,7 @@ export function Settings() {
         <div class="panel-title">Security Activity</div>
         <p class="settings-hint">Recent security-related events (newest first, last 50).</p>
         {audit === null ? (
-          <div class="settings-hint">Loading…</div>
+          <div class="inline-loading"><Loader2 width={12} height={12} class="icon spin" /> Loading…</div>
         ) : audit.length === 0 ? (
           <div class="settings-hint">No activity recorded yet.</div>
         ) : (
@@ -555,6 +548,33 @@ export function Settings() {
           <span style="color: var(--text-2)">MIT</span>
         </div>
       </div>
+
+      {/* Unified identity confirmation */}
+      <ReAuthModal
+        open={pendingAction !== null}
+        username={user?.username}
+        loading={reauthLoading}
+        error={reauthError}
+        title={
+          pendingAction === 'revoke-all'
+            ? 'Sign out everywhere?'
+            : pendingAction === 'disable-lock'
+              ? 'Disable Providers lock'
+              : pendingAction === 'save-lock'
+                ? (lockEnabled ? 'Change Providers password' : 'Enable Providers lock')
+                : pendingAction === 'import'
+                  ? 'Import backup'
+                  : 'Export backup'
+        }
+        description={
+          pendingAction === 'revoke-all'
+            ? 'This signs you out of every device and browser tab.'
+            : 'Enter your account password to authorize this action.'
+        }
+        confirmLabel="Confirm"
+        onConfirm={executeReauth}
+        onCancel={() => { setPendingAction(null); setReauthError(null); }}
+      />
     </div>
   );
 }
