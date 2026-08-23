@@ -12,6 +12,7 @@ import {
   listProjects,
   getChatContext,
   getChatInfo,
+  getChatModels,
   type AgentDef,
   type AgentSession,
   type Project,
@@ -61,6 +62,7 @@ export function Agents() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  const [agentModels, setAgentModels] = useState<string[]>([]);
   const activeAgent = agents.find((a) => a.id === activeAgentId);
   const wsPath = activeAgent && activeSession
     ? `/ws/agent/${activeAgent.id}/${activeSession.chatId}`
@@ -88,6 +90,21 @@ export function Agents() {
       .catch(() => setLoadError('Failed to load agents'))
       .finally(() => setLoading(false));
   }, []);
+
+  // Model list follows the ACTIVE agent's provider — Global falls back to
+  // the chat-config provider's models; anything else fetches its own list.
+  useEffect(() => {
+    const prov = activeAgent?.provider || '';
+    if (!prov) {
+      setAgentModels(chatInfo?.models || []);
+      return;
+    }
+    let cancelled = false;
+    getChatModels(prov)
+      .then(({ models }) => { if (!cancelled) setAgentModels(models); })
+      .catch(() => { if (!cancelled) setAgentModels([]); });
+    return () => { cancelled = true; };
+  }, [activeAgent?.provider, chatInfo]);
 
   useEffect(() => {
     if (!activeAgentId) return;
@@ -271,7 +288,7 @@ export function Agents() {
     : sessions;
 
   const quickProviders = chatInfo?.providers || [];
-  const activeProviderModels = chatInfo?.models || [];
+  const activeProviderModels = agentModels;
 
   return (
     <div class="agents-page">
