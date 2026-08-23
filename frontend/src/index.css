@@ -92,6 +92,8 @@ input, select { font: inherit; color: inherit; }
 .auth-sub { text-align: center; color: var(--text-2); font-size: 0.78rem; margin: 4px 0 26px; }
 .auth-card form { display: flex; flex-direction: column; gap: 6px; }
 .field-label { font-size: 0.72rem; color: var(--text-2); margin-top: 8px; }
+.field-hint { font-size: 0.68rem; color: var(--text-3); margin-top: 4px; line-height: 1.45; }
+.field-hint code { font-size: 0.64rem; background: var(--bg-3, rgba(128,128,128,.15)); padding: 1px 4px; border-radius: 4px; }
 .login-error { color: var(--red); font-size: 0.75rem; min-height: 16px; margin-top: 6px; }
 .auth-hint { text-align: center; color: var(--text-3); font-size: 0.7rem; margin-top: 20px; }
 

@@ -73,7 +73,7 @@ export interface IdeStatus {
 
 export type ChatProvider = string;
 export type ChatLanguage = 'auto' | 'ar' | 'en';
-export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'gemini';
+export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'azure';
 
 export interface ProviderBrief {
   id: string;

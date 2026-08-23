@@ -143,6 +143,13 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Cross-tab sync via `storage` event — changing the setting in one tab applies immediately in all tabs
 - On expiry: clears token, removes user, redirects to `/login`
 
+### Provider types & Azure OpenAI
+- Types: `ollama | openai | anthropic | gemini | azure`; OpenAI-compatible providers can switch auth header via `auth: 'bearer' | 'api-key'`
+- Azure (`type:'azure'`): `api-key` header enforced; requests go to `{host}/openai/deployments/{deployment}/chat/completions?api-version=…`; the model field carries the **deployment name** and the model dropdown lists deployments (`GET /openai/deployments`)
+- Auto-detect recognizes `*.openai.azure.com` hosts and tries the deployment API first (Azure keys have no distinctive prefix)
+- API version default `2024-10-21`, override with `WSD_AZURE_API_VERSION`
+- Verification distinguishes auth/quota/rate-limit failures; health checks are cached server-side for 60s
+
 ### Key Patterns
 - **WebSocket with HTTP fallback**: Project status/logs hooks try WS first, fall back to 5s polling; Agents chat uses exponential-backoff reconnect only (2s→16s)
 - **Room-based connection limits**: Max 8 connections per WS room

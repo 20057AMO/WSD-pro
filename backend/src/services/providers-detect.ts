@@ -6,6 +6,7 @@
  */
 
 import {
+  AZURE_API_VERSION,
   KNOWN_TEMPLATES,
   normalizeHost,
   type AuthMode,
@@ -42,6 +43,8 @@ function headersFor(apiKey: string, type: ProviderType, auth?: AuthMode): Record
     headers['anthropic-version'] = '2023-06-01';
   } else if (type === 'gemini') {
     headers['x-goog-api-key'] = apiKey;
+  } else if (type === 'azure') {
+    headers['api-key'] = apiKey;
   } else if (type === 'openai') {
     if (auth === 'api-key') headers['api-key'] = apiKey;
     else headers['Authorization'] = `Bearer ${apiKey}`;
@@ -64,7 +67,9 @@ export async function probeProvider(
       ? `${base}/api/tags`
       : type === 'anthropic'
         ? `${base}/v1/models`
-        : `${base}/models`;
+        : type === 'azure'
+          ? `${base}/openai/deployments?api-version=${AZURE_API_VERSION}`
+          : `${base}/models`;
   try {
     const res = await fetch(url, {
       headers: headersFor(apiKey, type, auth),
@@ -89,6 +94,16 @@ export async function probeProvider(
         firstModel: chatCapable[0],
         models: chatCapable,
       };
+    }
+    if (type === 'azure') {
+      // Deployment list shape differs across API versions: newer versions wrap in
+      // `data`, older ARM-style responses use `value`.
+      const items: any[] = Array.isArray(body?.data) ? body.data : Array.isArray(body?.value) ? body.value : [];
+      const deployments = items
+        .map((d) => String(d?.id || d?.name || '').trim())
+        .filter((n): n is string => !!n);
+      const unique = [...new Set(deployments)];
+      return { ok: true, status: res.status, modelCount: unique.length, firstModel: unique[0], models: unique };
     }
     const data = Array.isArray(body.data) ? (body.data as { id?: string }[]) : [];
     return { ok: true, status: res.status, modelCount: data.length, firstModel: data[0]?.id };
@@ -161,6 +176,17 @@ async function verifyOne(
       body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
+  } else if (type === 'azure') {
+    // The deployment name rides in the URL path; the key goes in `api-key`.
+    res = await fetch(
+      `${base}/openai/deployments/${encodeURIComponent(model)}/chat/completions?api-version=${AZURE_API_VERSION}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'api-key': apiKey } : {}) },
+        body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], max_tokens: 1, temperature: 0 }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      }
+    );
   } else {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) {
@@ -277,6 +303,11 @@ export async function detectProvider(input: DetectInput): Promise<{
       { name: host, host, type: 'anthropic' },
       { name: host, host, type: 'ollama' },
     ];
+    // Azure resource endpoints are unmistakable — try the deployment API first.
+    // Azure keys carry no distinctive prefix, so this pattern is the only signal.
+    if (/\.openai\.azure\.com/i.test(host)) {
+      candidates.unshift({ name: host, host, type: 'azure' });
+    }
   } else {
     const hint = keyHint(apiKey);
     const scored = KNOWN_TEMPLATES.map((t) => ({

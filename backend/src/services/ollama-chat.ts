@@ -49,7 +49,7 @@ export async function streamChat(
   const ep = resolveProvider(provider);
   const system = opts.system ?? buildSystemPrompt(cfg);
 
-  if (ep.type === 'openai') {
+  if (ep.type === 'openai' || ep.type === 'azure') {
     return streamChatOpenAI(ep, model, temperature, system, messages, handlers, control);
   }
   if (ep.type === 'anthropic') {

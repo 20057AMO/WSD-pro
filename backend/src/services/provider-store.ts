@@ -13,8 +13,14 @@ import { clearProviderRefs } from './agent-store';
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const STORE_FILE = path.join(DATA_DIR, 'providers.json');
 
-export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'gemini';
+export type ProviderType = 'ollama' | 'openai' | 'anthropic' | 'gemini' | 'azure';
 export type AuthMode = 'bearer' | 'api-key';
+
+/**
+ * Azure OpenAI data-plane API version used for every Azure request
+ * (deployments list, verification, streaming chat). Override with WSD_AZURE_API_VERSION.
+ */
+export const AZURE_API_VERSION = process.env.WSD_AZURE_API_VERSION || '2024-10-21';
 
 export interface ProviderConfig {
   name: string;
@@ -98,12 +104,16 @@ function load(): Record<string, ProviderConfig> {
         const stored = raw[id];
         if (!stored || typeof stored !== 'object') continue;
         const prev = base[id];
+        const resolvedType =
+          stored.type === 'ollama' || stored.type === 'openai' || stored.type === 'anthropic' || stored.type === 'gemini' || stored.type === 'azure'
+            ? stored.type
+            : prev?.type || 'ollama';
         base[id] = {
           name: typeof stored.name === 'string' ? stored.name : prev?.name || id,
-          type: stored.type === 'ollama' || stored.type === 'openai' || stored.type === 'anthropic' || stored.type === 'gemini' ? stored.type : prev?.type || 'ollama',
+          type: resolvedType,
           host: typeof stored.host === 'string' ? stored.host : prev?.host || '',
           apiKey: typeof stored.apiKey === 'string' ? stored.apiKey : prev?.apiKey || '',
-          auth: stored.auth === 'api-key' ? 'api-key' : 'bearer',
+          auth: stored.auth === 'api-key' || (stored.auth !== 'bearer' && resolvedType === 'azure') ? 'api-key' : 'bearer',
           enabled: typeof stored.enabled === 'boolean' ? stored.enabled : true,
         };
       }
@@ -208,7 +218,9 @@ export function createProvider(input: {
   if (host.length > 500) throwStatus(400, 'Provider host is too long');
 
   const type: ProviderType =
-    input.type === 'ollama' || input.type === 'anthropic' || input.type === 'gemini' ? input.type : 'openai';
+    input.type === 'ollama' || input.type === 'anthropic' || input.type === 'gemini' || input.type === 'azure'
+      ? input.type
+      : 'openai';
 
   let id = slugify(name);
   let n = 2;
@@ -219,7 +231,7 @@ export function createProvider(input: {
     type,
     host,
     apiKey: typeof input.apiKey === 'string' ? input.apiKey.trim() : '',
-    auth: input.auth === 'api-key' ? 'api-key' : 'bearer',
+    auth: type === 'azure' ? 'api-key' : input.auth === 'api-key' ? 'api-key' : 'bearer',
     enabled: input.enabled !== false,
   };
   persist();
@@ -247,11 +259,14 @@ export function updateProvider(
   if (typeof patch.apiKey === 'string') {
     p.apiKey = patch.apiKey.trim();
   }
-  if (patch.type === 'ollama' || patch.type === 'openai' || patch.type === 'anthropic' || patch.type === 'gemini') {
+  if (patch.type === 'ollama' || patch.type === 'openai' || patch.type === 'anthropic' || patch.type === 'gemini' || patch.type === 'azure') {
     p.type = patch.type;
   }
+  // Azure always authenticates with the `api-key` header.
   if (patch.auth === 'api-key' || patch.auth === 'bearer') {
     p.auth = patch.auth;
+  } else if (p.type === 'azure') {
+    p.auth = 'api-key';
   }
   if (typeof patch.enabled === 'boolean') {
     p.enabled = patch.enabled;

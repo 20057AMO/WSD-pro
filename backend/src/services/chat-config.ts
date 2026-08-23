@@ -6,7 +6,14 @@
 
 import fs from 'fs';
 import path from 'path';
-import { getProviderConfig, getProviderMeta, listProviders, type AuthMode, type ProviderType } from './provider-store';
+import {
+  AZURE_API_VERSION,
+  getProviderConfig,
+  getProviderMeta,
+  listProviders,
+  type AuthMode,
+  type ProviderType,
+} from './provider-store';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const CONFIG_FILE = path.join(DATA_DIR, 'chat-config.json');
@@ -113,6 +120,20 @@ export function buildSystemPrompt(cfg: ChatConfig): string {
 export async function listModels(provider: Provider): Promise<string[]> {
   const ep = resolveProvider(provider);
   try {
+    if (ep.type === 'azure') {
+      // Model dropdown lists Azure **deployments** — the names chat requests need.
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (ep.apiKey) headers['api-key'] = ep.apiKey;
+      const res = await fetch(`${ep.baseUrl}/openai/deployments?api-version=${AZURE_API_VERSION}`, {
+        headers,
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return [];
+      const data = (await res.json().catch(() => ({}))) as { data?: any[]; value?: any[] };
+      const items = Array.isArray(data.data) ? data.data : Array.isArray(data.value) ? data.value : [];
+      const names = items.map((d) => String(d?.id || d?.name || '').trim()).filter(Boolean);
+      return [...new Set(names)].sort();
+    }
     if (ep.type === 'gemini') {
       const res = await fetch(`${ep.baseUrl}/models`, {
         headers: ep.apiKey ? { 'x-goog-api-key': ep.apiKey } : undefined,

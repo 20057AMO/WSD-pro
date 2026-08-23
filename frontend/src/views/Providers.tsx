@@ -33,6 +33,7 @@ const TYPE_LABEL: Record<ProviderType, string> = {
   openai: 'OpenAI-compatible',
   anthropic: 'Anthropic',
   gemini: 'Gemini',
+  azure: 'Azure OpenAI',
 };
 
 export function Providers() {
@@ -739,7 +740,7 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
           <input
             class="modern-input"
             dir="auto"
-            placeholder="https://api.example.com/v1"
+            placeholder={type === 'azure' ? 'https://YOUR-RESOURCE.openai.azure.com' : 'https://api.example.com/v1'}
             value={host}
             onInput={(e: any) => {
               setHost(e.target.value);
@@ -749,6 +750,12 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
               }
             }}
           />
+          {type === 'azure' && (
+            <div class="field-hint">
+              Azure: Host = your resource endpoint (<code>*.openai.azure.com</code>). Models are picked from
+              your <b>deployments</b> later in chat/agent settings.
+            </div>
+          )}
 
           <div class="add-provider-row">
             <label class="chat-settings-label">
@@ -758,6 +765,7 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
                 <option value="ollama">Ollama</option>
                 <option value="anthropic">Anthropic</option>
                 <option value="gemini">Gemini (native)</option>
+                <option value="azure">Azure OpenAI</option>
               </select>
             </label>
             <label class="provider-toggle" style="align-self: flex-end">

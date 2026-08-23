@@ -7,6 +7,7 @@
  */
 
 import { consumeLines } from './stream-lines';
+import { AZURE_API_VERSION } from './provider-store';
 import type { ProviderEndpoint } from './chat-config';
 import type { ChatMessage, StreamHandlers, RunControl } from './chat-types';
 
@@ -43,13 +44,22 @@ export async function streamChatOpenAI(
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (ep.apiKey) {
-    headers[ep.auth === 'api-key' ? 'api-key' : 'Authorization'] =
-      ep.auth === 'api-key' ? ep.apiKey : `Bearer ${ep.apiKey}`;
+    if (ep.type === 'azure' || ep.auth === 'api-key') {
+      headers['api-key'] = ep.apiKey;
+    } else {
+      headers['Authorization'] = `Bearer ${ep.apiKey}`;
+    }
   }
+
+  // Azure routes by deployment name in the URL path (the body `model` is ignored).
+  const url =
+    ep.type === 'azure'
+      ? `${ep.baseUrl}/openai/deployments/${encodeURIComponent(model)}/chat/completions?api-version=${AZURE_API_VERSION}`
+      : `${ep.baseUrl}/chat/completions`;
 
   let full = '';
   try {
-    const res = await fetch(`${ep.baseUrl}/chat/completions`, {
+    const res = await fetch(url, {
       method: 'POST',
       headers,
       body,
