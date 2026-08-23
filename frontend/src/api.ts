@@ -92,16 +92,6 @@ export interface ChatConfig {
   providers: ProviderBrief[];
 }
 
-export interface ChatSession {
-  slug: string;
-  chatId: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string;
-  messageCount: number;
-  lastPreview: string;
-}
-
 export interface IndexStats {
   files: number;
   chunks: number;
@@ -277,34 +267,8 @@ export const getIdeStatus = () => api<{ ide: IdeStatus }>('/api/ide/status');
 export const getChatInfo = () => api<ChatConfig>('/api/chat/info');
 export const getChatModels = (provider: ChatProvider) =>
   api<{ models: string[] }>(`/api/chat/models?provider=${provider}`);
-export const saveChatConfig = (cfg: Partial<ChatConfig>) =>
-  api<ChatConfig>('/api/chat/config', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(cfg),
-  });
 export const getChatContext = (project: string) =>
   api<ChatContext>(`/api/chat/context?project=${encodeURIComponent(project)}`);
-export const listChatSessions = (project?: string) =>
-  api<{ sessions: ChatSession[] }>(
-    `/api/chat/sessions${project ? `?project=${encodeURIComponent(project)}` : ''}`
-  );
-export const createChatSession = (body: { name?: string; project?: string }) =>
-  api<{ session: ChatSession }>('/api/chat/sessions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-export const renameChatSession = (chatId: string, name: string, project?: string) =>
-  api<{ session: ChatSession }>(
-    `/api/chat/sessions/${chatId}${project ? `?project=${encodeURIComponent(project)}` : ''}`,
-    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }
-  );
-export const deleteChatSession = (chatId: string, project?: string) =>
-  api<{ ok: boolean }>(
-    `/api/chat/sessions/${chatId}${project ? `?project=${encodeURIComponent(project)}` : ''}`,
-    { method: 'DELETE' }
-  );
 export const getOpencodeStatus = () => api<OpencodeStatus>('/api/opencode/status');
 
 export interface AgentDef {
@@ -400,10 +364,6 @@ export const testProvider = (id: string) =>
   api<ProviderTestResult>(`/api/providers/${id}/test`, {
     method: 'POST',
   });
-
-// Lightweight picker list (no secrets, works even when providers are locked)
-export const getProviderOptions = () =>
-  api<{ providers: Array<{ id: string; name: string; type: ProviderType; enabled: boolean }> }>('/api/providers/options');
 
 // ── Providers lock management ─────────────────────────────────
 export const getProvidersLockStatus = () =>

@@ -10,7 +10,6 @@ import {
   executeToolCall,
   hasToolCalls,
   MAX_TOOL_ITERATIONS,
-  type ToolCall,
 } from '../services/agent-tool-executor';
 
 const MAX_PROMPT_CHARS = 20000;

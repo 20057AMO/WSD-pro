@@ -107,11 +107,16 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
   // 'off' | '30' | '60' | '120'). Activity events throttle-refresh the clock.
   useEffect(() => {
     if (!token) return;
-    const raw = (() => {
-      try { return localStorage.getItem('wsd.idleTimeout'); } catch { return 'off'; }
-    })();
-    if (!raw || raw === 'off') return;
-    const limitMs = Math.max(1, parseInt(raw, 10) || 0) * 60_000;
+
+    let limitMs = 0;
+    const readLimit = () => {
+      try {
+        const raw = localStorage.getItem('wsd.idleTimeout');
+        if (!raw || raw === 'off') { limitMs = 0; return; }
+        limitMs = Math.max(1, parseInt(raw, 10) || 0) * 60_000;
+      } catch { limitMs = 0; }
+    };
+    readLimit();
 
     let lastActivity = Date.now();
     let throttled = false;
@@ -125,10 +130,18 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
     const events = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
     events.forEach((ev) => window.addEventListener(ev, markActive, { passive: true }));
 
+    // Re-read limit when another tab changes the setting
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'wsd.idleTimeout') readLimit();
+    };
+    window.addEventListener('storage', onStorage);
+
     const checker = setInterval(() => {
+      if (limitMs <= 0) return;
       if (Date.now() - lastActivity > limitMs) {
         clearInterval(checker);
         events.forEach((ev) => window.removeEventListener(ev, markActive));
+        window.removeEventListener('storage', onStorage);
         localStorage.removeItem('wsd.token');
         setToken(null);
         setUser(null);
@@ -139,6 +152,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
     return () => {
       clearInterval(checker);
       events.forEach((ev) => window.removeEventListener(ev, markActive));
+      window.removeEventListener('storage', onStorage);
     };
   }, [token]);
 

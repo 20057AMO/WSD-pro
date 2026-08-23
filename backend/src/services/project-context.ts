@@ -18,10 +18,6 @@ import { listProjects, getProject, projectLogs, WORKSPACES_ROOT, type ProjectInf
 export const DEFAULT_MAX_CHARS = 24000;
 const BRIEF_MAX_CHARS = 4000;
 const GOALS_MAX_CHARS = 4000;
-const KEY_SECTION_MAX_CHARS = 8000;
-const SMALL_SECTION_MAX_CHARS = 6000;
-const SIG_SECTION_MAX_CHARS = 6000;
-const LOGS_MAX_CHARS = 3000;
 const TREE_MAX_CHARS = 3000;
 const SMALL_FILE_BYTES = 8 * 1024;
 const KEY_FILE_MAX_BYTES = 64 * 1024;

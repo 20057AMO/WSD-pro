@@ -572,7 +572,6 @@ app.get('/api/opencode/status', async (_req, res) => {
 
 // ── Agents API ────────────────────────────────────────────────
 import {
-  listAgents,
   listAllAgents,
   getAgent,
   createAgent,

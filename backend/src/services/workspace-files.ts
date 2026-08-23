@@ -34,8 +34,6 @@ export interface SubdirInfo {
   containerPath: string;
 }
 
-const PROJECT_MARKERS = ['.git', 'package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod'];
-
 /**
  * Resolve the project's primary working directory inside the workspace.
  * Checks for a git repo at root first; otherwise picks the most likely

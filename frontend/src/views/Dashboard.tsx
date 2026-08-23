@@ -111,7 +111,7 @@ export function Dashboard() {
             <span class="dash-stat-label">Stopped</span>
           </div>
         </div>
-        <div class="dash-stat-card">
+        <div class="dash-stat-card" onClick={() => setLocation('/ide')}>
           <div class="dash-stat-icon">{ide?.running ? <MonitorCheck width={18} height={18} class="icon" /> : <MonitorOff width={18} height={18} class="icon" />}</div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{ide?.running ? 'On' : 'Off'}</span>

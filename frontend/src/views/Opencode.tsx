@@ -46,7 +46,7 @@ export function Opencode() {
       {running === false ? (
         <div class="empty-state" style="margin: 60px auto; max-width: 480px">
           <div class="big-icon"><SquareTerminal width={30} height={30} class="icon" /></div>
-          opencode غير متاح الآن. تحقق من سجل الحاوية:
+          opencode is not available right now. Check the container log:
           <code class="mono" style="display:block;margin-top:8px">docker compose logs app</code>
         </div>
       ) : (

@@ -79,10 +79,6 @@ function humanizeName(chatId: string): string {
   return chatId;
 }
 
-function eventsFile(slug: string, chatId: string): string {
-  return path.join(CHATS_DIR, slug, chatId, 'events.jsonl');
-}
-
 /** Register every events.jsonl on disk that is not yet in the index. */
 function backfill(): void {
   if (!cache) return;

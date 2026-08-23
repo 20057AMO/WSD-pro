@@ -524,7 +524,6 @@ export async function checkProjectPorts(slug: string): Promise<PortHealth[]> {
         ms: Date.now() - started,
       });
     } catch (err: any) {
-      const cause = err?.cause?.code as string | undefined;
       results.push({
         port: priv,
         hostPort: pub,

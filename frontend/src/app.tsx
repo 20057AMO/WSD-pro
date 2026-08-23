@@ -1,4 +1,5 @@
 import { Component, type ComponentChildren } from 'preact';
+import { lazy, Suspense } from 'preact/compat';
 import { Router, Route } from 'wouter';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
@@ -12,14 +13,15 @@ import {
 } from 'lucide-preact';
 import { AuthProvider, useAuth } from './auth';
 import { Login } from './views/Login';
-import { Dashboard } from './views/Dashboard';
-import { Projects } from './views/Projects';
-import { Project } from './views/Project';
-import { Opencode } from './views/Opencode';
-import { Agents } from './views/Agents';
-import { EmbeddedIDE } from './views/EmbeddedIDE';
-import { Providers } from './views/Providers';
-import { Settings } from './views/Settings';
+
+const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })));
+const Projects = lazy(() => import('./views/Projects').then(m => ({ default: m.Projects })));
+const Project = lazy(() => import('./views/Project').then(m => ({ default: m.Project })));
+const Opencode = lazy(() => import('./views/Opencode').then(m => ({ default: m.Opencode })));
+const Agents = lazy(() => import('./views/Agents').then(m => ({ default: m.Agents })));
+const EmbeddedIDE = lazy(() => import('./views/EmbeddedIDE').then(m => ({ default: m.EmbeddedIDE })));
+const Providers = lazy(() => import('./views/Providers').then(m => ({ default: m.Providers })));
+const Settings = lazy(() => import('./views/Settings').then(m => ({ default: m.Settings })));
 
 
 interface ErrorBoundaryProps { children: ComponentChildren; }
@@ -136,26 +138,28 @@ function Shell() {
   }
 
   if (location.startsWith('/opencode')) {
-    return <Opencode />;
+    return <Suspense fallback={<div class="app-view" style="display:flex;align-items:center;justify-content:center;height:100vh;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}><Opencode /></Suspense>;
   }
 
   if (location.startsWith('/agents')) {
-    return <Agents />;
+    return <Suspense fallback={<div class="app-view" style="display:flex;align-items:center;justify-content:center;height:100vh;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}><Agents /></Suspense>;
   }
 
   if (location.startsWith('/ide')) {
-    return <EmbeddedIDE />;
+    return <Suspense fallback={<div class="app-view" style="display:flex;align-items:center;justify-content:center;height:100vh;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}><EmbeddedIDE /></Suspense>;
   }
 
   return (
     <div class="app-view">
       <Sidebar />
       <main class="main">
-        <Route path="/" component={Dashboard} />
-        <Route path="/projects" component={Projects} />
-        <Route path="/project/:slug" component={Project} />
-        <Route path="/providers" component={Providers} />
-        <Route path="/settings" component={Settings} />
+        <Suspense fallback={<div style="display:flex;align-items:center;justify-content:center;height:100%;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}>
+          <Route path="/" component={Dashboard} />
+          <Route path="/projects" component={Projects} />
+          <Route path="/project/:slug" component={Project} />
+          <Route path="/providers" component={Providers} />
+          <Route path="/settings" component={Settings} />
+        </Suspense>
       </main>
     </div>
   );
