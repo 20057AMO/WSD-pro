@@ -1,0 +1,20 @@
+# Normalize every text file to LF.
+# This project ships into Linux Docker images (entrypoint scripts, Dockerfiles);
+# CRLF checkouts break container startup (`/usr/bin/env: 'bash\r': no such file`).
+* text=auto eol=lf
+
+# Windows-native scripts keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binaries
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary

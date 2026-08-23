@@ -70,9 +70,11 @@ COPY opencode.json /root/.config/opencode/opencode.json
 # code-server default settings (dark theme, auto-save, format-on-save, etc.)
 COPY code-server-settings.json /root/.config/code-server/User/settings.json
 
-# Entrypoint
+# Entrypoint — strip any CR characters so the script works even if the
+# build context was checked out with CRLF line endings (Windows clones
+# without .gitattributes applied, zip uploads, etc.)
 COPY backend/docker/entrypoint.sh /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 EXPOSE 3000 8100 4096
 
