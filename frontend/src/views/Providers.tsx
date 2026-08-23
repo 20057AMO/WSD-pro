@@ -139,14 +139,14 @@ export function Providers() {
       if (!has && lockConfigured) {
         setLocked(true);
         setProviders([]);
-      } else if (has && locked === true) {
+      } else if (has) {
         setLocked(false);
         refresh();
       }
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, [locked, lockConfigured]);
+  }, [lockConfigured]);
 
   const doUnlock = async (e: Event) => {
     e.preventDefault();
@@ -365,6 +365,11 @@ function ProviderCard({
   const [testResult, setTestResult] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // Sync with prop changes (cross-tab update, parent refresh).
+  useEffect(() => { setName(provider.name); }, [provider.name]);
+  useEffect(() => { setHost(provider.host); }, [provider.host]);
+  useEffect(() => { setEnabled(provider.enabled); }, [provider.enabled]);
+
   const save = async () => {
     setSaving(true);
     setError(null);
@@ -408,7 +413,6 @@ function ProviderCard({
   const remove = async () => {
     if (!window.confirm(`Delete provider "${provider.name}"?`)) return;
     setDeleting(true);
-    setError(null);
     try {
       await deleteProvider(provider.id);
       onDeleted();
@@ -420,7 +424,7 @@ function ProviderCard({
   };
 
   return (
-    <div class="panel provider-card">
+    <div class={`panel provider-card${saving || deleting ? ' card-busy' : ''}`}>
       <div class="provider-head">
         <div class="provider-title">
           <div class="provider-name">{provider.name}</div>
