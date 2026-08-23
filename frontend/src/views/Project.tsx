@@ -33,8 +33,9 @@ import type {
   ChatContext,
 } from '../api';
 import { ProjectTerminal } from '../components/ProjectTerminal';
+import { ProjectChat } from '../components/ProjectChat';
 
-type Tab = 'overview' | 'files' | 'logs' | 'terminal' | 'scripts';
+type Tab = 'overview' | 'chat' | 'files' | 'logs' | 'terminal' | 'scripts';
 
 function fmtBytes(bytes: number): string {
   if (!bytes) return '0 B';
@@ -255,7 +256,7 @@ export function Project({ params }: { params: { slug: string } }) {
           </div>
         </div>
         <div class="detail-actions">
-          <button class="btn-ghost sm" onClick={() => setLocation(`/agents`)}>Ask AI</button>
+          <button class="btn-ghost sm" onClick={() => setTab('chat')}>Ask AI</button>
           <button class="btn-ghost sm" onClick={openIde}>Open IDE</button>
           <button
             class="btn-ghost sm"
@@ -277,14 +278,15 @@ export function Project({ params }: { params: { slug: string } }) {
       )}
 
       <div class="detail-tabs">
-        {(['overview', 'files', 'logs', 'terminal', 'scripts'] as Tab[]).map((t) => (
+        {(['overview', 'chat', 'files', 'logs', 'terminal', 'scripts'] as Tab[]).map((t) => (
           <button class={`tab-btn ${tab === t ? 'active' : ''}`} key={t} onClick={() => setTab(t)}>
-            {t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'chat' ? 'AI Chat' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
 
-      {tab === 'overview' && <OverviewPanel slug={slug} project={project} liveStats={liveStats} onChanged={load} onError={setError} />}
+      {tab === 'overview' && <OverviewPanel slug={slug} project={project} liveStats={liveStats} onChanged={load} onError={setError} onAskAi={() => setTab('chat')} />}
+      {tab === 'chat' && <ProjectChat slug={slug} />}
       {tab === 'files' && <FilesPanel slug={slug} />}
       {tab === 'logs' && <LogsPanel slug={slug} />}
       {tab === 'terminal' && <ProjectTerminal slug={slug} />}
@@ -300,12 +302,14 @@ function OverviewPanel({
   liveStats,
   onChanged,
   onError,
+  onAskAi,
 }: {
   slug: string;
   project: Project | null;
   liveStats: ProjectStats | null;
   onChanged: () => void;
   onError: (msg: string) => void;
+  onAskAi: () => void;
 }) {
   const [, setLocation] = useHashLocation();
   const [stats, setStats] = useState<ProjectStats | null>(null);
@@ -553,7 +557,7 @@ function OverviewPanel({
             </div>
           </div>
           <div class="kv" style="gap:10px; margin-top:10px">
-            <button class="btn-primary sm" onClick={() => setLocation(`/agents`)}>Ask AI about this project</button>
+            <button class="btn-primary sm" onClick={onAskAi}>Ask AI about this project</button>
             <button class="btn-ghost sm" onClick={() => setCtxOpen(!ctxOpen)}>{ctxOpen ? 'Hide preview ▴' : 'Preview ▾'}</button>
           </div>
           {ctxOpen && (

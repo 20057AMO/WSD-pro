@@ -77,7 +77,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 | `/login` | Login | Setup + login (unauthenticated only) |
 | `/` | Dashboard | Minimal overview: stats + quick actions |
 | `/projects` | Projects | Cards/table, search, filter, sort, bulk ops |
-| `/project/:slug` | Project | Detail: overview, files, logs, terminal, scripts |
+| `/project/:slug` | Project | Detail: overview, AI chat, files, logs, terminal, scripts |
 | `/agents` | Agents | AI agents with chat, RTL/LTR, presets |
 | `/providers` | Providers | LLM provider config |
 | `/settings` | Settings | Change password, account info, logout |

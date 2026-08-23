@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { Paperclip, Wrench, FileOutput, Bot } from 'lucide-preact';
-import { marked } from 'marked';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   listAgents,
@@ -18,22 +17,11 @@ import {
   type Project,
   type ChatConfig,
 } from '../api';
-import { useChatSocket, type Attachment } from '../useChatSocket';
+import { useChatSocket } from '../useChatSocket';
+import { useChatAttachments, formatSize } from '../useChatAttachments';
+import { renderMarkdown } from '../lib/markdown';
 import { AgentSettingsModal } from '../components/AgentSettingsModal';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-
-const MAX_ATTACHMENTS = 5;
-const MAX_TEXT_FILE_CHARS = 100000;
-const TEXT_EXT = /\.(txt|md|markdown|json|js|jsx|ts|tsx|py|html?|css|scss|xml|ya?ml|toml|ini|cfg|sh|bash|zsh|fish|c|cc|cpp|h|hpp|java|go|rs|rb|php|sql|csv|log|env|gitignore)$/i;
-
-interface PendingFile {
-  id: string;
-  file: File;
-  name: string;
-  size: number;
-  type: string;
-  data: string | null;
-}
 
 const AGENT_PRESETS = [
   { name: 'Coder', icon: '💻', desc: 'Write and build code', prompt: 'You are an expert software developer. Write clean, efficient code. Follow best practices. Always explain your approach briefly.', tools: true },
@@ -44,56 +32,12 @@ const AGENT_PRESETS = [
   { name: 'Chat', icon: '💬', desc: 'General conversation', prompt: 'You are a helpful assistant.', tools: false },
 ];
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function relTime(iso: string): string {
   const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 60) return 'now';
   if (s < 3600) return `${Math.floor(s / 60)}m`;
   if (s < 86400) return `${Math.floor(s / 3600)}h`;
   return `${Math.floor(s / 86400)}d`;
-}
-
-function isTextLike(name: string, type: string): boolean {
-  return type.startsWith('text/') || TEXT_EXT.test(name);
-}
-
-function sanitizeHtml(html: string): string {
-  const tmp = document.createElement('div');
-  tmp.innerHTML = html;
-  const ALLOWED = new Set(['P', 'BR', 'STRONG', 'EM', 'B', 'I', 'U', 'S', 'CODE', 'PRE', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'SPAN', 'A', 'DIV', 'KBD']);
-  const ALLOWED_ATTR: Record<string, Set<string>> = { A: new Set(['href', 'title']), CODE: new Set(['class']), SPAN: new Set(['class']), TD: new Set(['align']), TH: new Set(['align']), DIV: new Set(['class']) };
-  function walk(node: ChildNode): string {
-    if (node.nodeType === 3) return node.textContent || '';
-    if (node.nodeType !== 1) return '';
-    const el = node as HTMLElement;
-    const tag = el.tagName;
-    if (!ALLOWED.has(tag)) return el.textContent || '';
-    const allowedAttrs = ALLOWED_ATTR[tag] || new Set<string>();
-    let attrs = '';
-    for (const a of Array.from(el.attributes)) {
-      if (allowedAttrs.has(a.name)) {
-        if (tag === 'A' && a.name === 'href') {
-          const v = a.value.trim().toLowerCase();
-          if (v.startsWith('javascript:') || v.startsWith('data:')) continue;
-        }
-        attrs += ` ${a.name}="${a.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`;
-      }
-    }
-    const inner = Array.from(el.childNodes).map(walk).join('');
-    if (tag === 'HR' || tag === 'BR') return `<${tag.toLowerCase()}${attrs}/>`;
-    return `<${tag.toLowerCase()}${attrs}>${inner}</${tag.toLowerCase()}>`;
-  }
-  return Array.from(tmp.childNodes).map(walk).join('');
-}
-
-function renderMarkdown(src: string): string {
-  const html = marked.parse(src, { gfm: true, breaks: true });
-  return sanitizeHtml(typeof html === 'string' ? html : src);
 }
 
 export function Agents() {
@@ -124,10 +68,11 @@ export function Agents() {
   const { messages, running, status, error, sessionName, send, stop, reconnect } = useChatSocket(wsPath, 'prompt');
 
   const [prompt, setPrompt] = useState('');
-  const [pending, setPending] = useState<PendingFile[]>([]);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [reading, setReading] = useState(false);
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const {
+    pending, reading, error: attachError, setError: setAttachError,
+    addFiles, removeFile, clear: clearPending, buildAttachments, fileRef,
+  } = useChatAttachments();
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -237,72 +182,16 @@ export function Agents() {
     } catch { /* ignore */ }
   };
 
-  const addFiles = (fileList: FileList | null) => {
-    const files = Array.from(fileList || []);
-    if (files.length === 0) return;
-    setSendError(null);
-    const room = MAX_ATTACHMENTS - pending.length;
-    if (files.length > room) setSendError(`Max ${MAX_ATTACHMENTS} attachments per message`);
-    const added = files.slice(0, Math.max(room, 0));
-    const items: PendingFile[] = added.map((f) => ({
-      id: `${f.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      file: f,
-      name: f.name,
-      size: f.size,
-      type: f.type,
-      data: null,
-    }));
-    setPending((cur) => [...cur, ...items]);
-    for (const it of items) {
-      if (it.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onerror = () => {
-          setPending((cur) => cur.filter((x) => x.id !== it.id));
-          setSendError(`Failed to read ${it.name}`);
-        };
-        reader.onload = () => {
-          setPending((cur) => cur.map((x) => (x.id === it.id ? { ...x, data: String(reader.result || '') } : x)));
-        };
-        reader.readAsDataURL(it.file);
-      }
-    }
-  };
-
-  const removeFile = (id: string) => setPending((cur) => cur.filter((x) => x.id !== id));
-
-  async function toAttachment(p: PendingFile): Promise<Attachment> {
-    if (p.type.startsWith('image/')) {
-      const data = p.data || (await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ''));
-        reader.readAsDataURL(p.file);
-      }));
-      return { kind: 'image', name: p.name, data, size: p.size };
-    }
-    if (isTextLike(p.name, p.type)) {
-      if (p.size > MAX_TEXT_FILE_CHARS) return { kind: 'file', name: p.name, size: p.size };
-      const text = await p.file.text();
-      return { kind: 'text', name: p.name, text, size: text.length };
-    }
-    return { kind: 'file', name: p.name, size: p.size };
-  }
-
   const submit = async (e: Event) => {
     e.preventDefault();
     const text = prompt.trim();
     if ((!text && pending.length === 0) || running || reading || !activeSession) return;
-    setReading(true);
     setSendError(null);
-    try {
-      const attachments = await Promise.all(pending.map(toAttachment));
-      if (send(text, attachments, contextScope || undefined)) {
-        setPrompt('');
-        setPending([]);
-      }
-    } catch (err: any) {
-      setSendError(err.message || 'Failed to read attachment');
-    } finally {
-      setReading(false);
+    setAttachError(null);
+    const attachments = await buildAttachments();
+    if (attachments && send(text, attachments, contextScope || undefined)) {
+      setPrompt('');
+      clearPending();
     }
   };
 
@@ -573,6 +462,7 @@ export function Agents() {
                     )
                   )}
                   {error && !running && <div class="chat-msg system err" dir={chatDir}>{error}</div>}
+                  {attachError && <div class="chat-msg system err" dir={chatDir}>{attachError}</div>}
                   {sendError && <div class="chat-msg system err" dir={chatDir}>{sendError}</div>}
                 </div>
 

@@ -325,6 +325,51 @@ export const renameAgentSession = (agentId: string, chatId: string, name: string
     body: JSON.stringify({ name }),
   });
 
+// ── Project-scoped AI chat (ws-chat + chat-sessions) ──────────
+
+export interface ProjectChatSession {
+  slug: string;
+  chatId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  lastPreview: string;
+}
+
+export const listChatSessions = (project?: string) =>
+  api<{ sessions: ProjectChatSession[] }>(
+    `/api/chat/sessions${project ? `?project=${encodeURIComponent(project)}` : ''}`
+  );
+export const createChatSession = (project: string, name?: string) =>
+  api<{ session: ProjectChatSession }>('/api/chat/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project, name }),
+  });
+export const renameChatSession = (project: string, chatId: string, name: string) =>
+  api<{ session: ProjectChatSession }>(
+    `/api/chat/sessions/${chatId}?project=${encodeURIComponent(project)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    }
+  );
+export const deleteChatSession = (project: string, chatId: string) =>
+  api<{ ok: boolean }>(
+    `/api/chat/sessions/${chatId}?project=${encodeURIComponent(project)}`,
+    { method: 'DELETE' }
+  );
+
+export const updateChatConfig = (patch: Partial<ChatConfig>) =>
+  api<ChatConfig>('/api/chat/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+
+
 export const getLogs = (slug: string, tail = 200) =>
   api<{ logs: string }>(`/api/projects/${slug}/logs?tail=${tail}`);
 

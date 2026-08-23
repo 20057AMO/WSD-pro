@@ -739,6 +739,11 @@ select.modern-input { appearance: none; cursor: pointer; }
 }
 
 /* Chat */
+.project-chat {
+  display: flex; flex-direction: column; gap: 10px;
+  height: calc(100vh - 260px); min-height: 420px;
+}
+.chat-config-modal { width: min(560px, 92vw); max-height: 88vh; overflow-y: auto; }
 .chat-panel {
   background: var(--panel);
   border: 1px solid var(--border);

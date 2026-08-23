@@ -176,6 +176,17 @@ export function handleChatSocket(ws: WebSocket, slug: string, chatId: string, on
       return;
     }
 
+    if (msg.type === 'stop') {
+      const ctrl = controls.get(room);
+      if (ctrl) {
+        ctrl.cancelled = true;
+        if (ctrl.abort) ctrl.abort();
+      }
+      active.delete(room);
+      controls.delete(room);
+      return;
+    }
+
     const text = normalizePrompt(msg);
     if (!text) {
       sendJson(ws, { type: 'error', message: 'Invalid prompt payload' });
