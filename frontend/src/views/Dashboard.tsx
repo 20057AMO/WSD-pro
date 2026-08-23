@@ -82,7 +82,7 @@ export function Dashboard() {
   return (
     <div class="view">
       <div class="hero">
-        <span class="hero-badge">WSD-Pro v2</span>
+        <span class="hero-badge">WSD-Pro 2.0.0-beta</span>
         <h1 class="hero-title">Dashboard</h1>
         <p class="hero-sub">Your development environment at a glance.</p>
       </div>

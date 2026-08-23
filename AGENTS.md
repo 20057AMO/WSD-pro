@@ -113,14 +113,14 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Version string: `2.0.0-beta` (health, server/info, About panel, backups all aligned)
 
 ### Settings Backup (export/import)
-- `GET /api/settings/export?accountPassword=…` → JSON backup; **provider API keys are stripped by design**
+- `POST /api/settings/export` (JSON body with `accountPassword`) → JSON backup; **provider API keys are stripped by design**
 - `POST /api/settings/import` merges by id — existing items always win, secrets are never imported
 - Both operations require account-password re-auth
 
 ### Security activity log (audit)
 - `data/audit.json` — append-only, capped at the last 100 entries
-- Records: setup, login/login-failed, logout-all(+failed), password-change(+failed), providers-lock-change(+failed), backup export/import — with timestamp + IP
-- `GET /api/auth/audit` → last 50 entries, newest first (auth-protected)
+- Records: setup, login/login-failed, logout-all(+failed), password-change(+failed), providers-lock-change(+failed), providers-unlock/unlock-failed, providers-relock, backup export/import — with timestamp + IP
+- `GET /api/auth/audit` → last 50 entries, newest first (auth-protected, supports `limit`/`offset` params)
 - Shown in Settings → Security Activity; auditing failures never break request flow
 
 ### Brute-force guard
@@ -137,9 +137,16 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 ### Beta
 - App version: `2.0.0-beta` — badge shown in sidebar footer, login page and Settings → About
 
+### Auto-logout (idle timeout)
+- Configurable in Settings: off / 30 min / 60 min / 120 min (stored in `localStorage` as `wsd.idleTimeout`)
+- Activity events (mousemove, keydown, click, touchstart, scroll) throttle-refresh the clock (5s cooldown)
+- Cross-tab sync via `storage` event — changing the setting in one tab applies immediately in all tabs
+- On expiry: clears token, removes user, redirects to `/login`
+
 ### Key Patterns
-- **WebSocket with HTTP fallback**: All WS hooks try WS first, fall back to 5s polling
+- **WebSocket with HTTP fallback**: Project status/logs hooks try WS first, fall back to 5s polling; Agents chat uses exponential-backoff reconnect only (2s→16s)
 - **Room-based connection limits**: Max 8 connections per WS room
+- **ReAuthModal sudo pattern**: All sensitive ops (lock, backup, logout-everywhere, password change) require account-password re-auth via a unified modal
 
 ## Working Methodology
 

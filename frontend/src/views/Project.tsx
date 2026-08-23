@@ -255,7 +255,7 @@ export function Project({ params }: { params: { slug: string } }) {
           </div>
         </div>
         <div class="detail-actions">
-          <button class="btn-ghost sm" onClick={() => setLocation(`/chat?project=${slug}`)}>Ask AI</button>
+          <button class="btn-ghost sm" onClick={() => setLocation(`/agents`)}>Ask AI</button>
           <button class="btn-ghost sm" onClick={openIde}>Open IDE</button>
           <button
             class="btn-ghost sm"
@@ -553,7 +553,7 @@ function OverviewPanel({
             </div>
           </div>
           <div class="kv" style="gap:10px; margin-top:10px">
-            <button class="btn-primary sm" onClick={() => setLocation(`/chat?project=${slug}`)}>Ask AI about this project</button>
+            <button class="btn-primary sm" onClick={() => setLocation(`/agents`)}>Ask AI about this project</button>
             <button class="btn-ghost sm" onClick={() => setCtxOpen(!ctxOpen)}>{ctxOpen ? 'Hide preview ▴' : 'Preview ▾'}</button>
           </div>
           {ctxOpen && (

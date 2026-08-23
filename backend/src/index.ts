@@ -60,6 +60,7 @@ import {
   changePassword,
   hasUser,
   getUser,
+  verifyToken,
   hasProvidersPassword,
   setProvidersPassword,
   removeProvidersPassword,
@@ -159,7 +160,7 @@ app.get('/api/auth/status', (req: any, res) => {
   if (!exists) return res.json({ hasUser: false });
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  const user = token ? getUser() : null;
+  const user = token && verifyToken(token) ? getUser() : null;
   res.json({ hasUser: true, user });
 });
 
