@@ -142,7 +142,7 @@ export function Providers() {
         setLocked(true);
         setProviders([]);
       }
-    }, 15_000);
+    }, 5_000);
     return () => clearInterval(t);
   }, [locked]);
 
@@ -379,7 +379,7 @@ function ProviderCard({
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ok: boolean; msg: string} | null>(null);
   const [deleting, setDeleting] = useState(false);
   const busyRef = useRef(false);
 
@@ -403,6 +403,7 @@ function ProviderCard({
     setSaving(true);
     setError(null);
     setSaved(false);
+    setTestResult(null);
     try {
       await updateProvider(provider.id, {
         name,
@@ -430,13 +431,14 @@ function ProviderCard({
     setTestResult(null);
     try {
       const r = await testProvider(provider.id);
-      setTestResult(
-        r.ok
-          ? `✓ Connected (${r.modelCount ?? 0} models) • key verified`
-          : `✗ Failed${r.status ? ` (HTTP ${r.status})` : ''}${r.error ? ` — ${r.error}` : ''}`
-      );
+      const msg = r.ok
+        ? `✓ Connected (${r.modelCount ?? 0} models) • key verified`
+        : `✗ Failed${r.status ? ` (HTTP ${r.status})` : ''}${r.error ? ` — ${r.error}` : ''}`;
+      setTestResult({ ok: r.ok, msg });
+      if (r.ok) setTimeout(() => setTestResult(null), 5000);
     } catch (err: any) {
-      setTestResult(`✗ ${err.message}`);
+      if (onLocked(err)) return;
+      setTestResult({ ok: false, msg: `✗ ${err.message}` });
     } finally {
       setTesting(false);
       busyRef.current = false;
@@ -523,7 +525,7 @@ function ProviderCard({
       </div>
 
       {testResult && (
-        <div class="terminal-line t-ok" style="margin-top: 8px">{testResult}</div>
+        <div class={`terminal-line ${testResult.ok ? 't-ok' : 'login-error'}`} style="margin-top: 8px">{testResult.msg}</div>
       )}
     </div>
   );
@@ -539,7 +541,6 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
   const [enabled, setEnabled] = useState(true);
   const [templates, setTemplates] = useState<KnownTemplate[]>([]);
   const [detectState, setDetectState] = useState<DetectState>('idle');
-  const [detectPhase, setDetectPhase] = useState<'probe' | 'verify'>('probe');
   const [detectMsg, setDetectMsg] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -577,18 +578,13 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
     if (key.length < 6) {
       setDetectState('idle');
       setDetectMsg(null);
-      setDetectPhase('probe');
       return;
     }
     const seq = ++seqRef.current;
     keyTimerRef.current = window.setTimeout(() => {
       setDetectState('probing');
-      setDetectPhase('probe');
       setDetectMsg(null);
       setShowAdvanced(false);
-      window.setTimeout(() => {
-        if (seqRef.current === seq) setDetectPhase('verify');
-      }, 1000);
       detectProvider({ apiKey: key })
         .then((r) => {
           if (seqRef.current !== seq) return;
@@ -621,7 +617,6 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
 
   const retryDetect = () => {
     setDetectState('probing');
-    setDetectPhase('probe');
     setDetectMsg(null);
     setShowAdvanced(false);
     setRetryNonce((n) => n + 1);
@@ -675,11 +670,7 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
   };
 
   const statusLabel = () => {
-    if (detectState === 'probing') {
-      return detectPhase === 'verify'
-        ? '⏳ Probing OK — Verifying key…'
-        : '⏳ Probing known providers…';
-    }
+    if (detectState === 'probing') return '⏳ Probing known providers…';
     return null;
   };
 
@@ -739,7 +730,7 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
           <label class="field-label">Template</label>
           <select class="modern-input" value="" onChange={(e: any) => applyTemplate(e.target.value)}>
             <option value="" disabled>Choose a known provider…</option>
-            {templates.map((t) => (
+            {templates.filter((t) => !t.host.includes('host.docker.internal')).map((t) => (
               <option key={t.name} value={t.name}>{t.name}</option>
             ))}
           </select>
@@ -750,7 +741,13 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
             dir="auto"
             placeholder="https://api.example.com/v1"
             value={host}
-            onInput={(e: any) => setHost(e.target.value)}
+            onInput={(e: any) => {
+              setHost(e.target.value);
+              if (detectState === 'ok') {
+                setDetectState('idle');
+                setDetectMsg(null);
+              }
+            }}
           />
 
           <div class="add-provider-row">

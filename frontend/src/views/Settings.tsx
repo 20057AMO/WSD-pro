@@ -19,6 +19,7 @@ import {
   importSettings,
   clearProvidersUnlock,
   setProvidersUnlock,
+  relockProviders,
   apiLogoutAll,
   getAuditLog,
   type AuditEntry,
@@ -71,6 +72,7 @@ export function Settings() {
 
   // ── Providers security lock ──
   const [lockEnabled, setLockEnabled] = useState<boolean | null>(null);
+  const [lockFetchError, setLockFetchError] = useState(false);
   const [lockNewPw, setLockNewPw] = useState('');
   const [lockConfirmPw, setLockConfirmPw] = useState('');
   const [lockMsg, setLockMsg] = useState<Msg>(null);
@@ -104,8 +106,8 @@ export function Settings() {
 
   useEffect(() => {
     getProvidersLockStatus()
-      .then((r) => setLockEnabled(r.enabled))
-      .catch(() => setLockEnabled(false));
+      .then((r) => { setLockEnabled(r.enabled); setLockFetchError(false); })
+      .catch(() => { setLockEnabled(null); setLockFetchError(true); });
     getAuditLog(AUDIT_PAGE, 0)
       .then((r) => { setAudit(r.entries || []); setAuditTotal(r.total || 0); })
       .catch(() => { setAudit([]); setAuditTotal(0); });
@@ -201,6 +203,7 @@ export function Settings() {
           const wasEnabled = lockEnabled === true;
           setLockEnabled(true);
           setLockMsg({ type: 'ok', text: wasEnabled ? 'Providers password changed.' : 'Providers lock enabled.' });
+          setTimeout(() => setLockMsg(null), 4000);
           // The server hands back a fresh unlock token for the new password —
           // store it so visiting Providers right away is open, not a lockout.
           if (result.unlockToken) {
@@ -217,6 +220,7 @@ export function Settings() {
           await removeProvidersPassword(accountPassword);
           setLockEnabled(false);
           setLockMsg({ type: 'ok', text: 'Providers lock disabled.' });
+          setTimeout(() => setLockMsg(null), 4000);
           clearProvidersUnlock();
           break;
         }
@@ -254,10 +258,14 @@ export function Settings() {
         }
       }
       setPendingAction(null);
+      // Security Activity reflects the operation that just succeeded.
+      getAuditLog(AUDIT_PAGE, 0)
+        .then((r) => { setAudit(r.entries || []); setAuditTotal(r.total || 0); })
+        .catch(() => {});
     } catch (err: any) {
       const msg = err.message || 'Operation failed.';
-      const looksLikeBadPassword = /incorrect|password/i.test(msg);
-      fail(msg, looksLikeBadPassword);
+      const isRetryable = err.status === 401 || err.status === 429 || (err.status === 400 && /password/i.test(msg));
+      fail(msg, isRetryable);
     } finally {
       setReauthLoading(false);
     }
@@ -362,7 +370,9 @@ export function Settings() {
         </p>
         <div class="settings-row">
           <span class="field-label">Status</span>
-          {lockEnabled === null ? (
+          {lockFetchError ? (
+            <span class="badge-off"><Loader2 width={11} height={11} class="icon spin" /> Could not check — try refreshing</span>
+          ) : lockEnabled === null ? (
             <span class="inline-loading"><Loader2 width={12} height={12} class="icon spin" /> Checking…</span>
           ) : lockEnabled ? (
             <span class="badge-ok"><Lock width={11} height={11} /> Enabled · stays open 30 min after entry</span>
@@ -402,12 +412,25 @@ export function Settings() {
           <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap;">
             <button class="btn-primary sm" type="submit">
               <span class="icon-wrap"><ShieldCheck width={13} height={13} /></span>
-              {lockEnabled ? 'Change password' : 'Enable lock'}
+              {lockEnabled ? 'Change Providers password' : 'Enable lock'}
             </button>
             {lockEnabled && (
-              <button class="btn-danger sm" type="button" onClick={beginDisableLock}>
-                Disable lock
-              </button>
+              <>
+                <button class="btn-ghost sm" type="button" onClick={async () => {
+                  try {
+                    await relockProviders();
+                    clearProvidersUnlock();
+                    setLockMsg({ type: 'ok', text: 'Locked on all tabs and devices.' });
+                  } catch {
+                    setLockMsg({ type: 'err', text: 'Could not lock other devices.' });
+                  }
+                }}>
+                  Lock now
+                </button>
+                <button class="btn-danger sm" type="button" onClick={beginDisableLock}>
+                  Disable lock
+                </button>
+              </>
             )}
           </div>
           <p class="settings-hint" style="margin-top:10px;">
@@ -600,11 +623,13 @@ export function Settings() {
         description={
           pendingAction === 'revoke-all'
             ? 'This signs you out of every device and browser tab.'
-            : 'Enter your account password to authorize this action.'
+            : pendingAction === 'disable-lock'
+              ? 'This removes the second password — anyone using this session will be able to open Providers.'
+              : 'Enter your account password to authorize this action.'
         }
         confirmLabel="Confirm"
         onConfirm={executeReauth}
-        onCancel={() => { setPendingAction(null); setReauthError(null); }}
+        onCancel={() => { setPendingAction(null); setReauthError(null); pendingLockPw.current = ''; }}
       />
     </div>
   );

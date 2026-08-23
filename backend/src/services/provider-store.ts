@@ -50,7 +50,7 @@ export const KNOWN_TEMPLATES: KnownTemplate[] = [
   { name: 'Anthropic (Claude)', type: 'anthropic', host: 'https://api.anthropic.com', keyPrefix: 'sk-ant-' },
   { name: 'Groq', type: 'openai', host: 'https://api.groq.com/openai/v1', keyPrefix: 'gsk_' },
   { name: 'DeepSeek', type: 'openai', host: 'https://api.deepseek.com/v1', keyPrefix: 'sk-' },
-  { name: 'Mistral', type: 'openai', host: 'https://api.mistral.ai/v1', keyPrefix: 'az' },
+  { name: 'Mistral', type: 'openai', host: 'https://api.mistral.ai/v1' },
   { name: 'Together AI', type: 'openai', host: 'https://api.together.xyz/v1' },
   { name: 'xAI', type: 'openai', host: 'https://api.x.ai/v1', keyPrefix: 'xai-' },
   { name: 'HuggingFace', type: 'openai', host: 'https://router.huggingface.co/v1', keyPrefix: 'hf_' },

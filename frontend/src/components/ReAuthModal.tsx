@@ -61,7 +61,7 @@ export function ReAuthModal({
   };
 
   return (
-    <div class="modal-overlay" onMouseDown={(e: any) => { if (e.target === e.currentTarget) onCancel(); }}>
+    <div class="modal-overlay" onMouseDown={(e: any) => { if (e.target === e.currentTarget && !loading) onCancel(); }}>
       <form class="modal-card reauth-card" onSubmit={submit}>
         <div class="reauth-avatar" aria-hidden="true">
           <User width={26} height={26} />

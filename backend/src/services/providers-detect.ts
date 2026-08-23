@@ -28,6 +28,11 @@ export interface ProbeResult {
 
 const TIMEOUT_MS = 3000;
 const DETECT_TOTAL_MS = 12000;
+const CHECK_CACHE_TTL_MS = 60_000;
+
+// Short-lived cache for full health checks — repeated "Test" clicks within a
+// minute don't re-fire real billable chat completions against the provider.
+const checkCache = new Map<string, { at: number; result: CheckResult }>();
 
 function headersFor(apiKey: string, type: ProviderType, auth?: AuthMode): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -103,17 +108,20 @@ export async function verifyChat(
   model: string | undefined,
   auth?: AuthMode,
   extraModels?: string[]
-): Promise<boolean> {
+): Promise<{ ok: boolean; reason?: string }> {
   const candidates = [model, ...(extraModels || [])].filter((m): m is string => !!m);
-  if (candidates.length === 0) return false;
+  if (candidates.length === 0) return { ok: false, reason: 'no_models' };
+  let lastReason: string | undefined;
   for (const candidate of candidates.slice(0, 8)) {
     try {
-      if (await verifyOne(type, host, apiKey, candidate, auth)) return true;
+      const r = await verifyOne(type, host, apiKey, candidate, auth);
+      if (r.ok) return { ok: true };
+      lastReason = r.reason;
     } catch {
       // try the next candidate
     }
   }
-  return false;
+  return { ok: false, reason: lastReason || 'verification_failed' };
 }
 
 async function verifyOne(
@@ -122,10 +130,11 @@ async function verifyOne(
   apiKey: string,
   model: string,
   auth?: AuthMode
-): Promise<boolean> {
+): Promise<{ ok: boolean; reason?: string }> {
   const base = normalizeHost(host);
+  let res: Response;
   if (type === 'ollama') {
-    const res = await fetch(`${base}/api/chat`, {
+    res = await fetch(`${base}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -134,11 +143,9 @@ async function verifyOne(
       body: JSON.stringify({ model, messages: [{ role: 'user', content: 'hi' }], stream: false, options: { temperature: 0 } }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    return res.ok;
-  }
-  if (type === 'gemini') {
+  } else if (type === 'gemini') {
     const modelName = String(model).replace(/^models\//, '');
-    const res = await fetch(`${base}/models/${modelName}:generateContent`, {
+    res = await fetch(`${base}/models/${modelName}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
@@ -147,28 +154,30 @@ async function verifyOne(
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    return res.ok;
-  }
-  if (type === 'anthropic') {
-    const res = await fetch(`${base}/v1/messages`, {
+  } else if (type === 'anthropic') {
+    res = await fetch(`${base}/v1/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-    return res.ok;
+  } else {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) {
+      headers[auth === 'api-key' ? 'api-key' : 'Authorization'] = auth === 'api-key' ? apiKey : `Bearer ${apiKey}`;
+    }
+    res = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: 'hi' }], stream: false, max_tokens: 1, temperature: 0 }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
   }
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (apiKey) {
-    headers[auth === 'api-key' ? 'api-key' : 'Authorization'] = auth === 'api-key' ? apiKey : `Bearer ${apiKey}`;
-  }
-  const res = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ model, messages: [{ role: 'user', content: 'hi' }], stream: false, max_tokens: 1, temperature: 0 }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  return res.ok;
+  if (res.ok) return { ok: true };
+  if (res.status === 401 || res.status === 403) return { ok: false, reason: 'auth' };
+  if (res.status === 402) return { ok: false, reason: 'quota' };
+  if (res.status === 429) return { ok: false, reason: 'rate_limited' };
+  return { ok: false, reason: 'verification_failed' };
 }
 
 export interface CheckResult {
@@ -179,8 +188,34 @@ export interface CheckResult {
   error?: string;
 }
 
+const VERIFY_REASON_MSG: Record<string, string> = {
+  auth: 'Invalid or unauthorized API key',
+  quota: 'API key has no remaining quota',
+  rate_limited: 'Rate limited — try again shortly',
+  no_models: 'No chat-capable models found',
+  verification_failed: 'Key verification failed',
+};
+
 /** Full health check for a saved provider: model-list probe + key verification. */
 export async function checkProvider(
+  type: ProviderType,
+  host: string,
+  apiKey: string,
+  auth?: AuthMode
+): Promise<CheckResult> {
+  const cacheKey = `${type}|${normalizeHost(host)}|${auth || 'bearer'}|${apiKey}`;
+  const hit = checkCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < CHECK_CACHE_TTL_MS) return hit.result;
+  const result = await runCheck(type, host, apiKey, auth);
+  checkCache.set(cacheKey, { at: Date.now(), result });
+  if (checkCache.size > 50) {
+    const oldest = checkCache.keys().next().value;
+    if (oldest) checkCache.delete(oldest);
+  }
+  return result;
+}
+
+async function runCheck(
   type: ProviderType,
   host: string,
   apiKey: string,
@@ -190,9 +225,9 @@ export async function checkProvider(
   if (!probe.ok) {
     return { ok: false, status: probe.status, modelCount: 0, verified: false, error: probe.status ? `HTTP ${probe.status}` : 'Could not reach the endpoint' };
   }
-  const verified = await verifyChat(type, host, apiKey, probe.firstModel, auth, probe.models);
-  if (!verified) {
-    return { ok: false, status: probe.status, modelCount: probe.modelCount, verified: false, error: 'Key verification failed' };
+  const vr = await verifyChat(type, host, apiKey, probe.firstModel, auth, probe.models);
+  if (!vr.ok) {
+    return { ok: false, status: probe.status, modelCount: probe.modelCount, verified: false, error: VERIFY_REASON_MSG[vr.reason || ''] || 'Key verification failed' };
   }
   return { ok: true, status: probe.status, modelCount: probe.modelCount, verified: true };
 }
@@ -207,7 +242,6 @@ function keyHint(key: string): string | null {
   if (k.startsWith('hf_')) return 'hf_';
   if (k.startsWith('xai-') || k.startsWith('xai_')) return 'xai-';
   if (k.startsWith('sk-')) return 'sk-';
-  if (/^az/i.test(k)) return 'az';
   if (k.startsWith('ollama_')) return 'ollama_';
   return null;
 }
@@ -260,7 +294,7 @@ export async function detectProvider(input: DetectInput): Promise<{
     if (Date.now() - startedAt >= DETECT_TOTAL_MS) break;
     tried.push(c.name);
     const r = await probeProvider(c.type, c.host, apiKey, 'bearer');
-    if (r.ok && (await verifyChat(c.type, c.host, apiKey, r.firstModel, 'bearer', r.models))) {
+    if (r.ok && (await verifyChat(c.type, c.host, apiKey, r.firstModel, 'bearer', r.models)).ok) {
       return {
         provider: { name: c.name, host: normalizeHost(c.host), type: c.type, modelCount: r.modelCount },
         tried,
