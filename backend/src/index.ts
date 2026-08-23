@@ -291,8 +291,8 @@ app.delete('/api/auth/providers-password', authLimiter, (req: any, res) => {
 // ── Settings backup (export / import) ─────────────────────────
 // Both operations require account re-auth. Exports never contain API keys.
 
-app.get('/api/settings/export', authLimiter, (req: any, res) => {
-  const accountPassword = String(req.query.accountPassword || '');
+app.post('/api/settings/export', authLimiter, (req: any, res) => {
+  const accountPassword = String((req.body?.accountPassword) || '');
   if (!verifyAccountPassword(accountPassword)) {
     return res.status(401).json({ error: 'Account password is incorrect.' });
   }

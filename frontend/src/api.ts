@@ -206,6 +206,13 @@ export function clearProvidersUnlock(): void {
 export const relockProviders = () =>
   api<{ ok: boolean; locked: boolean }>('/api/providers/relock', { method: 'POST' });
 
+/** Sign out of every session across all devices. */
+export const apiLogoutAll = (accountPassword: string) =>
+  api<{ ok: boolean }>('/api/auth/logout-all', {
+    method: 'POST',
+    body: JSON.stringify({ accountPassword }),
+  });
+
 export type ApiError = Error & { status?: number; code?: string };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -436,12 +443,9 @@ export interface BackupFile {
   data: Record<string, unknown>;
 }
 export const exportSettings = (accountPassword: string): Promise<BackupFile> =>
-  fetch(`/api/settings/export?accountPassword=${encodeURIComponent(accountPassword)}`, {
-    headers: { Authorization: `Bearer ${getAuthToken() || ''}` },
-  }).then(async (res) => {
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data?.error || `Export failed (HTTP ${res.status})`);
-    return data as BackupFile;
+  api<BackupFile>('/api/settings/export', {
+    method: 'POST',
+    body: JSON.stringify({ accountPassword }),
   });
 export const importSettings = (accountPassword: string, backup: unknown) =>
   api<{ ok: boolean; imported: Record<string, number>; skipped: number }>('/api/settings/import', {

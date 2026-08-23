@@ -128,13 +128,18 @@ describe('Providers security lock & backup', () => {
   test('backup export requires account password and never contains raw API keys', async (t) => {
     if (!lockWasEnabled) return t.skip();
 
-    const no = await fetch(`${API_URL}/settings/export?accountPassword=`, { headers: authHeader() });
+    const no = await fetch(`${API_URL}/settings/export`, {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountPassword: '' }),
+    });
     assert.ok([400, 401].includes(no.status));
 
-    const yes = await fetch(
-      `${API_URL}/settings/export?accountPassword=${encodeURIComponent(accountPassword)}`,
-      { headers: authHeader() }
-    );
+    const yes = await fetch(`${API_URL}/settings/export`, {
+      method: 'POST',
+      headers: { ...authHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountPassword }),
+    });
     assert.strictEqual(yes.status, 200);
     const backup = await yes.json();
     assert.strictEqual(backup.kind, 'wsd-pro-backup');

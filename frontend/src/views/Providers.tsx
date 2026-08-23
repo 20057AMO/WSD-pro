@@ -48,6 +48,7 @@ export function Providers() {
   const [unlockErr, setUnlockErr] = useState<string | null>(null);
   const [, forceTick] = useState(0);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
+  const [relockWarn, setRelockWarn] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
@@ -176,12 +177,21 @@ export function Providers() {
   const lockNow = async () => {
     // True global lock: the server bumps its token version so every
     // outstanding unlock token — in any tab or device — dies instantly.
+    let serverLocked = true;
     try {
-      await relockProviders();
-    } catch { /* local lock still applies */ }
+      const r = await relockProviders();
+      if (!r.locked) serverLocked = false;
+    } catch {
+      serverLocked = false;
+    }
     clearProvidersUnlock();
     setProviders([]);
     setLocked(true);
+    if (!serverLocked) {
+      setRelockWarn(
+        'Locked locally, but the server could not lock other devices. You can re-lock from Settings → Providers Security.'
+      );
+    }
   };
 
   // ── Checking state: skeleton shimmer instead of a bare "Loading…" ──
@@ -260,6 +270,11 @@ export function Providers() {
             </p>
           </form>
         </div>
+        {relockWarn && (
+          <div class="login-error" style="max-width: 360px; text-align: center; margin-top: 12px;">
+            {relockWarn}
+          </div>
+        )}
       </div>
     );
   }

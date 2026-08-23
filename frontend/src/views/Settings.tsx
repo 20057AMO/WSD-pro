@@ -18,6 +18,7 @@ import {
   importSettings,
   clearProvidersUnlock,
   setProvidersUnlock,
+  apiLogoutAll,
   getAuditLog,
   type AuditEntry,
   type BackupFile,
@@ -230,14 +231,7 @@ export function Settings() {
           break;
         }
         case 'revoke-all': {
-          const token = localStorage.getItem('wsd.token');
-          const res = await fetch('/api/auth/logout-all', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ accountPassword }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (!res.ok) throw new Error(data.error || 'Failed to sign out.');
+          await apiLogoutAll(accountPassword);
           logout();
           window.location.hash = '/login';
           break;
@@ -332,12 +326,6 @@ export function Settings() {
         <div class="settings-row">
           <span class="field-label">Last password change</span>
           <span style="color: var(--text-2)">{fmtDate(user?.passwordChangedAt)}</span>
-        </div>
-        <div class="settings-row">
-          <span class="field-label">Token</span>
-          <span class="mono" style="color: var(--text-3); font-size: 0.7rem">
-            {localStorage.getItem('wsd.token')?.slice(0, 20) || '—'}…
-          </span>
         </div>
         <div style="margin-top: 12px">
           <button class="btn-danger sm" onClick={handleLogout}>
