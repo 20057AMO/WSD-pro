@@ -8,6 +8,7 @@ import {
   Download,
   Upload,
   ShieldCheck,
+  Settings as SettingsIcon,
 } from 'lucide-preact';
 import { useAuth } from '../auth';
 import {
@@ -84,6 +85,7 @@ export function Settings() {
       return 'off';
     }
   });
+  const [idleSaved, setIdleSaved] = useState(false);
 
   // ── Backup ──
   const [backupMsg, setBackupMsg] = useState<Msg>(null);
@@ -297,6 +299,8 @@ export function Settings() {
     try {
       localStorage.setItem('wsd.idleTimeout', value);
     } catch { /* ignore */ }
+    setIdleSaved(true);
+    setTimeout(() => setIdleSaved(false), 2000);
   };
 
   const handleLogout = () => {
@@ -307,7 +311,7 @@ export function Settings() {
   return (
     <div class="view">
       <div class="hero">
-        <span class="hero-badge">Settings</span>
+        <span class="hero-badge"><SettingsIcon width={12} height={12} /> Settings</span>
         <h1 class="hero-title" style="font-size: 1.5rem">Settings</h1>
         <p class="hero-sub">Manage your account and application settings.</p>
       </div>
@@ -432,6 +436,7 @@ export function Settings() {
             <option value="60">1 hour</option>
             <option value="120">2 hours</option>
           </select>
+          {idleSaved && <span class="chat-save-msg">Saved ✓</span>}
         </div>
       </div>
 
@@ -454,7 +459,7 @@ export function Settings() {
             <span class="icon-wrap"><Download width={13} height={13} /></span> Export backup
           </button>
           <form onSubmit={beginImport} style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <input id="import-file" type="file" accept=".json,application/json" class="modern-input" style="max-width: 240px; padding: 4px 6px;" />
+            <input id="import-file" type="file" accept=".json,application/json" class="modern-file" />
             <button class="btn-ghost sm" type="submit">
               <span class="icon-wrap"><Upload width={13} height={13} /></span> Import
             </button>

@@ -524,6 +524,15 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
     };
   }, []);
 
+  // Esc closes the modal.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   // Background auto-detect: fires ~600ms after the key settles (debounce).
   useEffect(() => {
     const key = apiKey.trim();

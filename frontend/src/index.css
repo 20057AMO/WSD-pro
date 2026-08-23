@@ -1548,6 +1548,18 @@ textarea.agent-prompt-input {
 .pw-seg.on { background: var(--border-2); }
 .pw-label { margin-left: 6px; font-size: 0.65rem; color: var(--text-3); }
 
+/* ── Themed file input ── */
+input[type="file"].modern-file {
+  font-size: 0.75rem; color: var(--text-2);
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 4px 6px;
+  cursor: pointer;
+}
+input[type="file"].modern-file::file-selector-button {
+  background: transparent; color: var(--text-2); border: none;
+  font-size: 0.72rem; padding: 0 6px 0 0; cursor: pointer;
+}
+
 /* ── Lucide icon helpers ── */
 .icon { flex-shrink: 0; vertical-align: middle; }
 .icon.spin { animation: icon-spin 0.9s linear infinite; }
@@ -1587,7 +1599,7 @@ textarea.agent-prompt-input {
   display: flex; align-items: center; justify-content: center;
   background: transparent;
 }
-.unlock-card, .reauth-card .modal-card { width: 100%; }
+.unlock-card, .reauth-card { width: 100%; }
 .unlock-card { max-width: 360px; }
 
 /* ── Skeleton shimmer (Providers checking state) ── */
