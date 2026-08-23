@@ -54,6 +54,7 @@ export function Providers() {
     try {
       const { providers: list } = await getProviders();
       setProviders(list);
+      setLocked(false);
       setError(null);
     } catch (err: any) {
       handleMaybeLocked(err);
