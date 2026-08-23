@@ -74,7 +74,7 @@ function loadUsers(): void {
 
 function saveUsers(): void {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(USERS_FILE, JSON.stringify({ user: cachedUser }, null, 2));
+  fs.writeFileSync(USERS_FILE, JSON.stringify({ user: cachedUser }, null, 2), { encoding: 'utf8', mode: 0o600 });
 }
 
 export function hasUser(): boolean {
@@ -151,7 +151,13 @@ export function verifyToken(token: string | null): { id: string; username: strin
   if (cachedUser === null) loadUsers();
   if (!token) return null;
   try {
-    const decoded = jwt.verify(String(token), JWT_SECRET) as { id: string; username: string; tv?: number; jti?: string };
+    const decoded = jwt.verify(String(token), JWT_SECRET) as {
+      id: string; username: string; tv?: number; jti?: string; scope?: string;
+    };
+    // Scoped auxiliary tokens (providers unlock, 2FA pending) are NOT
+    // sessions — they must never authenticate generic routes even though
+    // they are signed with the same secret.
+    if (decoded.scope) return null;
     // Tokens issued before a revocation carry a stale version → rejected.
     if ((decoded.tv || 0) !== currentTokenVersion()) return null;
     return { id: decoded.id, username: decoded.username, jti: decoded.jti };

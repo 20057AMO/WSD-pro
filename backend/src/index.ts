@@ -87,8 +87,28 @@ import { attachWebSockets } from './ws/ws-server';
 
 dotenv.config();
 
+// Loud, unmissable warning when the deployment runs on a publicly-known
+// signing secret — tokens would be forgeable by anyone with the repo.
+const INSECURE_SECRETS = new Set([
+  'wsd-pro-insecure-default',
+  'wsd-pro-default-secret-change-me',
+  'change-me',
+]);
+if (!process.env.JWT_SECRET || INSECURE_SECRETS.has(process.env.JWT_SECRET)) {
+  console.warn('┌──────────────────────────────────────────────────────────────┐');
+  console.warn('│  ⚠ SECURITY WARNING: JWT_SECRET is missing or uses a known   │');
+  console.warn('│  default. Session tokens are forgeable. Set a long random    │');
+  console.warn('│  JWT_SECRET in your .env and restart immediately.            │');
+  console.warn('└──────────────────────────────────────────────────────────────┘');
+}
+
 const app = express();
-app.set('trust proxy', 1);
+// Trust exactly one reverse-proxy hop ONLY when explicitly enabled — with
+// the port published directly, a hardcoded trust would let clients spoof
+// X-Forwarded-For and defeat every per-IP limiter and the unlock cooldown.
+if (process.env.WSD_TRUST_PROXY === '1' || process.env.WSD_TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
 app.disable('x-powered-by');
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -287,7 +307,7 @@ app.post('/api/auth/2fa/disable', authLimiter, (req: any, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/auth/change-password', (req: any, res) => {
+app.post('/api/auth/change-password', authLimiter, (req: any, res) => {
   try {
     const { currentPassword, newPassword } = req.body || {};
     if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required.' });
@@ -587,7 +607,7 @@ app.post('/api/providers/detect', providersManagement, async (req: any, res: any
     const result = await detectProvider({ apiKey, host });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(err?.status || 500).json({ error: err.message });
   }
 });
 

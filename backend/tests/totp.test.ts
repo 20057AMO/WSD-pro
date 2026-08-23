@@ -165,6 +165,14 @@ describe('TOTP endpoints & login flow', () => {
     assert.ok(body.pendingToken, 'expected a pending token');
     assert.strictEqual(body.token, undefined, 'must NOT contain a session token');
     pendingToken = String(body.pendingToken);
+
+    // CRITICAL regression: the scoped pending token must never authenticate
+    // generic routes — otherwise possession of password alone would bypass
+    // TOTP by replaying it as a session.
+    const smuggled = await fetch(`${API_URL}/projects`, {
+      headers: { Authorization: `Bearer ${pendingToken}` },
+    });
+    assert.strictEqual(smuggled.status, 401, 'pending token is not a session');
   });
 
   test('verify rejects wrong codes, junk and hostile tokens', async (t) => {

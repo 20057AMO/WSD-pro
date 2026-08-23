@@ -197,6 +197,51 @@ describe('Providers page journey — regression for live-audit gaps', () => {
       assert.ok(card, 'provider still present');
       assert.strictEqual(card.apiKeyMasked.endsWith(KEY.slice(-4)), true, 'original key untouched');
     });
+
+    test('the exact displayed mask shape (bullets + last4) is rejected too', async (t) => {
+      if (!accountPassword) return t.skip();
+      const displayedMask = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022' + KEY.slice(-4);
+      const res = await fetch(`${API_URL}/providers/tstj-dup-first`, {
+        method: 'PUT',
+        headers: h({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ apiKey: displayedMask }),
+      });
+      assert.strictEqual(res.status, 400, 'displayed mask must not overwrite the real key');
+    });
+  });
+
+  // ── Prototype-pollution & SSRF hardening ──────────────────────
+  describe('hardening · hostile ids and hosts', () => {
+    test('__proto__ is not a provider id — and the store stays healthy', async (t) => {
+      if (!accountPassword) return t.skip();
+      const res = await fetch(`${API_URL}/providers/__proto__`, {
+        method: 'PUT',
+        headers: h({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ name: 'polluted' }),
+      });
+      assert.strictEqual(res.status, 404);
+      const probe = {} as Record<string, unknown>;
+      assert.strictEqual((probe as any).name, undefined, 'Object.prototype untouched');
+      const list = await fetch(`${API_URL}/providers`, { headers: h() });
+      assert.strictEqual(list.status, 200, 'store still healthy after pollution attempt');
+    });
+
+    test('cloud-metadata and non-http hosts are refused before any fetch', async (t) => {
+      if (!accountPassword) return t.skip();
+      for (const host of [
+        'http://169.254.169.254/latest/meta-data/',
+        'http://metadata.google.internal/computeMetadata/v1/',
+        'file:///etc/passwd',
+        'ftp://internal.example.com',
+      ]) {
+        const res = await fetch(`${API_URL}/providers/detect`, {
+          method: 'POST',
+          headers: h({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ host }),
+        });
+        assert.strictEqual(res.status, 400, `host ${host} must be refused`);
+      }
+    });
   });
 
   // ── Lock ON from here ─────────────────────────────────────────
@@ -258,6 +303,13 @@ describe('Providers page journey — regression for live-audit gaps', () => {
         headers: { Authorization: `Bearer ${sessionB}`, 'X-Providers-Unlock': tokA },
       });
       assert.strictEqual(stolen.status, 403, 'replayed token must die outside its session');
+
+      // CRITICAL regression: the unlock token is scoped — replaying it as a
+      // Bearer session on ANY generic route must fail with 401.
+      const smuggled = await fetch(`${API_URL}/projects`, {
+        headers: { Authorization: `Bearer ${tokA}` },
+      });
+      assert.strictEqual(smuggled.status, 401, 'unlock token is not a session');
 
       const own = await fetch(`${API_URL}/providers/unlock`, {
         method: 'POST',

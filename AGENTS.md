@@ -109,7 +109,8 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - The same `ReAuthModal` pattern authorizes every sensitive op: lock save/remove, backup export/import, logout-everywhere
 - Unlock issues a scoped JWT (`scope:'providers'`, 30 min) sent as `X-Providers-Unlock`; version counter (`pv`) invalidates all unlock tokens on password change
 - **Session-bound unlock**: login tokens carry a random `jti`; the unlock token embeds it as `sid` and `providersLockMiddleware` requires a match with the requesting session — a stolen unlock token replayed from another session is rejected (legacy tokens without `jti` use `''` consistently on both sides)
-- `POST /api/providers/unlock` is brute-force guarded by the shared `auth` limiter (10/min) **plus a progressive cooldown** (5 consecutive failures per IP → 15-min window returning `429` + `Retry-After`, in-memory, reset on success); audited (`providers-unlock` / `providers-unlock-failed` / `providers-unlock-cooldown`)
+- `POST /api/providers/unlock` is brute-force guarded by a **dedicated `unlock` limiter scope (15/min)** plus a progressive cooldown (5 consecutive failures per IP → 15-min window returning `429` + `Retry-After`, in-memory, reset on success); audited (`providers-unlock` / `providers-unlock-failed` / `providers-unlock-cooldown`)
+- **Scoped tokens are never sessions**: `verifyToken` rejects any JWT carrying a `scope` claim, so providers-unlock and 2FA-pending tokens cannot authenticate generic routes even though they share the signing secret
 - **Auto-relock**: Settings → Idle security offers an idle timer ('off'/5/15/30 min, stored as `wsd.providersAutoRelock`) that calls relock + clears the local token after inactivity; same activity-throttle + cross-tab storage-sync machinery as auto-logout
 - **Unlock badge**: sidebar shows "🔓 Providers · Nm" only while unlocked (countdown from `expiresAt`); click → confirm → instant relock
 - Enabling/changing the lock returns a ready-to-use unlock token — the current session stays open on the Providers page (no immediate re-entry)
@@ -126,6 +127,13 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Migration is automatic: on first load any plaintext key is sealed and the file rewritten; masking uses the stored `<last4>` so it never decrypts; duplicate detection opens values transparently
 - Backup export strips keys entirely (unchanged), so ciphertext never leaves the server either
 - **Lost/rotated key recovery**: delete `crypto.salt` only if starting fresh — otherwise restore the previous env value; plaintext keys pasted by users are re-sealed on next save
+
+### Security hardening (post-audit)
+- `WSD_TRUST_PROXY=1` opts into trusting one reverse-proxy hop for `req.ip`; default is OFF so directly-published ports can't spoof `X-Forwarded-For` past the rate limiters
+- SSRF guard on provider detection/testing: hosts must be http(s); cloud-metadata endpoints (`169.254.x`, `metadata.google.internal`, `100.100.100.200`, link-local) are refused before any fetch — private LAN/loopback stays allowed (local Ollama is a core feature)
+- Masked-key echo guard rejects both pure bullets and the displayed `<8 bullets><last4>` shape
+- Provider ids are own-property checked (`__proto__` etc. → 404); `providers.json` / `users.json` / `audit.json` persist with mode 0600
+- Startup banner warns when `JWT_SECRET` is missing or a known default
 
 ### UI conventions
 - Icons: **lucide-preact** everywhere (`class="icon"`, spin via `.icon.spin`) — agent preset icons are stored data and stay as-is

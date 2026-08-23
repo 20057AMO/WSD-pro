@@ -57,7 +57,7 @@ export function recordAudit(event: AuditEvent, ok: boolean, ip?: string): void {
     entries.push({ ts: new Date().toISOString(), event, ok, ...(ip ? { ip } : {}) });
     const trimmed = entries.slice(-MAX_ENTRIES);
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(AUDIT_FILE, JSON.stringify(trimmed, null, 2), 'utf8');
+    fs.writeFileSync(AUDIT_FILE, JSON.stringify(trimmed, null, 2), { encoding: 'utf8', mode: 0o600 });
   } catch {
     /* auditing must never break the request flow */
   }

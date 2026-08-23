@@ -1,6 +1,6 @@
-/**
+﻿/**
  * provider-store.ts
- * WSD-Pro — Persisted provider credentials.
+ * WSD-Pro â€” Persisted provider credentials.
  * Stored in WSD_DATA_DIR/providers.json. Env vars act as defaults.
  * Providers are fully dynamic: any number of Ollama / OpenAI-compatible /
  * Anthropic endpoints can be added, edited or deleted from the UI.
@@ -120,7 +120,7 @@ function load(): Record<string, ProviderConfig> {
       }
     }
   } catch {
-    // Corrupt file — quarantine it and rebuild from seeds
+    // Corrupt file â€” quarantine it and rebuild from seeds
     try { fs.renameSync(STORE_FILE, STORE_FILE + '.bak'); } catch { /* ignore */ }
     base = seeded();
   }
@@ -141,7 +141,8 @@ function load(): Record<string, ProviderConfig> {
 
 function persist(): void {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(STORE_FILE, JSON.stringify(cached, null, 2), 'utf8');
+  // 0600 — the file holds sealed keys and host metadata; keep it owner-only.
+  fs.writeFileSync(STORE_FILE, JSON.stringify(cached, null, 2), { encoding: 'utf8', mode: 0o600 });
 }
 
 function throwStatus(status: number, message: string): never {
@@ -165,20 +166,26 @@ export function normalizeHost(host: string): string {
 
 export function maskKey(key: string): string {
   if (!key) return '';
-  if (key.length <= 4) return '••••';
-  return '••••••••' + key.slice(-4);
+  if (key.length <= 4) return 'â€¢â€¢â€¢â€¢';
+  return 'â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢' + key.slice(-4);
 }
 
 /**
- * Guard against masked-key echo: the API only ever hands out maskKey()
- * output, so a client posting bullets back would silently overwrite a
- * real key. Reject such values instead of storing them.
+ * Guard against masked-key echo: the API only ever hands out maskKey() /
+ * maskStored() output, so a client posting bullets back would silently
+ * overwrite a real key. Reject bullet runs â€” pure (`â€¢â€¢â€¢â€¢`) and the exact
+ * displayed shape (`â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢ab3d`) alike â€” instead of storing them.
  */
 function assertNotMasked(apiKey: unknown): void {
   const key = String(apiKey ?? '');
-  if (key && /^[\u2022\u00b7*]+$/.test(key)) {
-    throwStatus(400, 'Received a masked API key — send the real key or omit the field');
+  if (key && /^[\u2022\u00b7*]+[\w=-]{0,4}$/.test(key)) {
+    throwStatus(400, 'Received a masked API key â€” send the real key or omit the field');
   }
+}
+
+/** Object-key safety: never let inherited properties (`__proto__`â€¦) pass as ids. */
+function owns(cfg: Record<string, unknown>, id: string): boolean {
+  return Object.prototype.hasOwnProperty.call(cfg, id);
 }
 
 /** Find an existing provider that already uses the same API key (or, when key is empty, the same host+type with no key). */
@@ -219,7 +226,7 @@ export function getProviderMeta(id: string): ProviderMeta | null {
 /** Resolve a provider config by id; falls back to the first available provider. */
 export function getProviderConfig(id: string): ProviderConfig {
   const cfg = load();
-  if (cfg[id]) return { ...cfg[id], apiKey: openSecret(cfg[id].apiKey) };
+  if (owns(cfg, id)) return { ...cfg[id], apiKey: openSecret(cfg[id].apiKey) };
   const fallback = Object.values(cfg).find((p) => p.enabled) || Object.values(cfg)[0];
   if (!fallback) throwStatus(500, 'No providers configured');
   return { ...fallback, apiKey: openSecret(fallback.apiKey) };
@@ -269,7 +276,7 @@ export function updateProvider(
   patch: { name?: string; host?: string; apiKey?: string; enabled?: boolean; type?: ProviderType; auth?: AuthMode }
 ): ProviderMeta {
   const cfg = load();
-  if (!cfg[id]) throwStatus(404, 'Unknown provider');
+  if (!owns(cfg, id)) throwStatus(404, 'Unknown provider');
   const p = cfg[id];
   assertNotMasked(patch.apiKey);
   if (typeof patch.name === 'string') {
@@ -309,7 +316,7 @@ export function resetProviderCache(): void {
 
 export function deleteProvider(id: string): void {
   const cfg = load();
-  if (!cfg[id]) throwStatus(404, 'Unknown provider');
+  if (!owns(cfg, id)) throwStatus(404, 'Unknown provider');
   if (Object.keys(cfg).length <= 1) {
     throwStatus(400, 'At least one provider must remain');
   }

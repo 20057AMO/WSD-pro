@@ -1,6 +1,6 @@
-/**
+﻿/**
  * providers-detect.ts
- * WSD-Pro — Auto-detect which provider an API key (and/or host) belongs to.
+ * WSD-Pro â€” Auto-detect which provider an API key (and/or host) belongs to.
  * Strategy: order candidates by a fast key-prefix heuristic, then actually probe
  * each candidate endpoint until one responds with HTTP 200.
  */
@@ -31,7 +31,42 @@ const TIMEOUT_MS = 3000;
 const DETECT_TOTAL_MS = 12000;
 const CHECK_CACHE_TTL_MS = 60_000;
 
-// Short-lived cache for full health checks — repeated "Test" clicks within a
+function reject(status: number, message: string): never {
+  const err = new Error(message) as Error & { status: number };
+  err.status = status;
+  throw err;
+}
+
+/**
+ * SSRF guard. Provider hosts MAY legitimately point at private networks â€”
+ * local Ollama over host.docker.internal / LAN IPs is a core feature of a
+ * self-hosted single-admin tool â€” but cloud metadata endpoints are never
+ * valid provider targets, and non-HTTP schemes must not reach fetch().
+ */
+export function assertFetchableHost(host: string): void {
+  const raw = normalizeHost(host);
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`);
+  } catch {
+    reject(400, 'Invalid provider host');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    reject(400, 'Provider host must use http or https');
+  }
+  const hostname = url.hostname.toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+  const blocked =
+    hostname === 'metadata.goog' ||
+    hostname === 'metadata.google.internal' ||
+    hostname === '100.100.100.200' ||
+    hostname.startsWith('169.254.') ||
+    hostname.startsWith('fe80:');
+  if (blocked) {
+    reject(400, 'This host cannot be used as a provider endpoint');
+  }
+}
+
+// Short-lived cache for full health checks â€” repeated "Test" clicks within a
 // minute don't re-fire real billable chat completions against the provider.
 const checkCache = new Map<string, { at: number; result: CheckResult }>();
 
@@ -61,6 +96,7 @@ export async function probeProvider(
   apiKey: string,
   auth?: AuthMode
 ): Promise<ProbeResult> {
+  assertFetchableHost(host);
   const base = normalizeHost(host);
   const url =
     type === 'ollama'
@@ -146,6 +182,7 @@ async function verifyOne(
   model: string,
   auth?: AuthMode
 ): Promise<{ ok: boolean; reason?: string }> {
+  assertFetchableHost(host);
   const base = normalizeHost(host);
   let res: Response;
   if (type === 'ollama') {
@@ -217,7 +254,7 @@ export interface CheckResult {
 const VERIFY_REASON_MSG: Record<string, string> = {
   auth: 'Invalid or unauthorized API key',
   quota: 'API key has no remaining quota',
-  rate_limited: 'Rate limited — try again shortly',
+  rate_limited: 'Rate limited â€” try again shortly',
   no_models: 'No chat-capable models found',
   verification_failed: 'Key verification failed',
 };
@@ -229,6 +266,7 @@ export async function checkProvider(
   apiKey: string,
   auth?: AuthMode
 ): Promise<CheckResult> {
+  assertFetchableHost(host);
   const cacheKey = `${type}|${normalizeHost(host)}|${auth || 'bearer'}|${apiKey}`;
   const hit = checkCache.get(cacheKey);
   if (hit && Date.now() - hit.at < CHECK_CACHE_TTL_MS) return hit.result;
@@ -281,9 +319,9 @@ export interface DetectResult {
 
 /**
  * Auto-detect a provider. Returns null when nothing matched.
- * - With an explicit host: probe that host as openai → anthropic → ollama.
+ * - With an explicit host: probe that host as openai â†’ anthropic â†’ ollama.
  * - With only an API key: probe known openai/anthropic/ollama templates, ordered
- *   by key-prefix heuristic. Ollama templates are included — false positives are
+ *   by key-prefix heuristic. Ollama templates are included â€” false positives are
  *   prevented by the verifyChat() call which sends an actual chat request.
  */
 export async function detectProvider(input: DetectInput): Promise<{
@@ -292,6 +330,7 @@ export async function detectProvider(input: DetectInput): Promise<{
 }> {
   const apiKey = String(input.apiKey ?? '').trim();
   const host = String(input.host ?? '').trim();
+  if (host) assertFetchableHost(host);
   const tried: string[] = [];
   const startedAt = Date.now();
 
@@ -303,7 +342,7 @@ export async function detectProvider(input: DetectInput): Promise<{
       { name: host, host, type: 'anthropic' },
       { name: host, host, type: 'ollama' },
     ];
-    // Azure resource endpoints are unmistakable — try the deployment API first.
+    // Azure resource endpoints are unmistakable â€” try the deployment API first.
     // Azure keys carry no distinctive prefix, so this pattern is the only signal.
     if (/\.openai\.azure\.com/i.test(host)) {
       candidates.unshift({ name: host, host, type: 'azure' });
