@@ -2,56 +2,65 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
+  integration:
+    name: Typecheck + build + full backend suite
     runs-on: ubuntu-latest
-
+    timeout-minutes: 25
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: 22
 
-      - name: Install + build backend
-        working-directory: ./backend
-        run: npm ci --no-fund --no-audit || npm install --no-fund --no-audit
-
-      - name: Typecheck + build backend
-        working-directory: ./backend
-        run: npm run build
-
-      - name: Install + build frontend
-        working-directory: ./frontend
-        run: npm ci --no-fund --no-audit || npm install --no-fund --no-audit
-
-      - name: Build frontend
-        working-directory: ./frontend
-        run: npm run build
-
-      - name: Start WSD-Pro Backend
-        working-directory: ./backend
-        env:
-          PORT: 3000
-          OLLAMA_API_KEY: test-key
-          WSD_WORKSPACE_IMAGE: ubuntu:24.04
-          WSD_PROJECTS_DIR: /tmp/wsd-projects
+      - name: Install deps
         run: |
-          npm start &
-          # Wait for backend to be ready by pinging health endpoint repeatedly
-          for i in {1..15}; do
-            curl -s http://127.0.0.1:3000/api/health && break
+          npm ci --prefix frontend
+          npm ci --prefix backend
+
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Typecheck backend
+        working-directory: backend
+        run: npm run typecheck
+
+      - name: Generate ephemeral JWT secret
+        run: echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      - name: Point workspace binds at the checkout
+        run: echo "WSD_WORKSPACES_HOST_DIR=${{ github.workspace }}/workspaces" >> "$GITHUB_ENV"
+
+      - name: Build and launch the stack
+        run: docker compose up -d --build
+
+      - name: Wait for the app to become healthy
+        run: |
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:3000/api/health >/dev/null 2>&1; then
+              echo "app healthy after ${i} attempts"
+              exit 0
+            fi
             sleep 2
           done
+          echo "::error::app did not become healthy in time"
+          docker compose logs app | tail -100
+          exit 1
 
-      - name: Run Smoke Tests
-        working-directory: ./backend
-        run: npm test
+      - name: Run full backend test suite
+        working-directory: backend
+        run: node --test --test-concurrency=1 "tests/**/*.test.ts"
+
+      - name: Dump app logs on failure
+        if: failure()
+        run: docker compose logs app | tail -200
