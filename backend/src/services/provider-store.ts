@@ -8,6 +8,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { clearProviderRefs } from './agent-store';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const STORE_FILE = path.join(DATA_DIR, 'providers.json');
@@ -108,7 +109,9 @@ function load(): Record<string, ProviderConfig> {
       }
     }
   } catch {
-    // ignore a corrupt store file
+    // Corrupt file — quarantine it and rebuild from seeds
+    try { fs.renameSync(STORE_FILE, STORE_FILE + '.bak'); } catch { /* ignore */ }
+    base = seeded();
   }
   cached = base;
   return cached;
@@ -230,13 +233,18 @@ export function updateProvider(
   const cfg = load();
   if (!cfg[id]) throwStatus(404, 'Unknown provider');
   const p = cfg[id];
-  if (typeof patch.name === 'string' && patch.name.trim()) {
-    p.name = patch.name.trim().slice(0, 80);
+  if (typeof patch.name === 'string') {
+    const n = patch.name.trim();
+    if (!n) throwStatus(400, 'Provider name cannot be empty');
+    if (n.length > 80) throwStatus(400, 'Provider name is too long');
+    p.name = n;
   }
-  if (typeof patch.host === 'string' && patch.host.trim()) {
-    p.host = normalizeHost(patch.host).slice(0, 500);
+  if (typeof patch.host === 'string') {
+    const h = normalizeHost(patch.host);
+    if (!h) throwStatus(400, 'Provider host cannot be empty');
+    p.host = h.slice(0, 500);
   }
-  if (typeof patch.apiKey === 'string' && patch.apiKey.trim()) {
+  if (typeof patch.apiKey === 'string') {
     p.apiKey = patch.apiKey.trim();
   }
   if (patch.type === 'ollama' || patch.type === 'openai' || patch.type === 'anthropic' || patch.type === 'gemini') {
@@ -252,12 +260,18 @@ export function updateProvider(
   return listProviders().find((x) => x.id === id)!;
 }
 
+/** Invalidate the in-memory providers cache (call after external file writes). */
+export function resetProviderCache(): void {
+  cached = null;
+}
+
 export function deleteProvider(id: string): void {
   const cfg = load();
   if (!cfg[id]) throwStatus(404, 'Unknown provider');
   if (Object.keys(cfg).length <= 1) {
     throwStatus(400, 'At least one provider must remain');
   }
+  clearProviderRefs(id);
   delete cfg[id];
   persist();
 }

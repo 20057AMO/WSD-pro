@@ -47,6 +47,11 @@ function defaults(): ChatConfig {
 
 let cached: ChatConfig | null = null;
 
+/** Invalidate the in-memory chat-config cache (call after external file writes). */
+export function resetChatConfigCache(): void {
+  cached = null;
+}
+
 export function getChatConfig(): ChatConfig {
   if (!cached) {
     const base = defaults();

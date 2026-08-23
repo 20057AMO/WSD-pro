@@ -7,6 +7,9 @@
  */
 import fs from 'fs';
 import path from 'path';
+import { resetProviderCache } from './provider-store';
+import { resetChatConfigCache } from './chat-config';
+import { resetAgentsCache } from './agent-store';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || '/app/data';
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
@@ -125,6 +128,7 @@ export function restoreFromBackup(backup: unknown): RestoreResult {
       added += 1;
     }
     if (added > 0) writeJson(file, existing);
+    if (label === 'agents' && added > 0) resetAgentsCache();
     imported[label] = added;
   };
 
@@ -152,6 +156,7 @@ export function restoreFromBackup(backup: unknown): RestoreResult {
       added += 1;
     }
     if (added > 0) writeJson(PROVIDERS_FILE, current);
+    if (added > 0) resetProviderCache();
     imported['providers'] = added;
   }
 
@@ -168,6 +173,7 @@ export function restoreFromBackup(backup: unknown): RestoreResult {
     }
     if (Object.keys(filled).length > 0) {
       writeJson(CHAT_CONFIG_FILE, { ...current, ...filled });
+      resetChatConfigCache();
       imported['chatConfig'] = Object.keys(filled).length;
     }
   }

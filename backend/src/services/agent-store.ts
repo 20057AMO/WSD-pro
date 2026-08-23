@@ -260,3 +260,22 @@ export function appendAgentEvent(
 ): ChatEvent {
   return chatStore.append(`agent:${agentId}`, chatId, type, content, attachments);
 }
+
+/** Clear the provider field on all agents referencing a given provider id. Returns count updated. */
+export function clearProviderRefs(providerId: string): number {
+  const agents = loadAgents();
+  let count = 0;
+  for (const a of agents) {
+    if (a.provider === providerId) {
+      a.provider = undefined;
+      count++;
+    }
+  }
+  if (count > 0) saveAgents(agents);
+  return count;
+}
+
+/** Invalidate the in-memory agents cache (call after external file writes). */
+export function resetAgentsCache(): void {
+  agentsCache = null;
+}

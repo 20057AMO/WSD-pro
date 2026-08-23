@@ -57,8 +57,8 @@ export async function probeProvider(
   const url =
     type === 'ollama'
       ? `${base}/api/tags`
-      : type === 'anthropic' || type === 'gemini'
-        ? `${base}/models`
+      : type === 'anthropic'
+        ? `${base}/v1/models`
         : `${base}/models`;
   try {
     const res = await fetch(url, {
@@ -105,7 +105,7 @@ export async function verifyChat(
   extraModels?: string[]
 ): Promise<boolean> {
   const candidates = [model, ...(extraModels || [])].filter((m): m is string => !!m);
-  if (candidates.length === 0) return true;
+  if (candidates.length === 0) return false;
   for (const candidate of candidates.slice(0, 8)) {
     try {
       if (await verifyOne(type, host, apiKey, candidate, auth)) return true;

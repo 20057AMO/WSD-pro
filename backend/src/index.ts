@@ -278,6 +278,7 @@ app.post('/api/auth/providers-password', authLimiter, (req: any, res) => {
       ...(unlock ? { unlockToken: unlock.unlockToken, expiresInSec: unlock.expiresInSec } : {}),
     });
   } catch (err: any) {
+    recordAudit('providers-lock-change-failed', false, req.ip);
     res.status(err?.message?.includes('incorrect') ? 401 : 400).json({ error: err.message });
   }
 });
@@ -291,6 +292,7 @@ app.delete('/api/auth/providers-password', authLimiter, (req: any, res) => {
     recordAudit('providers-lock-change', true, req.ip);
     res.json({ ok: true, enabled: false });
   } catch (err: any) {
+    recordAudit('providers-lock-change-failed', false, req.ip);
     res.status(err?.message?.includes('not enabled') ? 409 : 401).json({ error: err.message });
   }
 });
@@ -515,6 +517,13 @@ app.put('/api/providers/:id', providersManagement, (req: any, res: any) => {
       return;
     }
     const { name, host, apiKey, enabled, type, auth } = req.body || {};
+    if (typeof apiKey === 'string' && apiKey.trim()) {
+      const dup = findDuplicateByKeyOrHost(apiKey.trim());
+      if (dup && dup.id !== id) {
+        res.status(409).json({ error: `A provider with this API key already exists (${dup.name})` });
+        return;
+      }
+    }
     const provider = updateProvider(id, { name, host, apiKey, enabled, type, auth });
     res.json({ provider });
   } catch (err: any) {
