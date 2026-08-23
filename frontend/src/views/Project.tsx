@@ -15,6 +15,8 @@ import {
   getIdeStatus,
   listProjectFiles,
   getProjectFile,
+  saveProjectFile,
+  renameProjectPath,
   deleteProjectFile,
   uploadFiles,
   getProjectScripts,
@@ -673,6 +675,9 @@ function FilesPanel({ slug }: { slug: string }) {
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [previewName, setPreviewName] = useState('');
+  const [editContent, setEditContent] = useState<string | null>(null);
+  const [savingFile, setSavingFile] = useState(false);
+  const [fileMsg, setFileMsg] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -707,6 +712,55 @@ function FilesPanel({ slug }: { slug: string }) {
       const fp = await getProjectFile(slug, p);
       setPreview(fp);
       setPreviewName(p);
+      setEditContent(fp.binary ? null : fp.content);
+      setFileMsg(null);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const closePreview = () => {
+    setPreview(null);
+    setPreviewName('');
+    setEditContent(null);
+    setFileMsg(null);
+  };
+
+  const saveFile = async () => {
+    if (!preview || editContent === null) return;
+    setSavingFile(true);
+    setFileMsg(null);
+    try {
+      await saveProjectFile(slug, previewName, editContent);
+      setFileMsg('Saved ✓');
+      setTimeout(() => setFileMsg(null), 4000);
+    } catch (err: any) {
+      setFileMsg(`Save failed: ${err.message}`);
+    } finally {
+      setSavingFile(false);
+    }
+  };
+
+  const newFile = () => {
+    const raw = prompt('New file path (folders allowed, e.g. src/app.ts):');
+    if (!raw) return;
+    const clean = raw.trim().replace(/^\/+/, '');
+    if (!clean) return;
+    setPreview({ content: '', truncated: false, size: 0, binary: false });
+    setPreviewName(cwd ? `${cwd}/${clean}` : clean);
+    setEditContent('');
+    setFileMsg(null);
+  };
+
+  const rename = async (name: string) => {
+    const p = cwd ? `${cwd}/${name}` : name;
+    const nn = prompt(`Rename "${p}" to:`, name);
+    if (!nn || nn === name) return;
+    const to = cwd ? `${cwd}/${nn.replace(/^\/+/, '')}` : nn.replace(/^\/+/, '');
+    try {
+      await renameProjectPath(slug, p, to);
+      if (previewName === p) setPreviewName(to);
+      load(cwd);
     } catch (err: any) {
       setError(err.message);
     }
@@ -720,6 +774,8 @@ function FilesPanel({ slug }: { slug: string }) {
       if (previewName === p) {
         setPreview(null);
         setPreviewName('');
+        setEditContent(null);
+        setFileMsg(null);
       }
       load(cwd);
     } catch (err: any) {
@@ -771,6 +827,7 @@ function FilesPanel({ slug }: { slug: string }) {
             style="display:none"
             onChange={(e: any) => doUpload(Array.from(e.target.files || []))}
           />
+          <button class="btn-ghost sm" onClick={newFile}>+ New file</button>
           <button class="btn-primary sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
             {uploading ? 'Uploading…' : `Upload${cwd ? ` to ${cwd}` : ''}`}
           </button>
@@ -797,6 +854,7 @@ function FilesPanel({ slug }: { slug: string }) {
               {e.type === 'file' && (
                 <button class="btn-ghost sm" onClick={() => openFile(e.path)}>view</button>
               )}
+              <button class="btn-ghost sm" onClick={() => rename(e.path)}>rename</button>
               <button class="btn-danger sm" onClick={() => remove(e.path)}>delete</button>
             </div>
           </div>
@@ -807,13 +865,35 @@ function FilesPanel({ slug }: { slug: string }) {
         <div class="file-preview">
           <div class="file-preview-head">
             <span class="mono">{previewName}</span>
+            {editContent !== null && editContent !== preview.content && (
+              <span class="dim" style="color: var(--warn, #eab308); font-size:0.72rem">• unsaved</span>
+            )}
             <span class="dim" style="color: var(--text-3); font-size:0.72rem">
-              {preview.binary ? `${fmtBytes(preview.size)} · binary` : `${fmtBytes(preview.size)}${preview.truncated ? ' · truncated' : ''}`}
+              {preview.binary ? `${fmtBytes(preview.size)} · binary` : `${fmtBytes(preview.size)}${preview.truncated ? ' · read-only (too large)' : ''}`}
             </span>
-            <button class="btn-ghost sm" onClick={() => { setPreview(null); setPreviewName(''); }}>Close</button>
+            {editContent !== null && (
+              <button class="btn-primary sm" onClick={saveFile} disabled={savingFile}>
+                {savingFile ? 'Saving…' : 'Save'}
+              </button>
+            )}
+            <button class="btn-ghost sm" onClick={closePreview}>Close</button>
           </div>
+          {fileMsg && <div class="terminal-line" style="margin: 6px 0">{fileMsg}</div>}
           {preview.binary ? (
             <div class="empty-state" style="padding: 24px">Binary file — not previewable.</div>
+          ) : editContent !== null && !preview.truncated ? (
+            <textarea
+              class="file-editor mono scrollbar"
+              value={editContent}
+              onInput={(e: any) => setEditContent(e.target.value)}
+              onKeyDown={(e: any) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                  e.preventDefault();
+                  saveFile();
+                }
+              }}
+              spellcheck={false}
+            />
           ) : (
             <pre class="file-preview-body mono scrollbar">{preview.content}</pre>
           )}

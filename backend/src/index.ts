@@ -30,7 +30,7 @@ import {
   HttpError,
   WORKSPACES_ROOT,
 } from './services/docker-manager';
-import { listWorkspaceFiles, readWorkspaceFile, deleteWorkspacePath, resolveProjectSubdir } from './services/workspace-files';
+import { listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, renameWorkspacePath, deleteWorkspacePath, resolveProjectSubdir } from './services/workspace-files';
 import { loadMeta, saveMeta } from './services/projects-meta';
 import { getIdeStatus } from './services/ide-service';
 import { detectIp } from './services/server-info';
@@ -875,6 +875,30 @@ app.delete('/api/projects/:slug/file', (req, res) => {
     const rel = String(req.query.path || '').trim();
     if (!rel) return res.status(400).json({ error: 'Missing path query' });
     res.json(deleteWorkspacePath(req.params.slug, rel));
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Create or overwrite a text file in the workspace
+app.put('/api/projects/:slug/file', (req, res) => {
+  try {
+    const rel = String(req.query.path || '').trim();
+    if (!rel) return res.status(400).json({ error: 'Missing path query' });
+    const content = (req.body || {}).content;
+    res.json(writeWorkspaceFile(req.params.slug, rel, typeof content === 'string' ? content : ''));
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Rename/move a file or directory within the workspace
+app.post('/api/projects/:slug/file/rename', (req, res) => {
+  try {
+    const from = String((req.body || {}).from || '').trim();
+    const to = String((req.body || {}).to || '').trim();
+    if (!from || !to) return res.status(400).json({ error: 'from and to are required' });
+    res.json(renameWorkspacePath(req.params.slug, from, to));
   } catch (err: any) {
     res.status(err.statusCode || 500).json({ error: err.message });
   }

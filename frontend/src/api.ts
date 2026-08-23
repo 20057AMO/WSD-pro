@@ -507,6 +507,21 @@ export const deleteProjectFile = (slug: string, path: string) =>
     `/api/projects/${slug}/file?path=${encodeURIComponent(path)}`,
     { method: 'DELETE' }
   );
+export const saveProjectFile = (slug: string, path: string, content: string) =>
+  api<{ ok: boolean; path: string; bytes: number }>(
+    `/api/projects/${slug}/file?path=${encodeURIComponent(path)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    }
+  );
+export const renameProjectPath = (slug: string, from: string, to: string) =>
+  api<{ ok: boolean }>(`/api/projects/${slug}/file/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from, to }),
+  });
 export const getProjectScripts = (slug: string) =>
   api<{ scripts: Record<string, string> }>(`/api/projects/${slug}/scripts`);
 export const runProjectScript = (slug: string, script: string) =>

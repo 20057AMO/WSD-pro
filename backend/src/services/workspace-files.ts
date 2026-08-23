@@ -1,8 +1,9 @@
 /**
  * workspace-files.ts
- * WSD-Pro — Read-only-ish filesystem access to project workspaces for the
- * Files tab: safe path resolution (no traversal), directory listing, text
- * preview, and delete. Uploads already exist via /api/projects/:slug/upload.
+ * WSD-Pro — Filesystem access to project workspaces for the Files tab:
+ * safe path resolution (no traversal), directory listing, text preview,
+ * write/create, rename/move, and delete. Uploads exist via
+ * /api/projects/:slug/upload.
  */
 import fs from 'fs';
 import path from 'path';
@@ -206,4 +207,49 @@ export function deleteWorkspacePath(slug: string, rel: string): { ok: boolean; t
   if (type === 'dir') fs.rmSync(target, { recursive: true, force: true });
   else fs.unlinkSync(target);
   return { ok: true, type };
+}
+
+/** Matches agent-tools MAX_FILE_WRITE so UI edits and agents share one cap. */
+const MAX_WRITE_CHARS = 500000;
+
+/** Create or overwrite a text file inside the workspace. */
+export function writeWorkspaceFile(
+  slug: string,
+  rel: string,
+  content: string
+): { ok: true; path: string; bytes: number } {
+  const base = path.resolve(WORKSPACES_ROOT, String(slug ?? '').replace(/[^a-z0-9._-]+/gi, ''));
+  const target = resolveWorkspacePath(slug, rel);
+  if (target === base) throw new HttpError(400, 'Invalid file path');
+  if (typeof content !== 'string') throw new HttpError(400, 'Content must be a string');
+  if (content.length > MAX_WRITE_CHARS) {
+    throw new HttpError(413, `File too large (${content.length} chars, max ${MAX_WRITE_CHARS})`);
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content, 'utf8');
+  } catch (err: any) {
+    throw new HttpError(500, err?.message || 'Failed to write file');
+  }
+  return { ok: true, path: rel, bytes: Buffer.byteLength(content, 'utf8') };
+}
+
+/** Rename or move a file/directory to another path in the same workspace. */
+export function renameWorkspacePath(slug: string, from: string, to: string): { ok: true } {
+  const src = resolveWorkspacePath(slug, from);
+  const dst = resolveWorkspacePath(slug, to);
+  const base = path.resolve(WORKSPACES_ROOT, String(slug ?? '').replace(/[^a-z0-9._-]+/gi, ''));
+  if (src === base || dst === base) throw new HttpError(400, 'Invalid rename path');
+  if (src === dst) return { ok: true };
+  if (!fs.existsSync(src)) throw new HttpError(404, 'Source not found');
+  if (fs.existsSync(dst)) throw new HttpError(409, 'Target already exists');
+
+  try {
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.renameSync(src, dst);
+  } catch (err: any) {
+    throw new HttpError(500, err?.message || 'Rename failed');
+  }
+  return { ok: true };
 }

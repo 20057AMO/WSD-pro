@@ -1168,6 +1168,13 @@ textarea.agent-prompt-input {
   padding: 14px 16px; font-size: 0.74rem; line-height: 1.6;
   white-space: pre-wrap; word-break: break-word;
 }
+.file-editor {
+  display: block; width: 100%; min-height: 340px;
+  border: 0; outline: none; resize: vertical;
+  background: #0a0b0e; color: #d7dae0;
+  padding: 14px 16px; font-size: 0.74rem; line-height: 1.6;
+  white-space: pre; tab-size: 2;
+}
 
 /* Logs tab */
 .logs-panel { display: flex; flex-direction: column; gap: 10px; }
