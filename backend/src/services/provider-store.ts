@@ -9,6 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 import { clearProviderRefs } from './agent-store';
+import { isSealed, maskStored, openSecret, sealSecret } from './secret-box';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const STORE_FILE = path.join(DATA_DIR, 'providers.json');
@@ -123,7 +124,18 @@ function load(): Record<string, ProviderConfig> {
     try { fs.renameSync(STORE_FILE, STORE_FILE + '.bak'); } catch { /* ignore */ }
     base = seeded();
   }
+  // At-rest migration: any plaintext key left in the file gets sealed before
+  // the cache is populated, so providers.json never keeps secrets in clear.
+  let mutated = false;
+  for (const id of Object.keys(base)) {
+    const p = base[id];
+    if (p.apiKey && !isSealed(p.apiKey)) {
+      p.apiKey = sealSecret(p.apiKey);
+      mutated = true;
+    }
+  }
   cached = base;
+  if (mutated) persist();
   return cached;
 }
 
@@ -174,7 +186,7 @@ export function findDuplicateByKeyOrHost(apiKey: string, host?: string, type?: P
   const cfg = load();
   const key = String(apiKey ?? '').trim();
   if (key) {
-    const id = Object.keys(cfg).find((x) => cfg[x].apiKey === key);
+    const id = Object.keys(cfg).find((x) => openSecret(cfg[x].apiKey) === key);
     if (id) return listProviders().find((p) => p.id === id) || null;
   }
   if (host && type) {
@@ -195,7 +207,7 @@ export function listProviders(): ProviderMeta[] {
     name: p.name,
     type: p.type,
     host: p.host,
-    apiKeyMasked: maskKey(p.apiKey),
+    apiKeyMasked: maskStored(p.apiKey),
     enabled: p.enabled,
   }));
 }
@@ -207,10 +219,10 @@ export function getProviderMeta(id: string): ProviderMeta | null {
 /** Resolve a provider config by id; falls back to the first available provider. */
 export function getProviderConfig(id: string): ProviderConfig {
   const cfg = load();
-  if (cfg[id]) return cfg[id];
+  if (cfg[id]) return { ...cfg[id], apiKey: openSecret(cfg[id].apiKey) };
   const fallback = Object.values(cfg).find((p) => p.enabled) || Object.values(cfg)[0];
   if (!fallback) throwStatus(500, 'No providers configured');
-  return fallback;
+  return { ...fallback, apiKey: openSecret(fallback.apiKey) };
 }
 
 export function createProvider(input: {
@@ -244,7 +256,7 @@ export function createProvider(input: {
     name,
     type,
     host,
-    apiKey: typeof input.apiKey === 'string' ? input.apiKey.trim() : '',
+    apiKey: sealSecret(typeof input.apiKey === 'string' ? input.apiKey.trim() : ''),
     auth: type === 'azure' ? 'api-key' : input.auth === 'api-key' ? 'api-key' : 'bearer',
     enabled: input.enabled !== false,
   };
@@ -272,7 +284,7 @@ export function updateProvider(
     p.host = h.slice(0, 500);
   }
   if (typeof patch.apiKey === 'string') {
-    p.apiKey = patch.apiKey.trim();
+    p.apiKey = sealSecret(patch.apiKey.trim());
   }
   if (patch.type === 'ollama' || patch.type === 'openai' || patch.type === 'anthropic' || patch.type === 'gemini' || patch.type === 'azure') {
     p.type = patch.type;

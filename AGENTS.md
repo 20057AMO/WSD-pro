@@ -40,6 +40,7 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 | Providers/Agents/Chat CRUD | `tests/providers-agents-chat.test.ts` | Full CRUD + sessions + templates |
 | Providers lock & backup | `tests/providers-lock.test.ts` | Lock flow E2E (needs `WSD_TEST_ACCOUNT_PASSWORD`; self-skips without it) |
 | Providers page journey | `tests/providers-page-journey.test.ts` | Live-audit gaps: detection_required shape, duplicate guards, masked-key echo (POST+PUT), chat open while locked, cross-session replay via REAL logins, cooldown bans even the correct password (isolated server only; canary self-skips lock sections while the 15-min ban from a previous run is active) |
+| Secret box (at-rest crypto) | `tests/crypto.test.ts` | AES-256-GCM roundtrip, fresh-IV, tamper→empty, mask-without-decrypt + API-level sealing of providers.json (file assertions when `WSD_TEST_PROVIDERS_FILE` points at the server's data dir; set `WSD_DATA_DIR` to the same dir so the test process shares the server's salt) |
 | Security | `tests/security.test.ts` | Path traversal, upload sanitization, malformed auth headers |
 | Smoke | `tests/smoke.test.ts` | Health, core endpoints, project roundtrip |
 | WebSocket matrix | `tests/websocket.test.ts` | 6 endpoints × {no token→401, valid→open, invalid→401} |
@@ -118,7 +119,13 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Always-open endpoints: `GET /api/providers/options` (id/name/type only) and `GET /api/providers/templates`
 - Chat/agent LLM usage is server-side and never blocked by the lock
 - Providers page UX states: skeleton shimmer (checking) → welcome modal explaining protection (when unconfigured, dismissible per tab session) → centered login-style unlock modal (when locked)
-- **Future work (deliberately deferred)**: at-rest encryption of `providers.json` (AES-256-GCM with an env key — marginal gain while `.env` sits on the same host)
+
+### At-rest encryption (secret box)
+- Provider API keys in `data/providers.json` are sealed with AES-256-GCM (`backend/src/services/secret-box.ts`): format `enc1:<iv>:<tag>:<ct>:<last4>`
+- Key = scrypt(`WSD_ENCRYPTION_KEY` env → falls back to `JWT_SECRET`, salt persisted once in `data/crypto.salt`, mode 0600); rotating the master secret makes old blobs open to `''` (upstream auth failures — re-enter keys from the UI)
+- Migration is automatic: on first load any plaintext key is sealed and the file rewritten; masking uses the stored `<last4>` so it never decrypts; duplicate detection opens values transparently
+- Backup export strips keys entirely (unchanged), so ciphertext never leaves the server either
+- **Lost/rotated key recovery**: delete `crypto.salt` only if starting fresh — otherwise restore the previous env value; plaintext keys pasted by users are re-sealed on next save
 
 ### UI conventions
 - Icons: **lucide-preact** everywhere (`class="icon"`, spin via `.icon.spin`) — agent preset icons are stored data and stay as-is
