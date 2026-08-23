@@ -154,9 +154,13 @@ app.get('/api/health', (_req, res) => {
 });
 
 // ── Auth: setup / login / status / change-password ───────────
-app.get('/api/auth/status', (_req, res) => {
-  const user = getUser();
-  res.json({ hasUser: hasUser(), user });
+app.get('/api/auth/status', (req: any, res) => {
+  const exists = hasUser();
+  if (!exists) return res.json({ hasUser: false });
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const user = token ? getUser() : null;
+  res.json({ hasUser: true, user });
 });
 
 app.post('/api/auth/setup', authLimiter, (req, res) => {

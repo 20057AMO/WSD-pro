@@ -6,10 +6,35 @@ import { WORKSPACES_ROOT } from './docker-manager';
 const MAX_OUTPUT = 50000;
 const EXEC_TIMEOUT = 30000;
 const MAX_FILE_READ = 200000;
+const MAX_CMD_LENGTH = 1000;
 const IGNORED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', '.next', '.nuxt',
   '.cache', '__pycache__', '.venv', 'venv', 'target', 'coverage',
 ]);
+
+const DANGEROUS_CMD_PATTERNS: RegExp[] = [
+  /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|--force)\s+[\/~]/i,
+  /\brm\s+-rf?\s+[\/~]/i,
+  /\bdd\s+/i,
+  /\bmkfs\b/i,
+  /\bformat\b/i,
+  /\b:(){ :\|:& };:/,
+  /\bnohup\b/i,
+  /\bcurl\s+.*\|\s*(ba)?sh/i,
+  /\bwget\s+.*\|\s*(ba)?sh/i,
+  /\b(shutdown|reboot|halt|poweroff)\b/i,
+  /\bchmod\s+777\s+[\/~]/i,
+  /\bsudo\b/i,
+  /\bsu\s+/i,
+  /\bpasswd\b/i,
+  />\s*\/etc\//i,
+  />\s*\/var\//i,
+  />\s*\/usr\//i,
+  />\s*\/root\//i,
+  /\bnc\s+-[a-z]*l/i,
+  /\bncat\b/i,
+  /\bexec\s+[0-9]>/i,
+];
 
 function safeSlug(slug: string): string {
   return String(slug).replace(/[^a-z0-9._-]+/gi, '').slice(0, 32);
@@ -71,10 +96,21 @@ export function listFiles(slug: string, rel: string): string {
   return lines.join('\n') || '(empty)';
 }
 
+function isDangerousCommand(cmd: string): string | null {
+  if (cmd.length > MAX_CMD_LENGTH) return 'Command too long (max 1000 characters)';
+  for (const re of DANGEROUS_CMD_PATTERNS) {
+    if (re.test(cmd)) return `Blocked dangerous command pattern: ${re.source}`;
+  }
+  return null;
+}
+
 export function execCommand(slug: string, cmd: string): string {
   const clean = safeSlug(slug);
   const cwd = path.resolve(WORKSPACES_ROOT, clean);
   if (!fs.existsSync(cwd)) return `Workspace not found: ${slug}`;
+
+  const danger = isDangerousCommand(cmd);
+  if (danger) return `[Blocked] ${danger}`;
 
   const opts: ExecSyncOptions = {
     cwd,

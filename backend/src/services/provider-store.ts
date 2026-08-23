@@ -81,7 +81,12 @@ let cached: Record<string, ProviderConfig> | null = null;
 
 function load(): Record<string, ProviderConfig> {
   if (cached) return cached;
-  const base = seeded();
+  let base: Record<string, ProviderConfig>;
+  if (fs.existsSync(STORE_FILE)) {
+    base = {};
+  } else {
+    base = seeded();
+  }
   try {
     if (fs.existsSync(STORE_FILE)) {
       const raw = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8')) as Record<
