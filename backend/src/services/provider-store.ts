@@ -157,6 +157,18 @@ export function maskKey(key: string): string {
   return '••••••••' + key.slice(-4);
 }
 
+/**
+ * Guard against masked-key echo: the API only ever hands out maskKey()
+ * output, so a client posting bullets back would silently overwrite a
+ * real key. Reject such values instead of storing them.
+ */
+function assertNotMasked(apiKey: unknown): void {
+  const key = String(apiKey ?? '');
+  if (key && /^[\u2022\u00b7*]+$/.test(key)) {
+    throwStatus(400, 'Received a masked API key — send the real key or omit the field');
+  }
+}
+
 /** Find an existing provider that already uses the same API key (or, when key is empty, the same host+type with no key). */
 export function findDuplicateByKeyOrHost(apiKey: string, host?: string, type?: ProviderType): ProviderMeta | null {
   const cfg = load();
@@ -222,6 +234,8 @@ export function createProvider(input: {
       ? input.type
       : 'openai';
 
+  assertNotMasked(input.apiKey);
+
   let id = slugify(name);
   let n = 2;
   while (cfg[id]) id = `${slugify(name)}-${n++}`;
@@ -245,6 +259,7 @@ export function updateProvider(
   const cfg = load();
   if (!cfg[id]) throwStatus(404, 'Unknown provider');
   const p = cfg[id];
+  assertNotMasked(patch.apiKey);
   if (typeof patch.name === 'string') {
     const n = patch.name.trim();
     if (!n) throwStatus(400, 'Provider name cannot be empty');

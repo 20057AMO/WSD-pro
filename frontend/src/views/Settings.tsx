@@ -89,6 +89,17 @@ export function Settings() {
   });
   const [idleSaved, setIdleSaved] = useState(false);
 
+  // ── Providers auto-relock on inactivity ──
+  type RelockChoice = 'off' | '5' | '15' | '30';
+  const [relockChoice, setRelockChoice] = useState<RelockChoice>(() => {
+    try {
+      return (localStorage.getItem('wsd.providersAutoRelock') as RelockChoice) || 'off';
+    } catch {
+      return 'off';
+    }
+  });
+  const [relockSaved, setRelockSaved] = useState(false);
+
   // ── Backup ──
   const [backupMsg, setBackupMsg] = useState<Msg>(null);
   const pendingImportRef = useRef<BackupFile | null>(null);
@@ -325,6 +336,15 @@ export function Settings() {
     setTimeout(() => setIdleSaved(false), 2000);
   };
 
+  const applyRelockChoice = (value: RelockChoice) => {
+    setRelockChoice(value);
+    try {
+      localStorage.setItem('wsd.providersAutoRelock', value);
+    } catch { /* ignore */ }
+    setRelockSaved(true);
+    setTimeout(() => setRelockSaved(false), 2000);
+  };
+
   const handleLogout = () => {
     logout();
     window.location.hash = '/login';
@@ -458,10 +478,13 @@ export function Settings() {
 
       {/* Auto-logout on inactivity */}
       <div class="panel settings-section">
-        <div class="panel-title">Auto-logout</div>
-        <p class="settings-hint">Sign out automatically after a period of inactivity in the browser.</p>
+        <div class="panel-title">Idle security</div>
+        <p class="settings-hint">
+          Sign out automatically after a period of inactivity — and optionally re-lock
+          the Providers page (revokes its unlock token everywhere).
+        </p>
         <div class="settings-row">
-          <span class="field-label">Idle timeout</span>
+          <span class="field-label">Auto-logout</span>
           <select
             class="modern-input"
             style="max-width: 160px"
@@ -474,6 +497,21 @@ export function Settings() {
             <option value="120">2 hours</option>
           </select>
           {idleSaved && <span class="chat-save-msg">Saved ✓</span>}
+        </div>
+        <div class="settings-row">
+          <span class="field-label">Auto-relock Providers</span>
+          <select
+            class="modern-input"
+            style="max-width: 160px"
+            value={relockChoice}
+            onChange={(e: any) => applyRelockChoice(e.target.value as RelockChoice)}
+          >
+            <option value="off">Disabled</option>
+            <option value="5">5 minutes</option>
+            <option value="15">15 minutes</option>
+            <option value="30">30 minutes</option>
+          </select>
+          {relockSaved && <span class="chat-save-msg">Saved ✓</span>}
         </div>
       </div>
 

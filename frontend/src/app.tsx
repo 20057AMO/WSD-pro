@@ -1,5 +1,6 @@
 import { Component, type ComponentChildren } from 'preact';
 import { lazy, Suspense } from 'preact/compat';
+import { useState, useEffect } from 'preact/hooks';
 import { Router, Route } from 'wouter';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
@@ -10,9 +11,17 @@ import {
   KeyRound,
   Settings as SettingsIcon,
   Code2,
+  Unlock,
 } from 'lucide-preact';
 import { AuthProvider, useAuth } from './auth';
 import { Login } from './views/Login';
+import {
+  getProvidersLockStatus,
+  getProvidersUnlock,
+  relockProviders,
+  clearProvidersUnlock,
+  UNLOCK_KEY,
+} from './api';
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })));
 const Projects = lazy(() => import('./views/Projects').then(m => ({ default: m.Projects })));
@@ -81,6 +90,58 @@ function navigate(href: string): void {
   window.location.hash = href;
 }
 
+/**
+ * Visible only while the Providers page is unlocked: shows the remaining
+ * unlock time and offers an instant re-lock. Syncs across tabs via the
+ * storage event on the unlock key.
+ */
+function ProvidersUnlockBadge() {
+  const [mins, setMins] = useState<number | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const refresh = async () => {
+      try {
+        const { enabled } = await getProvidersLockStatus();
+        if (!alive) return;
+        if (!enabled) { setMins(null); return; }
+        const unlock = getProvidersUnlock();
+        if (!unlock) { setMins(null); return; }
+        setMins(Math.max(0, Math.ceil((unlock.expiresAt - Date.now()) / 60_000)));
+      } catch {
+        if (alive) setMins(null);
+      }
+    };
+    refresh();
+    const timer = setInterval(refresh, 30_000);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === UNLOCK_KEY) refresh();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
+  if (mins === null) return null;
+
+  const relock = async () => {
+    if (!confirm('Re-lock the Providers page now?')) return;
+    try { await relockProviders(); } catch { /* ignore — local clear still applies */ }
+    clearProvidersUnlock();
+    setMins(null);
+  };
+
+  return (
+    <button class="unlock-badge" title="Providers page is unlocked — click to re-lock" onClick={relock}>
+      <Unlock width={11} height={11} />
+      <span>Providers · {mins}m</span>
+    </button>
+  );
+}
+
 function Sidebar() {
   const { user } = useAuth();
   return (
@@ -102,6 +163,7 @@ function Sidebar() {
         <NavButton href="/ide" label="Web IDE" icon={Code2} />
       </nav>
       <div class="sidebar-footer">
+        <ProvidersUnlockBadge />
         <div class="sys-row">
           <span class="sys-dot ok" />
           {user?.username || 'authenticated'}

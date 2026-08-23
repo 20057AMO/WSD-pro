@@ -1,6 +1,7 @@
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert';
-import { uniqueId, reqAuth, signTestToken, API_URL } from './helpers.ts';
+import jwt from 'jsonwebtoken';
+import { uniqueId, reqAuth, signTestToken, API_URL, JWT_SECRET } from './helpers.ts';
 
 /**
  * Providers-lock + settings backup tests.
@@ -19,11 +20,18 @@ describe('Providers security lock & backup', () => {
     return { Authorization: `Bearer ${signTestToken()}` };
   }
 
+  /** Remove the lock; retry once past the rate-limit window on a rare 429. */
+  async function removeLock(): Promise<number> {
+    const res = await reqAuth('DELETE', '/auth/providers-password', { accountPassword });
+    if (res.status !== 429) return res.status;
+    await new Promise((r) => setTimeout(r, 61_000));
+    const again = await reqAuth('DELETE', '/auth/providers-password', { accountPassword });
+    return again.status;
+  }
+
   after(async () => {
     if (!lockWasEnabled || !accountPassword) return;
-    try {
-      await reqAuth('DELETE', '/auth/providers-password', { accountPassword });
-    } catch { /* best effort */ }
+    try { await removeLock(); } catch { /* best effort */ }
   });
 
   test('lock status endpoint responds with enabled flag', async () => {
@@ -148,14 +156,63 @@ describe('Providers security lock & backup', () => {
     assert.ok(!text.includes('"apiKey":"'), 'export must not contain raw API keys');
   });
 
+  test('unlock tokens are bound to their issuing session', async (t) => {
+    if (!lockWasEnabled) return t.skip();
+
+    // Two distinct sessions with different jti claims (as login tokens carry).
+    const sessionA = jwt.sign({ id: 'sess-a', username: 'locktest', jti: 'jti-a-fixed' }, JWT_SECRET, { expiresIn: '10m' });
+    const sessionB = jwt.sign({ id: 'sess-b', username: 'locktest', jti: 'jti-b-fixed' }, JWT_SECRET, { expiresIn: '10m' });
+
+    // Unlock from session A...
+    const unl = await fetch(`${API_URL}/providers/unlock`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sessionA}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: providersPw }),
+    });
+    assert.strictEqual(unl.status, 200);
+    const { unlockToken } = await unl.json();
+    assert.ok(unlockToken);
+
+    // ...same session → management opens
+    const same = await fetch(`${API_URL}/providers`, {
+      headers: { Authorization: `Bearer ${sessionA}`, 'X-Providers-Unlock': String(unlockToken) },
+    });
+    assert.strictEqual(same.status, 200);
+
+    // ...replayed from session B → rejected despite valid token + password state
+    const other = await fetch(`${API_URL}/providers`, {
+      headers: { Authorization: `Bearer ${sessionB}`, 'X-Providers-Unlock': String(unlockToken) },
+    });
+    assert.strictEqual(other.status, 403);
+    assert.strictEqual((await other.json()).error, 'providers_locked');
+  });
+
+  test('consecutive unlock failures trigger a cooldown window', async (t) => {
+    if (!lockWasEnabled) return t.skip();
+
+    // Burn the failure budget (5 wrong passwords).
+    for (let i = 0; i < 5; i++) {
+      const bad = await reqAuth('POST', '/providers/unlock', { password: `wrong-${uniqueId('w')}` });
+      assert.strictEqual(bad.status, 401);
+    }
+
+    // Next attempt is cooldown-blocked before password verification runs.
+    const blocked = await reqAuth('POST', '/providers/unlock', { password: providersPw });
+    assert.strictEqual(blocked.status, 429);
+    assert.ok(blocked.headers.get('retry-after'), 'expected Retry-After header');
+
+    // Even the CORRECT password stays blocked for the cooldown window —
+    // this is the last lock-dependent test; cleanup happens next.
+  });
+
   test('disabling the lock requires the account password, then management opens', async (t) => {
     if (!lockWasEnabled) return t.skip();
 
     const wrong = await reqAuth('DELETE', '/auth/providers-password', { accountPassword: 'wrong-again' });
     assert.strictEqual(wrong.status, 401);
 
-    const right = await reqAuth('DELETE', '/auth/providers-password', { accountPassword });
-    assert.strictEqual(right.status, 200);
+    const right = await removeLock();
+    assert.strictEqual(right, 200);
     lockWasEnabled = false;
 
     const open = await reqAuth('GET', '/providers');

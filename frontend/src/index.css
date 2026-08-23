@@ -1519,6 +1519,21 @@ textarea.agent-prompt-input {
 }
 .login-beta { margin-top: 8px; }
 
+/* ── Providers unlock indicator (sidebar) ── */
+.unlock-badge {
+  display: flex; align-items: center; gap: 6px;
+  width: fit-content;
+  font-size: 0.68rem; font-weight: 600;
+  padding: 3px 10px; border-radius: 999px;
+  background: rgba(234, 179, 8, 0.12);
+  color: #eab308;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  cursor: pointer;
+  user-select: none;
+}
+.unlock-badge:hover { background: rgba(234, 179, 8, 0.22); }
+.sidebar-footer .unlock-badge { margin-bottom: 2px; }
+
 /* ── Providers lock badges / countdown ── */
 .badge-ok {
   display: inline-flex; align-items: center; gap: 5px;

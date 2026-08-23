@@ -1,5 +1,6 @@
 import { createContext, type ComponentChildren } from 'preact';
 import { useState, useEffect, useContext, useCallback } from 'preact/hooks';
+import { relockProviders, clearProvidersUnlock } from './api';
 
 interface AuthUser {
   id: string;
@@ -146,6 +147,60 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
         setToken(null);
         setUser(null);
         window.location.hash = '/login';
+      }
+    }, 15_000);
+
+    return () => {
+      clearInterval(checker);
+      events.forEach((ev) => window.removeEventListener(ev, markActive));
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [token]);
+
+  // ── Auto-relock Providers on inactivity ───────────────────────
+  // Mirrors auto-logout: reads 'wsd.providersAutoRelock' ('off' | '5' |
+  // '15' | '30' minutes), activity events throttle-refresh the clock, and
+  // the storage event keeps tabs in sync. On expiry it revokes every
+  // unlock token server-side and clears the local copy. No-ops server-side
+  // when the providers lock is not enabled.
+  useEffect(() => {
+    if (!token) return;
+
+    let limitMs = 0;
+    const readLimit = () => {
+      try {
+        const raw = localStorage.getItem('wsd.providersAutoRelock');
+        if (!raw || raw === 'off') { limitMs = 0; return; }
+        limitMs = Math.max(1, parseInt(raw, 10) || 0) * 60_000;
+      } catch { limitMs = 0; }
+    };
+    readLimit();
+
+    let lastActivity = Date.now();
+    let throttled = false;
+    const markActive = () => {
+      if (throttled) return;
+      throttled = true;
+      lastActivity = Date.now();
+      setTimeout(() => { throttled = false; }, 5_000);
+    };
+
+    const events = ['mousemove', 'keydown', 'click', 'touchstart', 'scroll'];
+    events.forEach((ev) => window.addEventListener(ev, markActive, { passive: true }));
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'wsd.providersAutoRelock') readLimit();
+    };
+    window.addEventListener('storage', onStorage);
+
+    const checker = setInterval(() => {
+      if (limitMs <= 0) return;
+      if (Date.now() - lastActivity > limitMs) {
+        clearInterval(checker);
+        events.forEach((ev) => window.removeEventListener(ev, markActive));
+        window.removeEventListener('storage', onStorage);
+        relockProviders().catch(() => {});
+        clearProvidersUnlock();
       }
     }, 15_000);
 

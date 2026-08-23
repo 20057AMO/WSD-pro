@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 
@@ -37,7 +38,14 @@ function currentTokenVersion(): number {
 function signSessionToken(): string {
   if (!cachedUser) throw new Error('No user configured.');
   return jwt.sign(
-    { id: cachedUser.id, username: cachedUser.username, tv: currentTokenVersion() },
+    {
+      id: cachedUser.id,
+      username: cachedUser.username,
+      tv: currentTokenVersion(),
+      // Per-session identifier. Providers unlock tokens are bound to this
+      // value, so a leaked unlock token is useless without its session.
+      jti: crypto.randomBytes(8).toString('hex'),
+    },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRY }
   );
@@ -113,14 +121,14 @@ export function login(username: string, password: string): { id: string; usernam
   return { id: cachedUser.id, username: cachedUser.username, token: signSessionToken() };
 }
 
-export function verifyToken(token: string | null): { id: string; username: string } | null {
+export function verifyToken(token: string | null): { id: string; username: string; jti?: string } | null {
   if (cachedUser === null) loadUsers();
   if (!token) return null;
   try {
-    const decoded = jwt.verify(String(token), JWT_SECRET) as { id: string; username: string; tv?: number };
+    const decoded = jwt.verify(String(token), JWT_SECRET) as { id: string; username: string; tv?: number; jti?: string };
     // Tokens issued before a revocation carry a stale version → rejected.
     if ((decoded.tv || 0) !== currentTokenVersion()) return null;
-    return { id: decoded.id, username: decoded.username };
+    return { id: decoded.id, username: decoded.username, jti: decoded.jti };
   } catch {
     return null;
   }
@@ -236,9 +244,15 @@ export function revokeProvidersUnlocks(): void {
 /**
  * Verify a providers-lock password and issue a short-lived scoped unlock
  * token. The token carries the current password version so changing or
- * removing the lock instantly invalidates every previously issued token.
+ * removing the lock instantly invalidates every previously issued token,
+ * plus the requesting session's `jti` so a stolen unlock token cannot be
+ * replayed from a different session. Legacy sessions without a jti use ''
+ * consistently on both sides, keeping them fully compatible.
  */
-export function issueUnlockToken(providersPassword: string): { unlockToken: string; expiresInSec: number } | null {
+export function issueUnlockToken(
+  providersPassword: string,
+  sid = ''
+): { unlockToken: string; expiresInSec: number } | null {
   if (cachedUser === null) loadUsers();
   if (!cachedUser?.providersPasswordHash) return null;
 
@@ -247,7 +261,7 @@ export function issueUnlockToken(providersPassword: string): { unlockToken: stri
   }
 
   const unlockToken = jwt.sign(
-    { scope: 'providers', pv: cachedUser.providersPasswordVersion || 0 },
+    { scope: 'providers', pv: cachedUser.providersPasswordVersion || 0, sid: String(sid || '') },
     JWT_SECRET,
     { expiresIn: PROVIDERS_UNLOCK_EXPIRY }
   );
@@ -255,14 +269,18 @@ export function issueUnlockToken(providersPassword: string): { unlockToken: stri
   return { unlockToken, expiresInSec: 30 * 60 };
 }
 
-export function verifyUnlockToken(token: string | null): boolean {
+export function verifyUnlockToken(token: string | null, sid = ''): boolean {
   if (cachedUser === null) loadUsers();
   if (!cachedUser?.providersPasswordHash) return false;
   if (!token) return false;
 
   try {
-    const decoded = jwt.verify(String(token), JWT_SECRET) as { scope?: string; pv?: number };
-    return decoded.scope === 'providers' && decoded.pv === (cachedUser.providersPasswordVersion || 0);
+    const decoded = jwt.verify(String(token), JWT_SECRET) as { scope?: string; pv?: number; sid?: string };
+    return (
+      decoded.scope === 'providers' &&
+      decoded.pv === (cachedUser.providersPasswordVersion || 0) &&
+      String(decoded.sid ?? '') === String(sid || '')
+    );
   } catch {
     return false;
   }

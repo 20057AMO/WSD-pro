@@ -132,6 +132,11 @@ app.use(rateLimit('global', RATE_WINDOW, RATE_MAX));
 // (and vice versa). 10 attempts/min is far above human usage.
 const authLimiter = rateLimit('auth', RATE_WINDOW, RATE_AUTH_MAX);
 
+// Providers unlock gets its OWN budget so lock-picking attempts can neither
+// starve legit logins nor have their counting poisoned by them. The
+// progressive cooldown below adds the real teeth on top of this.
+const unlockLimiter = rateLimit('unlock', RATE_WINDOW, 15);
+
 // ── Uploads (files into an existing project workspace) ────────
 const UPLOADS_TMP = '/tmp/wsd-uploads';
 fs.mkdirSync(UPLOADS_TMP, { recursive: true });
@@ -237,15 +242,31 @@ app.get('/api/providers-lock', (_req, res) => {
   res.json({ enabled: hasProvidersPassword() });
 });
 
-// Unlock verifies a password — brute-force guard + audit trail apply here too.
-app.post('/api/providers/unlock', authLimiter, (req: any, res) => {
+// Unlock verifies a password — brute-force guard (dedicated unlock limiter +
+// progressive cooldown) + audit trail apply here.
+app.post('/api/providers/unlock', unlockLimiter, (req: any, res) => {
+  const ip = String(req.ip || 'unknown');
+  const cd = unlockCooldownRemainingSec(ip);
+  if (cd > 0) {
+    res.set('Retry-After', String(cd));
+    return res.status(429).json({ error: `Too many failed unlock attempts. Try again in ${Math.ceil(cd / 60)} minute(s).` });
+  }
   const { password } = req.body || {};
   if (!hasProvidersPassword()) return res.json({ ok: true, unlocked: true });
-  const result = issueUnlockToken(String(password || ''));
+  const result = issueUnlockToken(String(password || ''), String(req.user?.jti || ''));
   if (!result) {
+    const st = unlockFails.get(ip) || { count: 0, until: 0 };
+    st.count += 1;
+    if (st.count >= UNLOCK_FAIL_LIMIT) {
+      st.until = Date.now() + UNLOCK_COOLDOWN_MS;
+      st.count = 0;
+      recordAudit('providers-unlock-cooldown', false, req.ip);
+    }
+    unlockFails.set(ip, st);
     recordAudit('providers-unlock-failed', false, req.ip);
     return res.status(401).json({ error: 'Incorrect providers password.' });
   }
+  unlockFails.delete(ip);
   recordAudit('providers-unlock', true, req.ip);
   res.json({ ok: true, unlockToken: result.unlockToken, expiresInSec: result.expiresInSec });
 });
@@ -271,7 +292,7 @@ app.post('/api/auth/providers-password', authLimiter, (req: any, res) => {
     }
     setProvidersPassword(String(accountPassword), String(newPassword));
     recordAudit('providers-lock-change', true, req.ip);
-    const unlock = issueUnlockToken(String(newPassword));
+    const unlock = issueUnlockToken(String(newPassword), String(req.user?.jti || ''));
     res.json({
       ok: true,
       enabled: true,
@@ -438,8 +459,29 @@ app.delete('/api/chat/sessions/:chatId', (req, res) => {
 function providersLockMiddleware(req: any, res: any, next: any) {
   if (!hasProvidersPassword()) return next();
   const token = String(req.headers['x-providers-unlock'] || '');
-  if (verifyUnlockToken(token)) return next();
+  // Unlock tokens are bound to the requesting session's jti — a stolen
+  // token replayed from another session (or without one) is rejected.
+  const sid = String(req.user?.jti || '');
+  if (verifyUnlockToken(token, sid)) return next();
   res.status(403).json({ error: 'providers_locked' });
+}
+
+// Progressive brute-force cooldown for providers unlock failures:
+// UNLOCK_FAIL_LIMIT consecutive wrong passwords from one IP triggers a
+// silent-to-attacker cooldown window on top of the dedicated unlock limiter.
+const UNLOCK_FAIL_LIMIT = 5;
+const UNLOCK_COOLDOWN_MS = 15 * 60 * 1000;
+const unlockFails = new Map<string, { count: number; until: number }>();
+
+function unlockCooldownRemainingSec(ip: string): number {
+  const st = unlockFails.get(ip);
+  if (!st?.until) return 0;
+  const remainMs = st.until - Date.now();
+  if (remainMs <= 0) {
+    unlockFails.delete(ip);
+    return 0;
+  }
+  return Math.ceil(remainMs / 1000);
 }
 
 // Lightweight picker list for dropdowns (Agents modal etc.) — no secrets,

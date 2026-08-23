@@ -98,7 +98,10 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Managed exclusively from Settings → Providers Security via a **two-step sudo-style flow**: pick the new lock password, then confirm identity in `ReAuthModal` (shows the signed-in username, asks for the account password)
 - The same `ReAuthModal` pattern authorizes every sensitive op: lock save/remove, backup export/import, logout-everywhere
 - Unlock issues a scoped JWT (`scope:'providers'`, 30 min) sent as `X-Providers-Unlock`; version counter (`pv`) invalidates all unlock tokens on password change
-- `POST /api/providers/unlock` is brute-force guarded by the shared `auth` limiter (10/min) and audited (`providers-unlock` / `providers-unlock-failed`)
+- **Session-bound unlock**: login tokens carry a random `jti`; the unlock token embeds it as `sid` and `providersLockMiddleware` requires a match with the requesting session — a stolen unlock token replayed from another session is rejected (legacy tokens without `jti` use `''` consistently on both sides)
+- `POST /api/providers/unlock` is brute-force guarded by the shared `auth` limiter (10/min) **plus a progressive cooldown** (5 consecutive failures per IP → 15-min window returning `429` + `Retry-After`, in-memory, reset on success); audited (`providers-unlock` / `providers-unlock-failed` / `providers-unlock-cooldown`)
+- **Auto-relock**: Settings → Idle security offers an idle timer ('off'/5/15/30 min, stored as `wsd.providersAutoRelock`) that calls relock + clears the local token after inactivity; same activity-throttle + cross-tab storage-sync machinery as auto-logout
+- **Unlock badge**: sidebar shows "🔓 Providers · Nm" only while unlocked (countdown from `expiresAt`); click → confirm → instant relock
 - Enabling/changing the lock returns a ready-to-use unlock token — the current session stays open on the Providers page (no immediate re-entry)
 - `POST /api/providers/relock` ("Lock now") bumps the version server-side — kills every outstanding unlock token across all tabs/devices; audited (`providers-relock`)
 - Unlock token lives in `localStorage` (time-boxed by its expiry) so the `storage` event keeps all tabs in sync about lock state
@@ -106,6 +109,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Always-open endpoints: `GET /api/providers/options` (id/name/type only) and `GET /api/providers/templates`
 - Chat/agent LLM usage is server-side and never blocked by the lock
 - Providers page UX states: skeleton shimmer (checking) → welcome modal explaining protection (when unconfigured, dismissible per tab session) → centered login-style unlock modal (when locked)
+- **Future work (deliberately deferred)**: at-rest encryption of `providers.json` (AES-256-GCM with an env key — marginal gain while `.env` sits on the same host) and TOTP 2FA on login
 
 ### UI conventions
 - Icons: **lucide-preact** everywhere (`class="icon"`, spin via `.icon.spin`) — agent preset icons are stored data and stay as-is
