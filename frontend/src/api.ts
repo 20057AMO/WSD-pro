@@ -431,8 +431,8 @@ export interface AuditEntry {
   ok: boolean;
   ip?: string;
 }
-export const getAuditLog = () =>
-  api<{ entries: AuditEntry[] }>('/api/auth/audit');
+export const getAuditLog = (limit = 50, offset = 0) =>
+  api<{ entries: AuditEntry[]; total: number }>(`/api/auth/audit?limit=${limit}&offset=${offset}`);
 
 // ── Settings backup ───────────────────────────────────────────
 export interface BackupFile {

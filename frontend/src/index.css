@@ -1537,6 +1537,7 @@ textarea.agent-prompt-input {
 .audit-dot.good { background: var(--green, #4ade80); }
 .audit-dot.bad { background: var(--red, #f87171); }
 .audit-label { color: var(--text); flex: 1; }
+.audit-ip { color: var(--text-3); font-size: 0.65rem; font-family: monospace; }
 .audit-time { color: var(--text-3); font-size: 0.68rem; }
 
 /* ── Password strength meter ── */

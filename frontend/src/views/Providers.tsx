@@ -60,6 +60,20 @@ export function Providers() {
     }
   };
 
+  const [dirtyCount, setDirtyCount] = useState(0);
+
+  // Warn before page refresh / tab close when cards have unsaved edits.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (dirtyCount > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [dirtyCount]);
+
   /**
    * Single funnel for every providers_locked response — whether it comes
    * from the initial load, a card toggle/test/delete, or the add-provider
@@ -314,7 +328,7 @@ export function Providers() {
 
       <div class="providers-grid">
         {providers.map((p) => (
-          <ProviderCard key={p.id} provider={p} onChanged={refresh} onDeleted={refresh} onLocked={handleMaybeLocked} />
+          <ProviderCard key={p.id} provider={p} onChanged={refresh} onDeleted={refresh} onLocked={handleMaybeLocked} onDirtyChange={setDirtyCount} />
         ))}
       </div>
 
@@ -348,11 +362,13 @@ function ProviderCard({
   onChanged,
   onDeleted,
   onLocked,
+  onDirtyChange,
 }: {
   provider: ProviderInfo;
   onChanged: () => void;
   onDeleted: () => void;
   onLocked: (err: any) => boolean;
+  onDirtyChange: (delta: number) => void;
 }) {
   const [name, setName] = useState(provider.name);
   const [host, setHost] = useState(provider.host);
@@ -364,6 +380,16 @@ function ProviderCard({
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const busyRef = useRef(false);
+
+  // Track dirty state: true if any field differs from the original provider prop.
+  const isDirty = name !== provider.name || host !== provider.host || key !== '' || enabled !== provider.enabled;
+  const wasDirtyRef = useRef(false);
+  useEffect(() => {
+    if (isDirty && !wasDirtyRef.current) { wasDirtyRef.current = true; onDirtyChange(1); }
+    if (!isDirty && wasDirtyRef.current) { wasDirtyRef.current = false; onDirtyChange(-1); }
+  }, [isDirty]);
+  useEffect(() => () => { if (wasDirtyRef.current) onDirtyChange(-1); }, []);
 
   // Sync with prop changes (cross-tab update, parent refresh).
   useEffect(() => { setName(provider.name); }, [provider.name]);
@@ -371,6 +397,8 @@ function ProviderCard({
   useEffect(() => { setEnabled(provider.enabled); }, [provider.enabled]);
 
   const save = async () => {
+    if (busyRef.current || saving) return;
+    busyRef.current = true;
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -390,10 +418,13 @@ function ProviderCard({
       setError(err.message);
     } finally {
       setSaving(false);
+      busyRef.current = false;
     }
   };
 
   const test = async () => {
+    if (busyRef.current || testing) return;
+    busyRef.current = true;
     setTesting(true);
     setTestResult(null);
     try {
@@ -407,11 +438,14 @@ function ProviderCard({
       setTestResult(`✗ ${err.message}`);
     } finally {
       setTesting(false);
+      busyRef.current = false;
     }
   };
 
   const remove = async () => {
+    if (busyRef.current || deleting) return;
     if (!window.confirm(`Delete provider "${provider.name}"?`)) return;
+    busyRef.current = true;
     setDeleting(true);
     try {
       await deleteProvider(provider.id);
@@ -420,6 +454,7 @@ function ProviderCard({
       if (onLocked(err)) return;
       setError(err.message);
       setDeleting(false);
+      busyRef.current = false;
     }
   };
 
@@ -513,6 +548,7 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
   const seqRef = useRef(0);
   const nameAutoRef = useRef(false);
   const keyTimerRef = useRef<number | null>(null);
+  const busyRef = useRef(false);
 
   useEffect(() => {
     getProviderTemplates()
@@ -608,11 +644,12 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
     e.preventDefault();
     const key = apiKey.trim();
     const h = host.trim();
-    if (!name.trim() || saving) return;
+    if (!name.trim() || saving || busyRef.current) return;
     if (!h && !key) {
       setError('Paste an API key to auto-detect, or open Advanced to set the host.');
       return;
     }
+    busyRef.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -632,6 +669,7 @@ function AddProviderModal({ onClose, onAdded, onLocked }: { onClose: () => void;
       }
       setError(err.message || 'Failed to add provider');
       setSaving(false);
+      busyRef.current = false;
     }
   };
 

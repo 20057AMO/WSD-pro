@@ -191,8 +191,10 @@ app.use((req, res, next) => {
 });
 
 // Security activity log for the authenticated owner.
-app.get('/api/auth/audit', (_req: any, res) => {
-  res.json({ entries: listAudit(50) });
+app.get('/api/auth/audit', (req: any, res) => {
+  const limit = Math.min(Math.max(parseInt(String(req.query.limit || '50'), 10) || 50, 1), 100);
+  const offset = Math.max(parseInt(String(req.query.offset || '0'), 10) || 0, 0);
+  res.json(listAudit(limit, offset));
 });
 
 app.post('/api/auth/change-password', (req: any, res) => {

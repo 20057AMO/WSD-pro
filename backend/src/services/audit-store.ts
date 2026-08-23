@@ -58,6 +58,8 @@ export function recordAudit(event: AuditEvent, ok: boolean, ip?: string): void {
 }
 
 /** Most recent entries first. */
-export function listAudit(limit = 50): AuditEntry[] {
-  return loadEntries().slice(-Math.min(Math.max(limit, 1), MAX_ENTRIES)).reverse();
+export function listAudit(limit = 50, offset = 0): { entries: AuditEntry[]; total: number } {
+  const all = loadEntries().reverse();
+  const total = all.length;
+  return { entries: all.slice(offset, offset + Math.min(Math.max(limit, 1), MAX_ENTRIES)), total };
 }

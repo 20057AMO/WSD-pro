@@ -97,16 +97,30 @@ export function Settings() {
   const [reauthError, setReauthError] = useState<string | null>(null);
 
   // ── Security activity ──
+  const AUDIT_PAGE = 20;
   const [audit, setAudit] = useState<AuditEntry[] | null>(null);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditLoadingMore, setAuditLoadingMore] = useState(false);
 
   useEffect(() => {
     getProvidersLockStatus()
       .then((r) => setLockEnabled(r.enabled))
       .catch(() => setLockEnabled(false));
-    getAuditLog()
-      .then((r) => setAudit(r.entries || []))
-      .catch(() => setAudit([]));
+    getAuditLog(AUDIT_PAGE, 0)
+      .then((r) => { setAudit(r.entries || []); setAuditTotal(r.total || 0); })
+      .catch(() => { setAudit([]); setAuditTotal(0); });
   }, []);
+
+  const loadMoreAudit = async () => {
+    if (!audit) return;
+    setAuditLoadingMore(true);
+    try {
+      const r = await getAuditLog(AUDIT_PAGE, audit.length);
+      setAudit((prev) => [...(prev || []), ...(r.entries || [])]);
+      setAuditTotal(r.total || 0);
+    } catch { /* ignore */ }
+    setAuditLoadingMore(false);
+  };
 
   // ════ Step 1 handlers: validate locally, then open the ReAuth dialog ════
 
@@ -534,10 +548,21 @@ export function Settings() {
                 <div class="audit-row" key={`${e.ts}-${i}`}>
                   <span class={failed ? 'audit-dot bad' : 'audit-dot good'} title={failed ? 'Failed' : 'Success'} />
                   <span class="audit-label">{label}</span>
+                  {e.ip && <span class="audit-ip" title="Source IP">{e.ip}</span>}
                   <span class="audit-time">{fmtDate(e.ts)}</span>
                 </div>
               );
             })}
+            {audit.length < auditTotal && (
+              <button
+                class="btn-ghost sm"
+                style="width: 100%; margin-top: 8px; justify-content: center;"
+                onClick={loadMoreAudit}
+                disabled={auditLoadingMore}
+              >
+                {auditLoadingMore ? 'Loading…' : `Show more (${auditTotal - audit.length} remaining)`}
+              </button>
+            )}
           </div>
         )}
       </div>
