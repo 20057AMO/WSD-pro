@@ -45,9 +45,8 @@ function writeJson(file: string, value: unknown): void {
 /** Strip secret fields from a single provider config object. */
 function sanitizeProvider(entry: unknown): Record<string, unknown> | null {
   if (!entry || typeof entry !== 'object') return null;
-  const { apiKey, auth, ...rest } = entry as Record<string, unknown>;
+  const { apiKey, ...rest } = entry as Record<string, unknown>;
   void apiKey;
-  void auth;
   return rest;
 }
 

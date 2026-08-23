@@ -291,6 +291,8 @@ interface ContextCacheEntry {
 }
 
 const ctxCache = new Map<string, ContextCacheEntry>();
+const CTX_CACHE_MAX = 20;
+const CTX_CACHE_TTL_MS = 60_000;
 
 function computeSig(files: ScannedFile[]): string {
   const parts: string[] = [];
@@ -310,14 +312,19 @@ export async function getProjectContext(
   if (exists) {
     const files = scanWorkspace(dir);
     const sig = computeSig(files);
+    const now = Date.now();
     const cached = ctxCache.get(clean);
-    if (cached && cached.sig === sig && Date.now() - cached.at < 30000) {
+    if (cached && cached.sig === sig && now - cached.at < CTX_CACHE_TTL_MS) {
       return { slug: clean, text: cached.text, truncated: cached.truncated };
     }
 
     const info = await getProject(clean).catch(() => null);
     const built = await buildFullContext(clean, dir, files, info, maxChars);
-    ctxCache.set(clean, { sig, text: built.text, truncated: built.truncated, at: Date.now() });
+    if (ctxCache.size >= CTX_CACHE_MAX) {
+      const oldest = ctxCache.keys().next().value;
+      if (oldest !== undefined) ctxCache.delete(oldest);
+    }
+    ctxCache.set(clean, { sig, text: built.text, truncated: built.truncated, at: now });
     return { slug: clean, text: built.text, truncated: built.truncated };
   }
 

@@ -18,6 +18,7 @@ import { verifyToken } from '../services/user-store';
 
 const MAX_CONNECTIONS_PER_ROOM = 8;
 const roomConnections = new Map<string, number>();
+const PING_INTERVAL_MS = 30_000;
 
 function isSafeChatId(value: string): boolean {
   return /^[A-Za-z0-9._-]{1,64}$/.test(value);
@@ -44,6 +45,9 @@ export function attachWebSockets(server: http.Server): void {
   });
 
   wss.on('connection', (ws: WebSocket, req) => {
+    (ws as any)._isAlive = true;
+    ws.on('pong', () => { (ws as any)._isAlive = true; });
+
     const url = new URL(req.url || '/', 'http://localhost');
 
     const chatMatch = url.pathname.match(/^\/ws\/chat\/([^/]+)\/([^/]+)$/);
@@ -162,6 +166,15 @@ export function attachWebSockets(server: http.Server): void {
   wss.on('error', (err) => {
     console.error('[WSD-Pro] WebSocket server error:', err.message);
   });
+
+  const pingTimer = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if ((ws as any)._isAlive === false) return ws.terminate();
+      (ws as any)._isAlive = false;
+      ws.ping();
+    });
+  }, PING_INTERVAL_MS);
+  wss.on('close', () => clearInterval(pingTimer));
 }
 
 function acquireRoom(room: string): boolean {

@@ -6,6 +6,7 @@ import { WORKSPACES_ROOT } from './docker-manager';
 const MAX_OUTPUT = 50000;
 const EXEC_TIMEOUT = 30000;
 const MAX_FILE_READ = 200000;
+const MAX_FILE_WRITE = 500000;
 const MAX_CMD_LENGTH = 1000;
 const IGNORED_DIRS = new Set([
   'node_modules', '.git', 'dist', 'build', '.next', '.nuxt',
@@ -69,6 +70,7 @@ export function readFile(slug: string, rel: string): string {
 export function writeFile(slug: string, rel: string, content: string): string {
   const target = safePath(slug, rel);
   if (!target) return 'Invalid path';
+  if (content.length > MAX_FILE_WRITE) return `[Blocked] Content too large (${content.length} bytes, max ${MAX_FILE_WRITE})`;
   const dir = path.dirname(target);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(target, content, 'utf8');

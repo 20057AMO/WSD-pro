@@ -167,7 +167,7 @@ export function handleAgentSocket(ws: WebSocket, agentId: string, chatId: string
 
     const userContent = buildUserContent(text, attachments);
     const userEvent = appendAgentEvent(agentId, chatId, 'user_message', userContent, attachments);
-    const touchedSession = touchAgentSession(agentId, chatId);
+    const touchedSession = touchAgentSession(agentId, chatId, true);
     broadcast(room, { type: 'event', event: userEvent });
 
     if (touchedSession && touchedSession.messageCount === 1 && touchedSession.name.startsWith('Session ')) {

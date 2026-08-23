@@ -226,12 +226,12 @@ export function deleteAgentSession(agentId: string, chatId: string): boolean {
   return true;
 }
 
-export function touchAgentSession(agentId: string, chatId: string): AgentSession | null {
+export function touchAgentSession(agentId: string, chatId: string, increment = false): AgentSession | null {
   const sessions = loadSessions();
   const s = sessions.find((x) => x.agentId === agentId && x.chatId === chatId);
   if (s) {
     s.updatedAt = new Date().toISOString();
-    s.messageCount += 1;
+    if (increment) s.messageCount += 1;
     saveSessions(sessions);
   }
   return s || null;

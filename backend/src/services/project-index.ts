@@ -62,6 +62,7 @@ interface StatsCache {
 }
 
 const mem = new Map<string, StatsCache>();
+const INDEX_CACHE_MAX = 15;
 
 export interface RetrievedChunk {
   file: string;
@@ -234,6 +235,10 @@ function ensureIndex(slug: string): StatsCache | null {
   }
 
   const entry: StatsCache = { data, stats: computeStats(data), rebuilt };
+  if (mem.size >= INDEX_CACHE_MAX && !mem.has(slug)) {
+    const oldest = mem.keys().next().value;
+    if (oldest !== undefined) mem.delete(oldest);
+  }
   mem.set(slug, entry);
   return entry;
 }

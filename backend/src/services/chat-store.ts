@@ -32,6 +32,7 @@ export interface ChatEvent {
 export class ChatStore {
   private dir: string;
   private seqCache = new Map<string, number>();
+  private eventsCache = new Map<string, ChatEvent[]>();
 
   constructor() {
     this.dir = path.join(DATA_DIR, 'chats');
@@ -75,14 +76,19 @@ export class ChatStore {
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     };
     fs.appendFileSync(this.file(slug, chatId), JSON.stringify(event) + '\n', 'utf8');
+    const key = `${this.sanitizeId(slug)}/${this.sanitizeId(chatId)}`;
+    this.eventsCache.delete(key);
     return event;
   }
 
   /** Full event list for a conversation, in sequence (replay). */
   readEvents(slug: string, chatId: string): ChatEvent[] {
+    const key = `${this.sanitizeId(slug)}/${this.sanitizeId(chatId)}`;
+    const cached = this.eventsCache.get(key);
+    if (cached) return cached;
     const f = this.file(slug, chatId);
     if (!fs.existsSync(f)) return [];
-    return fs
+    const events = fs
       .readFileSync(f, 'utf8')
       .split('\n')
       .filter((l) => l.trim())
@@ -94,6 +100,12 @@ export class ChatStore {
         }
       })
       .filter((e): e is ChatEvent => e !== null);
+    if (this.eventsCache.size > 50) {
+      const oldest = this.eventsCache.keys().next().value;
+      if (oldest !== undefined) this.eventsCache.delete(oldest);
+    }
+    this.eventsCache.set(key, events);
+    return events;
   }
 }
 
