@@ -53,9 +53,9 @@ export function saveMeta(slug: string, meta: ProjectMeta): void {
 }
 
 export function deleteMeta(slug: string): void {
-  const file = metaFile(String(slug ?? ''));
+  const dir = path.dirname(metaFile(String(slug ?? '')));
   try {
-    fs.rmSync(file, { force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   } catch {
     /* ignore */
   }

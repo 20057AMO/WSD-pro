@@ -10,7 +10,7 @@ import type { ProviderEndpoint } from './chat-config';
 import type { ChatMessage, StreamHandlers, RunControl } from './chat-types';
 
 const ANTHROPIC_VERSION = '2023-06-01';
-const MAX_TOKENS = 4096;
+const MAX_TOKENS = 8192;
 
 function parseImage(dataUrl: string): { media_type: string; data: string } {
   const comma = dataUrl.indexOf(',');
