@@ -196,6 +196,29 @@ export function clearProvidersUnlock(): void {
 export const relockProviders = () =>
   api<{ ok: boolean; locked: boolean }>('/api/providers/relock', { method: 'POST' });
 
+// ── Two-factor authentication (TOTP) ──────────────────────────
+
+export const getTotpStatus = () =>
+  api<{ enabled: boolean }>('/api/auth/2fa/status');
+
+/** Enrollment step 1: fresh pending secret + provisioning URI for the app. */
+export const totpSetup = () =>
+  api<{ secret: string; uri: string }>('/api/auth/2fa/setup', { method: 'POST' });
+
+/** Enrollment step 2: activate once the authenticator proves it works. */
+export const totpEnable = (code: string) =>
+  api<{ ok: boolean }>('/api/auth/2fa/enable', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+
+/** Turn 2FA off — requires the account password (sudo-style re-auth). */
+export const totpDisable = (accountPassword: string) =>
+  api<{ ok: boolean }>('/api/auth/2fa/disable', {
+    method: 'POST',
+    body: JSON.stringify({ accountPassword }),
+  });
+
 /** Sign out of every session across all devices. */
 export const apiLogoutAll = (accountPassword: string) =>
   api<{ ok: boolean }>('/api/auth/logout-all', {

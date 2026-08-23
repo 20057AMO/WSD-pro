@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
+import QRCode from 'qrcode';
 import {
   Loader2,
   LogOut,
@@ -8,6 +9,7 @@ import {
   Download,
   Upload,
   ShieldCheck,
+  Smartphone,
   Settings as SettingsIcon,
 } from 'lucide-preact';
 import { useAuth } from '../auth';
@@ -22,6 +24,10 @@ import {
   relockProviders,
   apiLogoutAll,
   getAuditLog,
+  getTotpStatus,
+  totpSetup,
+  totpEnable,
+  totpDisable,
   type AuditEntry,
   type BackupFile,
 } from '../api';
@@ -43,13 +49,18 @@ const AUDIT_LABELS: Record<string, string> = {
   'providers-unlock': 'Providers page unlocked',
   'providers-unlock-failed': 'Providers unlock attempt failed',
   'providers-relock': 'Providers locked on all devices',
+  '2fa-enabled': 'Two-factor authentication enabled',
+  '2fa-enabled-failed': 'Two-factor enable attempt failed',
+  '2fa-disabled': 'Two-factor authentication disabled',
+  '2fa-disabled-failed': 'Two-factor disable attempt failed',
+  'login-2fa-failed': 'Sign in blocked — wrong authenticator code',
   'backup-export': 'Backup exported',
   'backup-import': 'Backup imported',
 };
 
 type Msg = { type: 'ok' | 'err'; text: string } | null;
 
-type SensitiveAction = 'save-lock' | 'disable-lock' | 'export' | 'import' | 'revoke-all';
+type SensitiveAction = 'save-lock' | 'disable-lock' | 'export' | 'import' | 'revoke-all' | '2fa-disable';
 
 function fmtDate(iso?: string): string {
   if (!iso) return '—';
@@ -103,6 +114,72 @@ export function Settings() {
   // ── Backup ──
   const [backupMsg, setBackupMsg] = useState<Msg>(null);
   const pendingImportRef = useRef<BackupFile | null>(null);
+
+  // ── Two-factor authentication (TOTP) ──
+  const [totpEnabled, setTotpEnabled] = useState<boolean | null>(null);
+  const [totpMsg, setTotpMsg] = useState<Msg>(null);
+  const [totpEnrolling, setTotpEnrolling] = useState<{ secret: string; uri: string } | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [totpCode, setTotpCode] = useState('');
+  const [totpBusy, setTotpBusy] = useState(false);
+
+  useEffect(() => {
+    getTotpStatus()
+      .then((r) => setTotpEnabled(r.enabled))
+      .catch(() => setTotpEnabled(null));
+  }, []);
+
+  // Render the provisioning URI as a QR image whenever enrollment starts.
+  useEffect(() => {
+    if (!totpEnrolling) { setQrDataUrl(''); return; }
+    QRCode.toDataURL(totpEnrolling.uri, { width: 180, margin: 1 })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(''));
+  }, [totpEnrolling]);
+
+  const beginEnable2fa = async () => {
+    setTotpMsg(null);
+    setTotpBusy(true);
+    try {
+      const r = await totpSetup();
+      setTotpEnrolling({ secret: r.secret, uri: r.uri });
+      setTotpCode('');
+    } catch (err: any) {
+      setTotpMsg({ type: 'err', text: err.message || 'Could not start setup.' });
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const confirmEnable2fa = async (e: Event) => {
+    e.preventDefault();
+    if (!totpEnrolling || totpBusy) return;
+    setTotpBusy(true);
+    try {
+      await totpEnable(totpCode.trim());
+      setTotpEnabled(true);
+      setTotpEnrolling(null);
+      setTotpCode('');
+      setTotpMsg({ type: 'ok', text: 'Two-factor authentication is now active.' });
+      setTimeout(() => setTotpMsg(null), 4000);
+      getAuditLog(AUDIT_PAGE, 0).then((r) => { setAudit(r.entries || []); setAuditTotal(r.total || 0); }).catch(() => {});
+    } catch (err: any) {
+      setTotpMsg({ type: 'err', text: err.message || 'Invalid code.' });
+    } finally {
+      setTotpBusy(false);
+    }
+  };
+
+  const cancelEnable2fa = () => {
+    setTotpEnrolling(null);
+    setTotpCode('');
+    setTotpMsg(null);
+  };
+
+  const beginDisable2fa = () => {
+    setTotpMsg(null);
+    setPendingAction('2fa-disable');
+  };
 
   // ── Unified identity confirmation (sudo-style) ──
   const [pendingAction, setPendingAction] = useState<SensitiveAction | null>(null);
@@ -202,6 +279,8 @@ export function Settings() {
         setLockMsg({ type: 'err', text: msg });
       } else if (pendingAction === 'revoke-all') {
         setPwMsg({ type: 'err', text: msg });
+      } else if (pendingAction === '2fa-disable') {
+        setTotpMsg({ type: 'err', text: msg });
       } else {
         setBackupMsg({ type: 'err', text: msg });
       }
@@ -265,6 +344,13 @@ export function Settings() {
           await apiLogoutAll(accountPassword);
           logout();
           window.location.hash = '/login';
+          break;
+        }
+        case '2fa-disable': {
+          await totpDisable(accountPassword);
+          setTotpEnabled(false);
+          setTotpMsg({ type: 'ok', text: 'Two-factor authentication disabled.' });
+          setTimeout(() => setTotpMsg(null), 4000);
           break;
         }
       }
@@ -476,6 +562,73 @@ export function Settings() {
         </button>
       </div>
 
+      {/* Two-factor authentication (TOTP) */}
+      <div class="panel settings-section">
+        <div class="panel-title">
+          Two-Factor Authentication
+          {totpEnabled === true && (
+            <span class="badge-ok" style="margin-inline-start: 8px;">
+              <ShieldCheck width={11} height={11} /> On
+            </span>
+          )}
+          {totpEnabled === false && (
+            <span class="badge-off" style="margin-inline-start: 8px;">Off</span>
+          )}
+        </div>
+        <p class="settings-hint">
+          Require a 6-digit code from an authenticator app (Google Authenticator,
+          Authy, Aegis…) after your password at every sign-in.
+        </p>
+
+        {totpMsg && (
+          <div class={totpMsg.type === 'ok' ? 'chat-save-msg' : 'login-error'} style="margin-bottom: 8px">
+            {totpMsg.text}
+          </div>
+        )}
+
+        {totpEnrolling ? (
+          <form onSubmit={confirmEnable2fa}>
+            <div class="totp-enroll">
+              {qrDataUrl && <img class="totp-qr" src={qrDataUrl} alt="Authenticator QR code" />}
+              <div class="totp-manual">
+                <span class="field-label">Can't scan? Enter this key instead</span>
+                <code class="totp-secret">{totpEnrolling.secret}</code>
+                <span class="settings-hint">Time-based · SHA-1 · 6 digits · 30s — defaults for any app.</span>
+              </div>
+            </div>
+            <div class="settings-row" style="margin-top: 10px;">
+              <input
+                class="modern-input login-otp"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="000000"
+                maxLength={7}
+                autoFocus
+                value={totpCode}
+                onInput={(e: any) => setTotpCode(e.target.value)}
+              />
+              <button class="btn-primary sm" type="submit" disabled={totpBusy || !totpCode.trim()}>
+                {totpBusy ? <Loader2 width={13} height={13} class="icon spin" /> : <ShieldCheck width={13} height={13} />} Activate
+              </button>
+              <button class="btn-ghost sm" type="button" onClick={cancelEnable2fa}>Cancel</button>
+            </div>
+            <p class="settings-hint" style="margin-top:8px;">
+              Scan the code with your app, then enter the current code to activate.
+            </p>
+          </form>
+        ) : totpEnabled === true ? (
+          <button class="btn-danger sm" onClick={beginDisable2fa}>
+            <Smartphone width={13} height={13} /> Disable two-factor
+          </button>
+        ) : (
+          <button class="btn-primary sm" onClick={beginEnable2fa} disabled={totpBusy}>
+            {totpBusy ? <Loader2 width={13} height={13} class="icon spin" /> : <Smartphone width={13} height={13} />}
+            Enable two-factor
+          </button>
+        )}
+      </div>
+
       {/* Auto-logout on inactivity */}
       <div class="panel settings-section">
         <div class="panel-title">Idle security</div>
@@ -652,18 +805,22 @@ export function Settings() {
             ? 'Sign out everywhere?'
             : pendingAction === 'disable-lock'
               ? 'Disable Providers lock'
-              : pendingAction === 'save-lock'
-                ? (lockEnabled ? 'Change Providers password' : 'Enable Providers lock')
-                : pendingAction === 'import'
-                  ? 'Import backup'
-                  : 'Export backup'
+              : pendingAction === '2fa-disable'
+                ? 'Disable two-factor authentication'
+                : pendingAction === 'save-lock'
+                  ? (lockEnabled ? 'Change Providers password' : 'Enable Providers lock')
+                  : pendingAction === 'import'
+                    ? 'Import backup'
+                    : 'Export backup'
         }
         description={
           pendingAction === 'revoke-all'
             ? 'This signs you out of every device and browser tab.'
             : pendingAction === 'disable-lock'
               ? 'This removes the second password — anyone using this session will be able to open Providers.'
-              : 'Enter your account password to authorize this action.'
+              : pendingAction === '2fa-disable'
+                ? 'Your account will be protected by the password only. You will confirm this with your account password.'
+                : 'Enter your account password to authorize this action.'
         }
         confirmLabel="Confirm"
         onConfirm={executeReauth}

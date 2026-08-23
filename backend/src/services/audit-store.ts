@@ -25,6 +25,11 @@ export type AuditEvent =
   | 'providers-unlock-failed'
   | 'providers-unlock-cooldown'
   | 'providers-relock'
+  | '2fa-enabled'
+  | '2fa-enabled-failed'
+  | '2fa-disabled'
+  | '2fa-disabled-failed'
+  | 'login-2fa-failed'
   | 'backup-export'
   | 'backup-import';
 

@@ -3,14 +3,70 @@ import { useAuth } from '../auth';
 import { PwMeter } from '../components/PwMeter';
 
 export function Login() {
-  const { hasUser, login, setup } = useAuth();
+  const { hasUser, login, verify2fa, cancel2fa, pending2fa, setup } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const isSetup = !hasUser;
+
+  // ── Step 2: authenticator code (2FA accounts) ────────────────
+  if (!isSetup && pending2fa) {
+    const handleVerify = async (e: Event) => {
+      e.preventDefault();
+      if (loading) return;
+      setError('');
+      setLoading(true);
+      try {
+        await verify2fa(code.trim());
+        // success → token stored, Shell reroutes away from /login
+      } catch (err: any) {
+        setError(err.message || 'Invalid code');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    return (
+      <div class="login-page">
+        <div class="login-card">
+          <div class="login-brand">
+            <img src="/logo.png" alt="WSD-Pro" class="login-logo" />
+            <h1 class="login-title">Two-factor</h1>
+            <p class="login-sub">Enter the 6-digit code from your authenticator app.</p>
+          </div>
+          <form onSubmit={handleVerify} class="login-form">
+            <label class="field-label">Authenticator code</label>
+            <input
+              class="modern-input login-otp"
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="000000"
+              maxLength={7}
+              autoFocus
+              value={code}
+              onInput={(e: any) => setCode(e.target.value)}
+            />
+            {error && <div class="login-error">{error}</div>}
+            <button class="btn-primary login-btn" type="submit" disabled={loading}>
+              {loading ? 'Verifying…' : 'Verify'}
+            </button>
+            <button
+              class="btn-ghost sm login-back"
+              type="button"
+              onClick={() => { cancel2fa(); setCode(''); setError(''); }}
+            >
+              Back to sign in
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: Event) => {
     e.preventDefault();
@@ -39,6 +95,7 @@ export function Login() {
         await setup(username.trim(), password);
       } else {
         await login(username.trim(), password);
+        // requires2fa → pending2fa flips true and this component renders the code step
       }
     } catch (err: any) {
       setError(err.message || 'Failed');

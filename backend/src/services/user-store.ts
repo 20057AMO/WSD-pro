@@ -3,13 +3,21 @@ import path from 'path';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { generateTotpSecret, verifyTotp } from './totp';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || '/app/data';
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'wsd-pro-default-secret-change-me';
 const JWT_EXPIRY = '24h';
 const PROVIDERS_UNLOCK_EXPIRY = '30m';
+const PENDING_2FA_EXPIRY = '5m';
 const BCRYPT_ROUNDS = 10;
+
+interface TotpConfig {
+  secret: string;
+  enabled: boolean;
+  createdAt: string;
+}
 
 interface StoredUser {
   id: string;
@@ -27,6 +35,8 @@ interface StoredUser {
    * without the claim are treated as version 0.
    */
   tokenVersion?: number;
+  /** TOTP authenticator state; present once setup has begun. */
+  totp?: TotpConfig;
 }
 
 let cachedUser: StoredUser | null = null;
@@ -118,6 +128,22 @@ export function login(username: string, password: string): { id: string; usernam
   if (cleanUsername !== cachedUser.username) throw new Error('Invalid username or password.');
   if (!bcrypt.compareSync(password, cachedUser.passwordHash)) throw new Error('Invalid username or password.');
 
+  return { id: cachedUser.id, username: cachedUser.username, token: signSessionToken() };
+}
+
+/** Credential check without issuing anything — lets the login route branch into the TOTP step. */
+export function verifyCredentials(username: string, password: string): boolean {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser) return false;
+  const cleanUsername = String(username || '').trim();
+  if (cleanUsername !== cachedUser.username) return false;
+  return bcrypt.compareSync(String(password || ''), cachedUser.passwordHash);
+}
+
+/** Issue a full session token (after credentials + any second factor). */
+export function issueSessionToken(): { id: string; username: string; token: string } {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser) throw new Error('No user configured. Run setup first.');
   return { id: cachedUser.id, username: cachedUser.username, token: signSessionToken() };
 }
 
@@ -281,6 +307,71 @@ export function verifyUnlockToken(token: string | null, sid = ''): boolean {
       decoded.pv === (cachedUser.providersPasswordVersion || 0) &&
       String(decoded.sid ?? '') === String(sid || '')
     );
+  } catch {
+    return false;
+  }
+}
+
+// ── TOTP two-factor authentication ─────────────────────────────
+
+export function isTotpEnabled(): boolean {
+  if (cachedUser === null) loadUsers();
+  return !!cachedUser?.totp?.enabled;
+}
+
+/**
+ * Begin 2FA enrollment: generate a fresh secret in the disabled state.
+ * Re-running setup before enabling simply replaces the pending secret.
+ * Refuses when 2FA is already enabled — disable it first.
+ */
+export function beginTotpSetup(): { secret: string } {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser) throw new Error('No user configured.');
+  if (cachedUser.totp?.enabled) throw new Error('Two-factor authentication is already enabled.');
+  cachedUser.totp = { secret: generateTotpSecret(), enabled: false, createdAt: new Date().toISOString() };
+  saveUsers();
+  return { secret: cachedUser.totp.secret };
+}
+
+/** Activate the pending secret once the user proves they can generate valid codes. */
+export function enableTotp(code: string): boolean {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser?.totp || cachedUser.totp.enabled) return false;
+  if (!verifyTotp(cachedUser.totp.secret, code)) return false;
+  cachedUser.totp.enabled = true;
+  saveUsers();
+  return true;
+}
+
+export function disableTotp(): void {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser || !cachedUser.totp) return;
+  delete cachedUser.totp;
+  saveUsers();
+}
+
+/** Check an authenticator code against the ENABLED secret — no state change. */
+export function verifyTotpCode(code: string): boolean {
+  if (cachedUser === null) loadUsers();
+  if (!cachedUser?.totp?.enabled) return false;
+  return verifyTotp(cachedUser.totp.secret, code);
+}
+
+/**
+ * Short-lived token proving the PASSWORD step of a 2FA login succeeded —
+ * never a session token. Exchanged for a real session only after the
+ * authenticator code is verified by /api/auth/login/verify.
+ */
+export function signPending2faToken(): string {
+  if (!cachedUser) throw new Error('No user configured.');
+  return jwt.sign({ scope: '2fa-pending', id: cachedUser.id }, JWT_SECRET, { expiresIn: PENDING_2FA_EXPIRY });
+}
+
+export function verifyPending2faToken(token: string | null): boolean {
+  if (cachedUser === null) loadUsers();
+  try {
+    const decoded = jwt.verify(String(token || ''), JWT_SECRET) as { scope?: string; id?: string };
+    return decoded.scope === '2fa-pending' && !!decoded.id && decoded.id === cachedUser?.id;
   } catch {
     return false;
   }

@@ -57,6 +57,8 @@ import {
 import {
   setup,
   login,
+  verifyCredentials,
+  issueSessionToken,
   changePassword,
   hasUser,
   getUser,
@@ -69,7 +71,15 @@ import {
   verifyAccountPassword,
   revokeAllSessions,
   revokeProvidersUnlocks,
+  isTotpEnabled,
+  beginTotpSetup,
+  enableTotp,
+  disableTotp,
+  verifyTotpCode,
+  signPending2faToken,
+  verifyPending2faToken,
 } from './services/user-store';
+import { otpauthUri } from './services/totp';
 import { buildBackup, restoreFromBackup } from './services/settings-export';
 import { recordAudit, listAudit } from './services/audit-store';
 import { authMiddleware } from './middleware/auth';
@@ -185,13 +195,42 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
-    const result = login(String(username), String(password));
+    if (!verifyCredentials(String(username), String(password))) {
+      recordAudit('login-failed', false, req.ip);
+      return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+    // Correct password + 2FA enabled → do NOT issue a session yet. Hand back
+    // a short-lived pending token that only the code-verify step accepts.
+    if (isTotpEnabled()) {
+      return res.json({ requires2fa: true, pendingToken: signPending2faToken() });
+    }
+    const result = issueSessionToken();
     recordAudit('login', true, req.ip);
     res.json(result);
   } catch (err: any) {
     recordAudit('login-failed', false, req.ip);
     res.status(401).json({ error: err.message });
   }
+});
+
+// Second login factor for 2FA accounts: exchange a pending token plus a
+// valid authenticator code for a real session. Tight dedicated budget —
+// 6-digit codes must never be guessable at speed.
+const totpLimiter = rateLimit('totp', RATE_WINDOW, 8);
+
+app.post('/api/auth/login/verify', totpLimiter, (req: any, res) => {
+  const { pendingToken, code } = req.body || {};
+  if (!isTotpEnabled() || !verifyPending2faToken(typeof pendingToken === 'string' ? pendingToken : null)) {
+    return res.status(401).json({ error: 'Login session expired. Sign in again.' });
+  }
+  const user = getUser();
+  if (!user || !verifyTotpCode(String(code || ''))) {
+    recordAudit('login-2fa-failed', false, req.ip);
+    return res.status(401).json({ error: 'Invalid authenticator code.' });
+  }
+  const result = issueSessionToken();
+  recordAudit('login', true, req.ip);
+  res.json(result);
 });
 
 // ── Auth middleware (protect everything below) ────────────────
@@ -205,6 +244,47 @@ app.get('/api/auth/audit', (req: any, res) => {
   const limit = Math.min(Math.max(parseInt(String(req.query.limit || '50'), 10) || 50, 1), 100);
   const offset = Math.max(parseInt(String(req.query.offset || '0'), 10) || 0, 0);
   res.json(listAudit(limit, offset));
+});
+
+// ── Two-factor authentication (TOTP) ──────────────────────────
+app.get('/api/auth/2fa/status', (_req, res) => {
+  res.json({ enabled: isTotpEnabled() });
+});
+
+// Enrollment step 1: generate a fresh pending secret. Safe to re-run while
+// still unverified — it simply replaces the not-yet-enabled secret.
+app.post('/api/auth/2fa/setup', authLimiter, (req: any, res) => {
+  try {
+    const { secret } = beginTotpSetup();
+    const owner = getUser();
+    res.json({ secret, uri: otpauthUri(secret, owner?.username || 'owner') });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Enrollment step 2: activate once the app proves it can produce valid codes.
+app.post('/api/auth/2fa/enable', authLimiter, (req: any, res) => {
+  const { code } = req.body || {};
+  if (enableTotp(String(code || ''))) {
+    recordAudit('2fa-enabled', true, req.ip);
+    return res.json({ ok: true });
+  }
+  recordAudit('2fa-enabled-failed', false, req.ip);
+  res.status(400).json({ error: 'Invalid authenticator code.' });
+});
+
+// Turning 2FA off is dangerous → account-password re-auth required.
+app.post('/api/auth/2fa/disable', authLimiter, (req: any, res) => {
+  const { accountPassword } = req.body || {};
+  if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
+  if (!verifyAccountPassword(String(accountPassword))) {
+    recordAudit('2fa-disabled-failed', false, req.ip);
+    return res.status(401).json({ error: 'Account password is incorrect.' });
+  }
+  disableTotp();
+  recordAudit('2fa-disabled', true, req.ip);
+  res.json({ ok: true });
 });
 
 app.post('/api/auth/change-password', (req: any, res) => {

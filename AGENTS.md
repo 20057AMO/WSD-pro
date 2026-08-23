@@ -93,6 +93,14 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - **API helper**: `api()` auto-attaches `Authorization` header; 401 responses redirect to `/login`
 - **Routes**: `/login` accessible without auth, all other routes require authenticated user
 
+### Two-Factor Authentication (optional TOTP)
+- RFC 6238 TOTP implemented from scratch in `backend/src/services/totp.ts` (HMAC-SHA1, 30s steps, 6 digits, ±1 step drift) — verified against the official Appendix B vectors in `tests/totp.test.ts`; compatible with Google Authenticator/Authy/Aegis
+- **Login flow with 2FA on**: `POST /api/auth/login` verifies credentials then returns `{requires2fa:true, pendingToken}` — a 5-min JWT (`scope:'2fa-pending'`), NOT a session. `POST /api/auth/login/verify {pendingToken, code}` exchanges it for a real session; guarded by a dedicated `totp` rate-limit scope (8/min/IP)
+- Enrollment: `POST /api/auth/2fa/setup` → `{secret, uri}` (pending secret, disabled until proven); `POST /api/auth/2fa/enable {code}` activates only after a live code verifies; `POST /api/auth/2fa/disable {accountPassword}` requires sudo re-auth
+- Frontend: Login shows an authenticator-code step when `pending2fa` is set in AuthProvider; Settings → Two-Factor panel renders the QR (`qrcode` npm pkg) + manual base32 key, activate/cancel, disable via ReAuthModal
+- Audit: `2fa-enabled/-failed`, `2fa-disabled/-failed`, `login-2fa-failed`
+- **Lost authenticator**: self-hosted recovery = remove `totp` from `data/users.json` and restart (documented in UI copy as admin-level escape hatch)
+
 ### Providers Security Lock (optional second layer)
 - Separate bcrypt password stored in `users.json` (`providersPasswordHash`) — independent from the account password
 - Managed exclusively from Settings → Providers Security via a **two-step sudo-style flow**: pick the new lock password, then confirm identity in `ReAuthModal` (shows the signed-in username, asks for the account password)
@@ -109,7 +117,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Always-open endpoints: `GET /api/providers/options` (id/name/type only) and `GET /api/providers/templates`
 - Chat/agent LLM usage is server-side and never blocked by the lock
 - Providers page UX states: skeleton shimmer (checking) → welcome modal explaining protection (when unconfigured, dismissible per tab session) → centered login-style unlock modal (when locked)
-- **Future work (deliberately deferred)**: at-rest encryption of `providers.json` (AES-256-GCM with an env key — marginal gain while `.env` sits on the same host) and TOTP 2FA on login
+- **Future work (deliberately deferred)**: at-rest encryption of `providers.json` (AES-256-GCM with an env key — marginal gain while `.env` sits on the same host)
 
 ### UI conventions
 - Icons: **lucide-preact** everywhere (`class="icon"`, spin via `.icon.spin`) — agent preset icons are stored data and stay as-is

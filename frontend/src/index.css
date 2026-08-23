@@ -1534,6 +1534,25 @@ textarea.agent-prompt-input {
 .unlock-badge:hover { background: rgba(234, 179, 8, 0.22); }
 .sidebar-footer .unlock-badge { margin-bottom: 2px; }
 
+/* ── Two-factor (TOTP) enrollment ── */
+.totp-enroll {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 10px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--bg);
+}
+.totp-qr { width: 150px; height: 150px; border-radius: 6px; background: #fff; padding: 4px; }
+.totp-manual { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.totp-secret {
+  font-family: ui-monospace, monospace; font-size: 0.78rem;
+  word-break: break-all; user-select: all;
+  color: var(--text-2); background: var(--bg-2, rgba(255,255,255,.04));
+  padding: 6px 8px; border-radius: 6px;
+}
+.login-otp, .settings-row .login-otp {
+  width: 130px; text-align: center;
+  letter-spacing: 0.45em; font-family: ui-monospace, monospace;
+}
+
 /* ── Providers lock badges / countdown ── */
 .badge-ok {
   display: inline-flex; align-items: center; gap: 5px;

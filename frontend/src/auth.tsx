@@ -14,7 +14,11 @@ interface AuthState {
   token: string | null;
   loading: boolean;
   hasUser: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<{ requires2fa?: boolean }>;
+  verify2fa: (code: string) => Promise<void>;
+  cancel2fa: () => void;
+  /** True between a password-verified login and the authenticator-code step. */
+  pending2fa: boolean;
   setup: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -24,7 +28,10 @@ const AuthContext = createContext<AuthState>({
   token: null,
   loading: true,
   hasUser: false,
-  login: async () => {},
+  login: async () => ({}),
+  verify2fa: async () => {},
+  cancel2fa: () => {},
+  pending2fa: false,
   setup: async () => {},
   logout: () => {},
 });
@@ -38,6 +45,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [hasUser, setHasUser] = useState(false);
+  const [pending2faToken, setPending2faToken] = useState<string | null>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem('wsd.token');
@@ -77,11 +85,36 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Login failed');
+    // Correct password + 2FA on → hold the pending token; the session is
+    // only issued after the authenticator-code step (verify2fa).
+    if (data.requires2fa && data.pendingToken) {
+      setPending2faToken(String(data.pendingToken));
+      return { requires2fa: true };
+    }
     localStorage.setItem('wsd.token', data.token);
     setToken(data.token);
     setUser({ id: data.id, username: data.username, createdAt: '' });
     setHasUser(true);
+    return {};
   }, []);
+
+  const verify2fa = useCallback(async (code: string) => {
+    if (!pending2faToken) throw new Error('No pending sign-in. Start again.');
+    const res = await fetch('/api/auth/login/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pendingToken: pending2faToken, code }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Invalid code');
+    setPending2faToken(null);
+    localStorage.setItem('wsd.token', data.token);
+    setToken(data.token);
+    setUser({ id: data.id, username: data.username, createdAt: '' });
+    setHasUser(true);
+  }, [pending2faToken]);
+
+  const cancel2fa = useCallback(() => setPending2faToken(null), []);
 
   const doSetup = useCallback(async (username: string, password: string) => {
     const res = await fetch('/api/auth/setup', {
@@ -212,7 +245,20 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
   }, [token]);
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, hasUser, login: doLogin, setup: doSetup, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        loading,
+        hasUser,
+        login: doLogin,
+        verify2fa,
+        cancel2fa,
+        pending2fa: !!pending2faToken,
+        setup: doSetup,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
