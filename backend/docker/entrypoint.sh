@@ -29,38 +29,11 @@ CODE_SERVER_PID=$!
 
 # ── opencode web (native UI, rooted at /workspaces) ───────────
 # Purge stale opencode projects BEFORE it starts: deleted WSD-Pro projects
-# must never haunt the opencode web UI. Its store is a SQLite db (project +
-# project_directory tables); cleaning it here, before `opencode web` launches,
-# avoids any locking concerns entirely.
+# must never haunt the opencode web UI. Shared python script also runs at
+# runtime (best-effort) on every project delete / janitor archive.
 OPENCODE_DB="$DATA_DIR/opencode/opencode/opencode.db"
 if [ -f "$OPENCODE_DB" ] && command -v python3 >/dev/null 2>&1; then
-  python3 - "$DATA_DIR" <<'PYEOF' || true
-import sqlite3, sys, os
-data = sys.argv[1]
-db = os.path.join(data, 'opencode', 'opencode', 'opencode.db')
-live_dir = os.path.join(data, 'projects')
-try:
-    con = sqlite3.connect(db, timeout=5)
-    cur = con.cursor()
-    rows = cur.execute('SELECT id, worktree FROM project').fetchall()
-    dead = []
-    for pid, wt in rows:
-        if not isinstance(wt, str) or not wt.startswith('/workspaces/'):
-            continue  # leave the global/root instance alone
-        slug = wt[len('/workspaces/'):].split('/')[0]
-        if not slug or slug.startswith('.'):
-            continue
-        if os.path.isfile(os.path.join(live_dir, slug, 'meta.json')):
-            continue  # still a live project
-        dead.append((pid, slug))
-    for pid, _slug in dead:
-        cur.execute('DELETE FROM project_directory WHERE project_id=?', (pid,))
-        cur.execute('DELETE FROM project WHERE id=?', (pid,))
-    con.commit()
-    print(f'WSD-Pro: purged {len(dead)} stale opencode project(s)')
-except Exception as e:
-    print(f'WSD-Pro: opencode db purge skipped ({e})')
-PYEOF
+  python3 /app/opencode-purge.py "$DATA_DIR" || true
 fi
 
 echo "WSD-Pro: starting opencode web on 0.0.0.0:${WSD_OPENCODE_PORT:-4096} (cwd /workspaces)"

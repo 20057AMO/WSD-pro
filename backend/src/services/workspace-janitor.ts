@@ -19,6 +19,7 @@
 import { listMetaSlugs } from './projects-meta';
 import { recordAudit } from './audit-store';
 import { sweepWorkspaces } from './janitor-core';
+import { purgeOpencodeProjectRows } from './opencode-store';
 
 const WORKSPACES_ROOT = process.env.WSD_PROJECTS_DIR || '/workspaces';
 const ARCHIVE_DAYS = Math.max(0, Number(process.env.WSD_ARCHIVE_DAYS ?? '7') || 0);
@@ -26,6 +27,7 @@ const INTERVAL_MS = Math.max(250, Number(process.env.WSD_JANITOR_INTERVAL_MS ?? 
 
 export function runSweep(): { archived: string[]; purged: string[] } {
   const r = sweepWorkspaces(WORKSPACES_ROOT, listMetaSlugs(), ARCHIVE_DAYS);
+  if (r.archived.length > 0) purgeOpencodeProjectRows(r.archived);
   if (r.archived.length > 0 || r.purged.length > 0) recordAudit('workspace-janitor', true);
   return r;
 }

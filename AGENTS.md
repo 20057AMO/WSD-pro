@@ -157,7 +157,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 ### Workspace janitor & IDE/opencode hygiene
 - Deleting a project now removes EVERYTHING: container + meta store **and its workspace files from disk** (`removeProject`); opencode sessions for that directory are deleted best-effort (`unregisterOpencodeProject`)
 - `services/workspace-janitor.ts` sweeps `/workspaces` at boot (+ every `WSD_JANITOR_INTERVAL_MS`, default 6h): dirs without a live meta store are MOVED to `/workspaces/.archive/<ts>-<slug>` and purged permanently after `WSD_ARCHIVE_DAYS` (default 7). Pure logic in `janitor-core.ts` (import-free so node --test can load it)
-- code-server is rooted at `/workspaces` — archived dot-dir keeps it ghost-free; `entrypoint.sh` registers ONLY live-project dirs into opencode and purges stale rows from its SQLite store (`project`/`project_directory`) BEFORE launching it via python3
+- code-server is rooted at `/workspaces` — archived dot-dir keeps it ghost-free; `entrypoint.sh` registers ONLY live-project dirs into opencode and purges stale rows from its SQLite store (`project`/`project_directory`) BEFORE launching it; `removeProject` and janitor archiving call `purgeOpencodeProjectRows` (`services/opencode-store.ts` → `docker/opencode-purge.py`) so deleted projects vanish from opencode immediately, no restart needed (covered by `tests/opencode-purge.test.ts`, self-skips without host python3)
 - Creating a project whose slug collides with an orphaned non-empty dir returns 409 (janitor archives it within minutes)
 - EmbeddedIDE no longer shows the cosmetic code-server password (server runs `--auth none`); Opencode page has a live-project picker (`POST /api/opencode/open` ensures a session exists)
 

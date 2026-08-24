@@ -12,6 +12,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { execSync, spawn, execFileSync } from 'child_process';
 import { loadMeta, saveMeta, deleteMeta, touchActivity, listMetaSlugs, type ProjectMeta } from './projects-meta';
+import { purgeOpencodeProjectRows } from './opencode-store';
 
 const docker = new Docker(); // uses /var/run/docker.sock by default
 
@@ -504,6 +505,7 @@ export async function removeProject(slug: string): Promise<void> {
   deleteMeta(projectSlug);
   removeWorkspaceDir(projectSlug);
   unregisterOpencodeProject(projectSlug);
+  purgeOpencodeProjectRows([projectSlug]);
 }
 
 /**

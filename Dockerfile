@@ -76,6 +76,10 @@ COPY code-server-settings.json /root/.config/code-server/User/settings.json
 COPY backend/docker/entrypoint.sh /app/entrypoint.sh
 RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
+# opencode SQLite purge helper (boot-time + runtime project deletes)
+COPY backend/docker/opencode-purge.py /app/opencode-purge.py
+RUN sed -i 's/\r$//' /app/opencode-purge.py
+
 EXPOSE 3000 8100 4096
 
 CMD ["/app/entrypoint.sh"]
