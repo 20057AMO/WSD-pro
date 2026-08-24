@@ -217,6 +217,7 @@ export const totpDisable = (accountPassword: string) =>
   api<{ ok: boolean }>('/api/auth/2fa/disable', {
     method: 'POST',
     body: JSON.stringify({ accountPassword }),
+    skipAuthRedirect: true,
   });
 
 /** Sign out of every session across all devices. */
@@ -224,11 +225,14 @@ export const apiLogoutAll = (accountPassword: string) =>
   api<{ ok: boolean }>('/api/auth/logout-all', {
     method: 'POST',
     body: JSON.stringify({ accountPassword }),
+    skipAuthRedirect: true,
   });
 
 export type ApiError = Error & { status?: number; code?: string };
 
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
+type ApiInit = RequestInit & { skipAuthRedirect?: boolean };
+
+async function api<T>(path: string, init?: ApiInit): Promise<T> {
   const merged: RequestInit = { ...init };
   const existingHeaders = new Headers(merged.headers || {});
   if (!existingHeaders.has('Authorization')) {
@@ -247,11 +251,6 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   merged.headers = existingHeaders;
 
   const res = await fetch(path, merged);
-  if (res.status === 401) {
-    localStorage.removeItem('wsd.token');
-    window.location.hash = '/login';
-    throw new Error('Session expired');
-  }
   let data: any = {};
   try {
     data = await res.json();
@@ -261,6 +260,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     if (res.status === 403 && data?.error === 'providers_locked') {
       clearProvidersUnlock();
+    }
+    // A 401 normally means the session died — but intentional password
+    // checks (providers unlock, sudo re-auth endpoints) opt out via
+    // skipAuthRedirect so a wrong password surfaces inline instead of
+    // logging the whole app out.
+    if (res.status === 401 && !init?.skipAuthRedirect) {
+      localStorage.removeItem('wsd.token');
+      window.location.hash = '/login';
+      throw new Error('Session expired');
     }
     const err = new Error(data?.error || `Request failed (HTTP ${res.status})`) as ApiError;
     err.code = data?.error;
@@ -440,16 +448,19 @@ export const unlockProviders = (password: string) =>
   api<{ ok: boolean; unlocked?: boolean; unlockToken?: string; expiresInSec?: number }>('/api/providers/unlock', {
     method: 'POST',
     body: JSON.stringify({ password }),
+    skipAuthRedirect: true,
   });
 export const setProvidersPassword = (accountPassword: string, newPassword: string) =>
   api<{ ok: boolean; enabled: boolean; unlockToken?: string; expiresInSec?: number }>('/api/auth/providers-password', {
     method: 'POST',
     body: JSON.stringify({ accountPassword, newPassword }),
+    skipAuthRedirect: true,
   });
 export const removeProvidersPassword = (accountPassword: string) =>
   api<{ ok: boolean; enabled: boolean }>('/api/auth/providers-password', {
     method: 'DELETE',
     body: JSON.stringify({ accountPassword }),
+    skipAuthRedirect: true,
   });
 
 // ── Security activity log ─────────────────────────────────────
@@ -474,11 +485,13 @@ export const exportSettings = (accountPassword: string): Promise<BackupFile> =>
   api<BackupFile>('/api/settings/export', {
     method: 'POST',
     body: JSON.stringify({ accountPassword }),
+    skipAuthRedirect: true,
   });
 export const importSettings = (accountPassword: string, backup: unknown) =>
   api<{ ok: boolean; imported: Record<string, number>; skipped: number }>('/api/settings/import', {
     method: 'POST',
     body: JSON.stringify({ accountPassword, backup }),
+    skipAuthRedirect: true,
   });
 
 export function uploadFiles(

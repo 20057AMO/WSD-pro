@@ -882,6 +882,10 @@ textarea.agent-prompt-input {
 .chat-save-msg {
   margin-top: 6px; font-size: 0.72rem; color: var(--green);
 }
+/* Info variant for providers unlock notices (e.g. "no password is set") */
+.unlock-info-note {
+  color: var(--yellow);
+}
 
 /* Project context chip + preview */
 .chat-ctx-row {

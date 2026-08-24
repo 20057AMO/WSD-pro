@@ -36,13 +36,35 @@ const TYPE_LABEL: Record<ProviderType, string> = {
   azure: 'Azure OpenAI',
 };
 
+// Last-known lock state from the server. Lets the page render the unlock gate
+// on the VERY FIRST paint (before any network round-trip) when protection is
+// on and no valid local token exists — provider data can never flash.
+const LOCK_KNOWN_KEY = 'wsd.providers.lockEnabled';
+
+function cachedLockEnabled(): boolean | null {
+  try {
+    const v = localStorage.getItem(LOCK_KNOWN_KEY);
+    if (v === '1') return true;
+    if (v === '0') return false;
+  } catch { /* storage unavailable */ }
+  return null;
+}
+
+function storeLockEnabled(enabled: boolean): void {
+  try { localStorage.setItem(LOCK_KNOWN_KEY, enabled ? '1' : '0'); } catch { /* ignore */ }
+}
+
 export function Providers() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
-  // Lock state: null = still checking
-  const [locked, setLocked] = useState<boolean | null>(null);
+  // Lock state: null = still checking. If the cached truth says a lock is
+  // enabled and no valid unlock token exists locally, start GATED — the
+  // strictest possible default that never leaks a single frame of content.
+  const [locked, setLocked] = useState<boolean | null>(() =>
+    cachedLockEnabled() === true && !getProvidersUnlock() ? true : null
+  );
   const [lockConfigured, setLockConfigured] = useState<boolean | null>(null);
   const [unlockPw, setUnlockPw] = useState('');
   const [unlockLoading, setUnlockLoading] = useState(false);
@@ -50,6 +72,7 @@ export function Providers() {
   const [, forceTick] = useState(0);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [relockWarn, setRelockWarn] = useState<string | null>(null);
+  const [unlockNotice, setUnlockNotice] = useState<{ type: 'ok' | 'info'; text: string } | null>(null);
 
   const refresh = async () => {
     try {
@@ -84,6 +107,10 @@ export function Providers() {
    */
   const handleMaybeLocked = (err: any): boolean => {
     if (err?.code === 'providers_locked') {
+      // A providers_locked response PROVES a lock exists server-side — sync
+      // the cached truth so future page opens gate instantly.
+      storeLockEnabled(true);
+      setLockConfigured(true);
       clearProvidersUnlock();
       setProviders([]);
       setLocked(true);
@@ -94,8 +121,11 @@ export function Providers() {
   };
 
   useEffect(() => {
+    let cancelled = false;
     getProvidersLockStatus()
       .then((r) => {
+        if (cancelled) return;
+        storeLockEnabled(r.enabled);
         setLockConfigured(r.enabled);
         if (r.enabled && !getProvidersUnlock()) {
           setLocked(true);
@@ -103,19 +133,20 @@ export function Providers() {
           refresh();
         }
         // First-visit guidance: when no lock password exists yet, explain what
-        // this page protects and offer to enable it. Dismissible for the tab session.
+        // this page protects and offer to enable it. Shown once per browser.
         if (!r.enabled) {
           try {
-            if (!sessionStorage.getItem('wsd.providers.onboarded')) setWelcomeOpen(true);
+            if (!localStorage.getItem('wsd.providers.onboarded')) setWelcomeOpen(true);
           } catch { /* storage unavailable */ }
         }
       })
-      .catch(() => refresh());
+      .catch(() => { if (!cancelled) refresh(); });
+    return () => { cancelled = true; };
   }, []);
 
   const dismissWelcome = () => {
     setWelcomeOpen(false);
-    try { sessionStorage.setItem('wsd.providers.onboarded', '1'); } catch { /* ignore */ }
+    try { localStorage.setItem('wsd.providers.onboarded', '1'); } catch { /* ignore */ }
   };
 
   // Esc dismisses the welcome modal.
@@ -135,17 +166,35 @@ export function Providers() {
     return () => clearInterval(t);
   }, [locked]);
 
-  // Auto-lock the view when the stored unlock expires.
+  // Auto-lock the view the moment the stored unlock expires. Checked every
+  // second, and again whenever the tab becomes visible or is restored from
+  // bfcache — an expired token must never leave content on screen, even
+  // briefly after sleep/wake or back/forward navigation.
   useEffect(() => {
     if (locked !== false) return;
-    const t = setInterval(() => {
+    const recheck = () => {
       if (!getProvidersUnlock()) {
         setLocked(true);
         setProviders([]);
       }
-    }, 5_000);
-    return () => clearInterval(t);
+    };
+    const onVisible = () => { if (!document.hidden) recheck(); };
+    const t = setInterval(recheck, 1000);
+    window.addEventListener('pageshow', recheck);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener('pageshow', recheck);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [locked]);
+
+  // Success/info notices fade out on their own.
+  useEffect(() => {
+    if (!unlockNotice) return;
+    const t = setTimeout(() => setUnlockNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [unlockNotice]);
 
   // Cross-tab sync: when another tab unlocks or locks, follow along.
   useEffect(() => {
@@ -170,21 +219,36 @@ export function Providers() {
     setUnlockLoading(true);
     setUnlockErr(null);
     try {
+      // skipAuthRedirect keeps a wrong providers password INLINE — the global
+      // session-expiry handler must never fire for this endpoint.
       const res = await unlockProviders(unlockPw);
       if (res.unlocked && !res.unlockToken) {
-        // No lock is configured server-side — nothing to enter here.
+        // Server has no providers password — explain instead of silently
+        // letting "any word" unlock the gate.
+        storeLockEnabled(false);
+        setLockConfigured(false);
         setUnlockPw('');
         setLocked(false);
+        setUnlockNotice({
+          type: 'info',
+          text: 'No providers password is set — protection is off. You can enable it from Settings → Providers Security.',
+        });
         await refresh();
         return;
       }
       if (!res.unlockToken) throw new Error('Incorrect providers password.');
+      const minutes = Math.max(1, Math.round((res.expiresInSec || 1800) / 60));
       setProvidersUnlock(res.unlockToken, res.expiresInSec || 1800);
+      storeLockEnabled(true);
+      setLockConfigured(true);
       setUnlockPw('');
       setLocked(false);
+      setUnlockNotice({ type: 'ok', text: `Unlocked · ${minutes} min` });
       await refresh();
     } catch (err: any) {
-      setUnlockErr(err.message || 'Unlock failed');
+      // Wrong password, cooldown, network — all stay on this page with an
+      // inline message. The session is untouched.
+      setUnlockErr(err?.message || 'Unlock failed');
     } finally {
       setUnlockLoading(false);
     }
@@ -202,6 +266,7 @@ export function Providers() {
     }
     clearProvidersUnlock();
     setProviders([]);
+    setUnlockNotice(null);
     setLocked(true);
     if (!serverLocked) {
       setRelockWarn(
@@ -249,15 +314,16 @@ export function Providers() {
         <div class="hero">
           <span class="hero-badge"><KeyRound width={12} height={12} /> Providers</span>
           <h1 class="hero-title" style="font-size: 1.5rem">Providers</h1>
-          <p class="hero-sub">This page is protected by an additional password.</p>
+          <p class="hero-sub">Protection is enabled for this page.</p>
         </div>
         <div class="modal-overlay static-overlay">
           <form class="modal-card unlock-card" onSubmit={doUnlock}>
             <div class="reauth-avatar" aria-hidden="true"><Lock width={24} height={24} /></div>
             <div class="reauth-title" style="text-align:center;">Providers locked</div>
             <p class="settings-hint" style="text-align:center;">
-              API keys are protected by an extra password. Enter your Providers
-              password — the page stays open for 30 minutes.
+              A second-layer password protects your API keys. Enter the
+              Providers password — the page stays open for 30 minutes.
+              A wrong attempt keeps you signed in.
             </p>
             <input
               class="modern-input"
@@ -325,6 +391,12 @@ export function Providers() {
           <span class="icon-wrap"><Plus width={13} height={13} /></span> Add provider
         </button>
       </div>
+
+      {unlockNotice && (
+        <div class={`chat-save-msg${unlockNotice.type === 'info' ? ' unlock-info-note' : ''}`} style="margin-bottom: 12px">
+          {unlockNotice.text}
+        </div>
+      )}
 
       {error && <div class="chat-save-msg" style="margin-bottom: 12px">{error}</div>}
 
