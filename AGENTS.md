@@ -144,7 +144,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 
 ### UI conventions
 - Icons: **lucide-preact** everywhere (`class="icon"`, spin via `.icon.spin`) — agent preset icons are stored data and stay as-is
-- **ConfirmModal** replaces native `window.confirm()` for destructive actions (project delete single/bulk, container restart/recreate, file delete) — dark modal matching ReAuthModal; danger variant shows warning avatar + red button and the title always names the exact target
+- **ConfirmModal** replaces native `window.confirm()` for destructive/sensitive actions (project delete single/bulk, container restart/recreate, file delete, provider delete, agent delete, unlock-badge "Lock now") — dark modal matching ReAuthModal; danger variant shows warning avatar + red button and the title always names the exact target; in-app notices replace `alert()` (e.g. IDE-not-running yellow banner)
 - App theme: **dark mode only**
 - Version string: `2.0.0-beta` (health, server/info, About panel, backups all aligned)
 

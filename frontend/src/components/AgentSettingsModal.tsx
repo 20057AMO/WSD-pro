@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { X, Loader2 } from 'lucide-preact';
 import { updateAgent, deleteAgent, getChatModels, getChatInfo, type AgentDef } from '../api';
+import { ConfirmModal } from './ConfirmModal';
 
 interface ProviderBrief {
   id: string;
@@ -31,6 +32,7 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
   const [loadingModels, setLoadingModels] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -84,8 +86,9 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm(`Delete agent "${name}"? This cannot be undone.`)) return;
+  const handleDelete = () => setConfirmDelete(true);
+
+  const runDelete = async () => {
     if (deleting) return;
     setDeleting(true);
     try {
@@ -215,6 +218,17 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
           </button>
         </div>
       </div>
+
+      <ConfirmModal
+        open={confirmDelete}
+        danger
+        loading={deleting}
+        title={`Delete agent '${name.trim() || agent.name}'?`}
+        message="The agent and its settings are removed permanently."
+        confirmLabel="Delete"
+        onConfirm={runDelete}
+        onCancel={() => { if (!deleting) setConfirmDelete(false); }}
+      />
     </div>
   );
 }

@@ -15,6 +15,7 @@ import {
 } from 'lucide-preact';
 import { AuthProvider, useAuth } from './auth';
 import { Login } from './views/Login';
+import { ConfirmModal } from './components/ConfirmModal';
 import {
   getProvidersLockStatus,
   getProvidersUnlock,
@@ -97,6 +98,7 @@ function navigate(href: string): void {
  */
 function ProvidersUnlockBadge() {
   const [mins, setMins] = useState<number | null>(null);
+  const [askRelock, setAskRelock] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -127,18 +129,29 @@ function ProvidersUnlockBadge() {
 
   if (mins === null) return null;
 
-  const relock = async () => {
-    if (!confirm('Re-lock the Providers page now?')) return;
+  const relock = () => setAskRelock(true);
+
+  const runRelock = async () => {
     try { await relockProviders(); } catch { /* ignore — local clear still applies */ }
     clearProvidersUnlock();
     setMins(null);
   };
 
   return (
-    <button class="unlock-badge" title="Providers page is unlocked — click to re-lock" onClick={relock}>
-      <Unlock width={11} height={11} />
-      <span>Providers · {mins}m</span>
-    </button>
+    <>
+      <button class="unlock-badge" title="Providers page is unlocked — click to re-lock" onClick={relock}>
+        <Unlock width={11} height={11} />
+        <span>Providers · {mins}m</span>
+      </button>
+      <ConfirmModal
+        open={askRelock}
+        title="Re-lock Providers now?"
+        message="Every open tab loses access to the Providers page immediately."
+        confirmLabel="Lock now"
+        onConfirm={runRelock}
+        onCancel={() => setAskRelock(false)}
+      />
+    </>
   );
 }
 

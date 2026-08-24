@@ -93,6 +93,14 @@ export function Project({ params }: { params: { slug: string } }) {
   const [liveStats, setLiveStats] = useState<ProjectStats | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [confirmRestart, setConfirmRestart] = useState(false);
+  const [ideNotice, setIdeNotice] = useState<string | null>(null);
+
+  // Transient notices fade out on their own.
+  useEffect(() => {
+    if (!ideNotice) return;
+    const t = setTimeout(() => setIdeNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [ideNotice]);
 
   const load = async () => {
     try {
@@ -215,7 +223,7 @@ export function Project({ params }: { params: { slug: string } }) {
 
   const openIde = () => {
     if (!ideRunning) {
-      alert('Web IDE is not running yet.');
+      setIdeNotice('Web IDE is not running yet.');
       return;
     }
     const folder = subdirInfo?.hostPath || `/workspaces/${slug}`;
@@ -246,6 +254,7 @@ export function Project({ params }: { params: { slug: string } }) {
   return (
     <div class="view">
       {error && <div class="login-error" style="margin-bottom: 12px">{error}</div>}
+      {ideNotice && <div class="chat-save-msg unlock-info-note" style="margin-bottom: 12px">{ideNotice}</div>}
 
       <div class="detail-topbar">
         <button class="btn-ghost sm" onClick={() => setLocation('/projects')}>← Projects</button>

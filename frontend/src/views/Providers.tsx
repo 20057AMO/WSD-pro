@@ -8,6 +8,7 @@ import {
   Plus,
   Timer,
 } from 'lucide-preact';
+import { ConfirmModal } from '../components/ConfirmModal';
 import {
   getProviders,
   getProviderTemplates,
@@ -479,6 +480,7 @@ function ProviderCard({
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ok: boolean; msg: string} | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const busyRef = useRef(false);
 
   // Track dirty state: true if any field differs from the original provider prop.
@@ -543,9 +545,10 @@ function ProviderCard({
     }
   };
 
-  const remove = async () => {
+  const remove = () => setConfirmDelete(true);
+
+  const runDelete = async () => {
     if (busyRef.current || deleting) return;
-    if (!window.confirm(`Delete provider "${provider.name}"?`)) return;
     busyRef.current = true;
     setDeleting(true);
     try {
@@ -625,6 +628,17 @@ function ProviderCard({
       {testResult && (
         <div class={`terminal-line ${testResult.ok ? 't-ok' : 'login-error'}`} style="margin-top: 8px">{testResult.msg}</div>
       )}
+
+      <ConfirmModal
+        open={confirmDelete}
+        danger
+        loading={deleting}
+        title={`Delete provider '${provider.name}'?`}
+        message="The configuration and its stored API key are removed."
+        confirmLabel="Delete"
+        onConfirm={runDelete}
+        onCancel={() => { if (!deleting) setConfirmDelete(false); }}
+      />
     </div>
   );
 }
