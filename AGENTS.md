@@ -134,6 +134,9 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Masked-key echo guard rejects both pure bullets and the displayed `<8 bullets><last4>` shape
 - Provider ids are own-property checked (`__proto__` etc. → 404); `providers.json` / `users.json` / `audit.json` persist with mode 0600
 - Startup banner warns when `JWT_SECRET` is missing or a known default
+- CORS is **opt-in** via `WSD_CORS_ORIGINS` (comma-separated allowlist) — no env set means no ACAO headers at all; the UI is always same-origin (vite dev proxies `/api` + `/ws`), so a wildcard would only ever help attacker sites read the authenticated API
+- Provider health-check cache keys hash the API key with SHA-256 — raw secrets never sit in memory-map keys
+- Chat markdown href filter is a scheme **whitelist** (`http:`/`https:`/`mailto:`/`#`/`/`) after stripping control chars, so `java\tscript:` obfuscation can't reach the DOM
 
 ### UI conventions
 - Icons: **lucide-preact** everywhere (`class="icon"`, spin via `.icon.spin`) — agent preset icons are stored data and stay as-is

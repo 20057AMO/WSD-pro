@@ -13,6 +13,11 @@ describe('WSD-Pro API Smoke Tests', () => {
     assert.strictEqual(data.status, 'ok');
   });
 
+  test('CORS is opt-in - no wildcard ACAO header leaks to any origin', async () => {
+    const res = await req('GET', '/health');
+    assert.strictEqual(res.headers.get('access-control-allow-origin'), null, 'wildcard CORS must be off by default');
+  });
+
   test('GET /projects - should list projects', async () => {
     const res = await reqAuth('GET', '/projects');
     assert.strictEqual(res.status, 200, `Expected 200, got ${res.status}`);

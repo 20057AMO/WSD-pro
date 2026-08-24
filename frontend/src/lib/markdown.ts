@@ -21,8 +21,11 @@ export function sanitizeHtml(html: string): string {
     for (const a of Array.from(el.attributes)) {
       if (allowedAttrs.has(a.name)) {
         if (tag === 'A' && a.name === 'href') {
-          const v = a.value.trim().toLowerCase();
-          if (v.startsWith('javascript:') || v.startsWith('data:')) continue;
+          // Browsers strip tab/newline/CR (and other control chars) out of URLs
+          // before scheme resolution, so "java\tscript:" would slip past a naive
+          // prefix check. Whitelist safe schemes instead of blacklisting bad ones.
+          const v = a.value.replace(/[\x00-\x20\x7f]/g, '').toLowerCase();
+          if (!(/^(https?:|mailto:)/.test(v) || v.startsWith('#') || v.startsWith('/'))) continue;
         }
         attrs += ` ${a.name}="${a.value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`;
       }

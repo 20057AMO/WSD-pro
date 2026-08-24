@@ -5,6 +5,7 @@
  * each candidate endpoint until one responds with HTTP 200.
  */
 
+import { createHash } from 'crypto';
 import {
   AZURE_API_VERSION,
   KNOWN_TEMPLATES,
@@ -267,7 +268,9 @@ export async function checkProvider(
   auth?: AuthMode
 ): Promise<CheckResult> {
   assertFetchableHost(host);
-  const cacheKey = `${type}|${normalizeHost(host)}|${auth || 'bearer'}|${apiKey}`;
+  // Cache keys must never hold the raw secret — hash it so a memory dump or
+  // accidental key logging can't surface provider credentials.
+  const cacheKey = `${type}|${normalizeHost(host)}|${auth || 'bearer'}|${createHash('sha256').update(apiKey).digest('hex')}`;
   const hit = checkCache.get(cacheKey);
   if (hit && Date.now() - hit.at < CHECK_CACHE_TTL_MS) return hit.result;
   const result = await runCheck(type, host, apiKey, auth);

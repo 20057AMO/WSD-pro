@@ -115,7 +115,23 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 // Helmet (CSP off — the UI is served from the same origin)
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors());
+// CORS is opt-in via WSD_CORS_ORIGINS (comma-separated). The UI is always
+// same-origin (served by this server; vite dev proxies /api and /ws), so the
+// wildcard default of `cors()` would hand every website read access to the
+// authenticated API. With no env set no ACAO headers are emitted at all.
+const corsOrigins = String(process.env.WSD_CORS_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+if (corsOrigins.length > 0) {
+  app.use(
+    cors({
+      origin(origin, cb) {
+        cb(null, !origin || corsOrigins.includes(origin));
+      },
+    })
+  );
+}
 app.use(express.json({ limit: '10mb' }));
 
 // ── Rate limiting (simple in-memory, per IP, per scope) ───────
