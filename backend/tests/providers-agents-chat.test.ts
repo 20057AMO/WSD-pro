@@ -11,13 +11,31 @@ describe('Providers / Agents / Chat sessions CRUD', () => {
   const agentName = uniqueId('agent');
   let agentId = '';
 
+  // Provider MANAGEMENT endpoints are gated by the optional Providers Security
+  // Lock. When the target server has that lock enabled we cannot know its
+  // password, so provider CRUD subtests self-skip (same convention as the
+  // credential-gated suites); agents/chat are never blocked by the lock.
+  let lockedProbe: boolean | null = null;
+  const providersLocked = async (): Promise<boolean> => {
+    if (lockedProbe === null) {
+      try {
+        const res = await reqAuth('GET', '/providers');
+        lockedProbe = res.status === 403;
+      } catch {
+        lockedProbe = false;
+      }
+    }
+    return lockedProbe;
+  };
+
   after(async () => {
     if (providerId) { try { await reqAuth('DELETE', `/providers/${providerId}`); } catch { /* best effort */ } }
     if (agentId) { try { await reqAuth('DELETE', `/agents/${agentId}`); } catch { /* best effort */ } }
   });
 
   // ── Providers ──────────────────────────────────────────────
-  test('stale providers from earlier runs are removed', async () => {
+  test('stale providers from earlier runs are removed', async (t) => {
+    if (await providersLocked()) return t.skip('providers lock enabled on this server');
     const res = await reqAuth('GET', '/providers');
     assert.strictEqual(res.status, 200);
     const { providers } = await res.json();
@@ -35,7 +53,8 @@ describe('Providers / Agents / Chat sessions CRUD', () => {
     assert.ok(Array.isArray(data.templates));
   });
 
-  test('create provider (disabled, fake key) → listed', async () => {
+  test('create provider (disabled, fake key) → listed', async (t) => {
+    if (await providersLocked()) return t.skip('providers lock enabled on this server');
     const res = await reqAuth('POST', '/providers', {
       name: providerName,
       host: `https://${runId}.crud-test.invalid`,
@@ -53,14 +72,16 @@ describe('Providers / Agents / Chat sessions CRUD', () => {
     assert.ok(data2.providers.some((p: any) => p.id === providerId));
   });
 
-  test('update provider name → reflected', async () => {
+  test('update provider name → reflected', async (t) => {
+    if (await providersLocked()) return t.skip('providers lock enabled on this server');
     const res = await reqAuth('PUT', `/providers/${providerId}`, { name: `${providerName}-v2` });
     assert.strictEqual(res.status, 200);
     const data = await res.json();
     assert.strictEqual(data.provider.name, `${providerName}-v2`);
   });
 
-  test('delete provider → gone from list', async () => {
+  test('delete provider → gone from list', async (t) => {
+    if (await providersLocked()) return t.skip('providers lock enabled on this server');
     const res = await reqAuth('DELETE', `/providers/${providerId}`);
     assert.strictEqual(res.status, 200);
     providerId = '';

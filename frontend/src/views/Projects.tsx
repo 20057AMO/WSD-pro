@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
 import { FolderSearch } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
+import { ConfirmModal } from '../components/ConfirmModal';
 import {
   listProjects,
   createProject,
@@ -36,6 +37,11 @@ export function Projects() {
   const [ports, setPorts] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  // Styled destructive-confirm (replaces native window.confirm).
+  type ConfirmState = { kind: 'bulk-delete'; slugs: string[] } | { kind: 'delete'; slug: string };
+  const [confirmState, setConfirm] = useState<ConfirmState | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const refresh = async () => {
     try {
@@ -162,16 +168,41 @@ export function Projects() {
 
   const bulkAction = async (action: 'start' | 'stop' | 'delete') => {
     const slugs = [...selected];
-    if (action === 'delete' && !confirm(`Delete ${slugs.length} project(s)? Workspace files are kept.`)) return;
+    if (action === 'delete') {
+      if (slugs.length === 0) return;
+      setConfirm({ kind: 'bulk-delete', slugs });
+      return;
+    }
     for (const slug of slugs) {
       try {
         if (action === 'start') await startProject(slug);
         else if (action === 'stop') await stopProject(slug);
-        else if (action === 'delete') await deleteProject(slug);
       } catch { /* continue */ }
     }
     setSelected(new Set());
     await refresh();
+  };
+
+  const runConfirmed = async () => {
+    if (!confirmState || confirmBusy) return;
+    setConfirmBusy(true);
+    try {
+      if (confirmState.kind === 'bulk-delete') {
+        for (const slug of confirmState.slugs) {
+          try { await deleteProject(slug); } catch { /* continue */ }
+        }
+        setSelected(new Set());
+      } else {
+        await deleteProject(confirmState.slug);
+      }
+      setConfirm(null);
+      await refresh();
+    } catch (err: any) {
+      setLoadError(err.message);
+      setConfirm(null);
+    } finally {
+      setConfirmBusy(false);
+    }
   };
 
   const handleCreate = async (e: Event) => {
@@ -208,8 +239,8 @@ export function Projects() {
       if (action === 'start') await startProject(slug);
       else if (action === 'stop') await stopProject(slug);
       else if (action === 'delete') {
-        if (!confirm(`Delete project '${slug}'? Workspace files are kept.`)) return;
-        await deleteProject(slug);
+        setConfirm({ kind: 'delete', slug });
+        return;
       }
       await refresh();
     } catch (err: any) {
@@ -401,6 +432,21 @@ export function Projects() {
           </div>
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmState}
+        danger
+        loading={confirmBusy}
+        title={
+          confirmState?.kind === 'bulk-delete'
+            ? `Delete ${confirmState.slugs.length} project(s)?`
+            : `Delete project '${confirmState?.kind === 'delete' ? confirmState.slug : ''}'?`
+        }
+        message="The container is removed. Workspace files are kept."
+        confirmLabel="Delete"
+        onConfirm={runConfirmed}
+        onCancel={() => { if (!confirmBusy) setConfirm(null); }}
+      />
     </div>
   );
 }

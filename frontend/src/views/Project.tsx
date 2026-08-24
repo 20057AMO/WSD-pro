@@ -36,6 +36,7 @@ import type {
 } from '../api';
 import { ProjectTerminal } from '../components/ProjectTerminal';
 import { ProjectChat } from '../components/ProjectChat';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 type Tab = 'overview' | 'chat' | 'files' | 'logs' | 'terminal' | 'scripts';
 
@@ -91,6 +92,7 @@ export function Project({ params }: { params: { slug: string } }) {
   const [subdirInfo, setSubdirInfo] = useState<SubdirInfo | null>(null);
   const [liveStats, setLiveStats] = useState<ProjectStats | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
+  const [confirmRestart, setConfirmRestart] = useState(false);
 
   const load = async () => {
     try {
@@ -197,7 +199,11 @@ export function Project({ params }: { params: { slug: string } }) {
   };
 
   const handleRestart = async () => {
-    if (!confirm(`Restart project '${slug}'? (stops and starts the container)`)) return;
+    setConfirmRestart(true);
+  };
+
+  const runRestart = async () => {
+    setConfirmRestart(false);
     try {
       await stopProject(slug);
       await startProject(slug);
@@ -293,6 +299,16 @@ export function Project({ params }: { params: { slug: string } }) {
       {tab === 'logs' && <LogsPanel slug={slug} />}
       {tab === 'terminal' && <ProjectTerminal slug={slug} />}
       {tab === 'scripts' && <ScriptsPanel slug={slug} />}
+
+      <ConfirmModal
+        open={confirmRestart}
+        danger={false}
+        title={`Restart project '${slug}'?`}
+        message="The container stops and starts again. Workspace files are kept."
+        confirmLabel="Restart"
+        onConfirm={runRestart}
+        onCancel={() => setConfirmRestart(false)}
+      />
     </div>
   );
 }
@@ -332,6 +348,7 @@ function OverviewPanel({
   const [recreating, setRecreating] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [confirmRecreate, setConfirmRecreate] = useState(false);
 
   // Prefer liveStats from WebSocket; fall back to polling
   const effectiveStats = liveStats || stats;
@@ -437,7 +454,6 @@ function OverviewPanel({
   };
 
   const doRecreate = async () => {
-    if (!confirm('Recreate the container? It will be stopped and rebuilt from its image. Workspace files are kept.')) return;
     setRecreating(true);
     try {
       await recreateProject(slug);
@@ -446,7 +462,13 @@ function OverviewPanel({
       onError(err.message);
     } finally {
       setRecreating(false);
+      setConfirmRecreate(false);
     }
+  };
+
+  const requestRecreate = () => {
+    if (recreating) return;
+    setConfirmRecreate(true);
   };
 
   const doDelete = async () => {
@@ -617,7 +639,7 @@ function OverviewPanel({
           />
           <div style="display:flex; gap:8px; margin-top:10px; align-items:center">
             <button class="btn-primary sm" onClick={saveEnv}>Save env</button>
-            <button class="btn-ghost sm" onClick={doRecreate} disabled={recreating}>
+            <button class="btn-ghost sm" onClick={requestRecreate} disabled={recreating}>
               {recreating ? 'Recreating…' : 'Recreate container'}
             </button>
             {envMsg && <span class="dim" style="color: var(--text-3); font-size:0.74rem">{envMsg}</span>}
@@ -662,6 +684,17 @@ function OverviewPanel({
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        open={confirmRecreate}
+        danger
+        loading={recreating}
+        title={`Recreate container for '${slug}'?`}
+        message="The container stops and is rebuilt from its image. Workspace files are kept."
+        confirmLabel="Recreate"
+        onConfirm={doRecreate}
+        onCancel={() => { if (!recreating) setConfirmRecreate(false); }}
+      />
     </div>
   );
 }
@@ -680,6 +713,7 @@ function FilesPanel({ slug }: { slug: string }) {
   const [fileMsg, setFileMsg] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState<string | null>(null);
+  const [confirmDeleteFile, setConfirmDeleteFile] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const loadSeqRef = useRef(0);
 
@@ -767,8 +801,14 @@ function FilesPanel({ slug }: { slug: string }) {
   };
 
   const remove = async (name: string) => {
+    setConfirmDeleteFile(name);
+  };
+
+  const runRemoveFile = async () => {
+    const name = confirmDeleteFile;
+    if (!name) return;
     const p = cwd ? `${cwd}/${name}` : name;
-    if (!confirm(`Delete ${p}?`)) return;
+    setConfirmDeleteFile(null);
     try {
       await deleteProjectFile(slug, p);
       if (previewName === p) {
@@ -899,6 +939,16 @@ function FilesPanel({ slug }: { slug: string }) {
           )}
         </div>
       )}
+
+      <ConfirmModal
+        open={!!confirmDeleteFile}
+        danger
+        title={`Delete ${cwd ? `${cwd}/${confirmDeleteFile}` : confirmDeleteFile}?`}
+        message="This file is removed from the workspace permanently."
+        confirmLabel="Delete file"
+        onConfirm={runRemoveFile}
+        onCancel={() => setConfirmDeleteFile(null)}
+      />
     </div>
   );
 }

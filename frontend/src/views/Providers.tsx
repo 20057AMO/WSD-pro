@@ -73,6 +73,8 @@ export function Providers() {
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [relockWarn, setRelockWarn] = useState<string | null>(null);
   const [unlockNotice, setUnlockNotice] = useState<{ type: 'ok' | 'info'; text: string } | null>(null);
+  // Why the gate is showing right now — so an unexpected lock is never silent.
+  const [lockReason, setLockReason] = useState<'idle' | 'expired' | null>(null);
 
   const refresh = async () => {
     try {
@@ -174,6 +176,7 @@ export function Providers() {
     if (locked !== false) return;
     const recheck = () => {
       if (!getProvidersUnlock()) {
+        setLockReason('expired');
         setLocked(true);
         setProviders([]);
       }
@@ -196,6 +199,18 @@ export function Providers() {
     return () => clearTimeout(t);
   }, [unlockNotice]);
 
+  // When the gate appears, explain WHY: idle auto-relock leaves a per-tab
+  // breadcrumb in auth.tsx; a locally-detected token expiry sets 'expired'.
+  useEffect(() => {
+    if (locked !== true) return;
+    let idle = false;
+    try {
+      idle = sessionStorage.getItem('wsd.providers.autoRelocked') === '1';
+      sessionStorage.removeItem('wsd.providers.autoRelocked');
+    } catch { /* ignore */ }
+    if (idle) setLockReason((cur) => cur ?? 'idle');
+  }, [locked]);
+
   // Cross-tab sync: when another tab unlocks or locks, follow along.
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
@@ -205,6 +220,7 @@ export function Providers() {
         setLocked(true);
         setProviders([]);
       } else if (has) {
+        setLockReason(null);
         setLocked(false);
         refresh();
       }
@@ -242,6 +258,8 @@ export function Providers() {
       storeLockEnabled(true);
       setLockConfigured(true);
       setUnlockPw('');
+      setUnlockErr(null);
+      setLockReason(null);
       setLocked(false);
       setUnlockNotice({ type: 'ok', text: `Unlocked · ${minutes} min` });
       await refresh();
@@ -267,6 +285,7 @@ export function Providers() {
     clearProvidersUnlock();
     setProviders([]);
     setUnlockNotice(null);
+    setLockReason(null);
     setLocked(true);
     if (!serverLocked) {
       setRelockWarn(
@@ -314,7 +333,13 @@ export function Providers() {
         <div class="hero">
           <span class="hero-badge"><KeyRound width={12} height={12} /> Providers</span>
           <h1 class="hero-title" style="font-size: 1.5rem">Providers</h1>
-          <p class="hero-sub">Protection is enabled for this page.</p>
+          <p class="hero-sub">
+            {lockReason === 'idle'
+              ? 'Auto-relocked after inactivity — enter the Providers password to continue.'
+              : lockReason === 'expired'
+                ? 'Your unlock window ended — enter the Providers password to continue.'
+                : 'Protection is enabled for this page.'}
+          </p>
         </div>
         <div class="modal-overlay static-overlay">
           <form class="modal-card unlock-card" onSubmit={doUnlock}>

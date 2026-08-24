@@ -232,6 +232,9 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
         clearInterval(checker);
         events.forEach((ev) => window.removeEventListener(ev, markActive));
         window.removeEventListener('storage', onStorage);
+        // Leave a per-tab breadcrumb so the Providers page can explain WHY it
+        // just locked ("after inactivity") instead of a silent gate.
+        try { sessionStorage.setItem('wsd.providers.autoRelocked', '1'); } catch { /* ignore */ }
         relockProviders().catch(() => {});
         clearProvidersUnlock();
       }

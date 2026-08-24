@@ -1640,6 +1640,12 @@ input[type="file"].modern-file::file-selector-button {
   border: 1px solid var(--border-2);
   color: var(--text-2);
 }
+/* Danger variant for destructive-confirm modals */
+.confirm-danger-avatar {
+  background: rgba(248, 81, 73, 0.12);
+  border-color: rgba(248, 81, 73, 0.45);
+  color: #f85149;
+}
 .reauth-username {
   text-align: center; font-weight: 600; font-size: 0.9rem;
   color: var(--text);

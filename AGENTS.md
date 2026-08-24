@@ -112,6 +112,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - **Strict instant gate (frontend)**: Providers page persists last-known lock state in `localStorage['wsd.providers.lockEnabled']` — when a lock is known-enabled and no valid local token exists, the gate renders on first paint before any network call, so provider content can never flash. Expiry is re-checked every 1s plus on `pageshow`/`visibilitychange` (bfcache/sleep-wake safe)
 - **Wrong-password never logs out**: every intentional password-verification call (`unlockProviders`, providers-password set/remove, logout-all, settings export/import, 2FA disable) passes `skipAuthRedirect: true` so its 401 surfaces as an inline message instead of triggering the global session-expiry handler in `api()` (which wipes the token and redirects to `/login`)
 - Unlock feedback: success shows an "Unlocked · N min" notice; the no-lock-configured case (`{unlocked:true}` without a token) explains that protection is off instead of silently accepting any word; welcome modal ("Protect your API keys") shows once per browser (`wsd.providers.onboarded` in localStorage)
+- **Gate never silent**: when the gate appears it says why — `Auto-relocked after inactivity.` (idle timer breadcrumb in `sessionStorage['wsd.providers.autoRelocked']`, set by auth.tsx) or `Your unlock window ended.` (1s tick expiry detection)
 - `POST /api/providers/unlock` is brute-force guarded by a **dedicated `unlock` limiter scope (15/min)** plus a progressive cooldown (5 consecutive failures per IP → 15-min window returning `429` + `Retry-After`, in-memory, reset on success); audited (`providers-unlock` / `providers-unlock-failed` / `providers-unlock-cooldown`)
 - **Scoped tokens are never sessions**: `verifyToken` rejects any JWT carrying a `scope` claim, so providers-unlock and 2FA-pending tokens cannot authenticate generic routes even though they share the signing secret
 - **Auto-relock**: Settings → Idle security offers an idle timer ('off'/5/15/30 min, stored as `wsd.providersAutoRelock`) that calls relock + clears the local token after inactivity; same activity-throttle + cross-tab storage-sync machinery as auto-logout
@@ -143,6 +144,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 
 ### UI conventions
 - Icons: **lucide-preact** everywhere (`class="icon"`, spin via `.icon.spin`) — agent preset icons are stored data and stay as-is
+- **ConfirmModal** replaces native `window.confirm()` for destructive actions (project delete single/bulk, container restart/recreate, file delete) — dark modal matching ReAuthModal; danger variant shows warning avatar + red button and the title always names the exact target
 - App theme: **dark mode only**
 - Version string: `2.0.0-beta` (health, server/info, About panel, backups all aligned)
 
