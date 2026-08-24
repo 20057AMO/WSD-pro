@@ -309,6 +309,7 @@ export interface StudioItem {
   name: string;
   description: string;
   mode?: string;
+  agent?: string;
 }
 export interface StudioVersionInfo {
   current: string;
@@ -338,6 +339,21 @@ export const saveStudioSkill = (name: string, content: string) =>
   });
 export const deleteStudioSkill = (name: string) =>
   api<{ ok: boolean }>(`/api/opencode-studio/skills/${encodeURIComponent(name)}`, { method: 'DELETE' });
+
+export const listStudioCommands = () => api<{ commands: StudioItem[] }>('/api/opencode-studio/commands');
+
+export const getStudioCommand = (name: string) =>
+  api<{ name: string; content: string }>(`/api/opencode-studio/commands/${encodeURIComponent(name)}`);
+
+export const saveStudioCommand = (name: string, content: string) =>
+  api<{ ok: boolean }>(`/api/opencode-studio/commands/${encodeURIComponent(name)}`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+
+export const deleteStudioCommand = (name: string) =>
+  api<{ ok: boolean }>(`/api/opencode-studio/commands/${encodeURIComponent(name)}`, { method: 'DELETE' });
+
 export const getStudioConfig = () => api<Record<string, unknown>>('/api/opencode-studio/config');
 export const updateStudioConfig = (patch: Record<string, unknown>) =>
   api<Record<string, unknown>>('/api/opencode-studio/config', {

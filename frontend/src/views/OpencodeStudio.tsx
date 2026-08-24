@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks';
-import { ArrowLeft, Bot, Sparkles, SlidersHorizontal, RefreshCw, CheckCircle2, ArrowUpCircle, Lock, Trash2, Plus, Save } from 'lucide-preact';
+import { ArrowLeft, Bot, Sparkles, SlidersHorizontal, RefreshCw, CheckCircle2, ArrowUpCircle, Lock, Trash2, Plus, Save, Terminal } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
 import {
@@ -11,6 +11,10 @@ import {
   getStudioSkill,
   saveStudioSkill,
   deleteStudioSkill,
+  listStudioCommands,
+  getStudioCommand,
+  saveStudioCommand,
+  deleteStudioCommand,
   getStudioConfig,
   updateStudioConfig,
   getStudioVersion,
@@ -19,7 +23,7 @@ import {
   type StudioVersionInfo,
 } from '../api';
 
-type Tab = 'agents' | 'skills' | 'config';
+type Tab = 'agents' | 'skills' | 'commands' | 'config';
 
 const AGENT_TEMPLATE = `---
 description: What this subagent does (shown to the model for selection)
@@ -49,6 +53,18 @@ Use when ...
 ## Steps
 1. ...
 2. ...
+`;
+
+const COMMAND_TEMPLATE = `---
+description: What this slash command does (shown in the command menu)
+agent: code-reviewer
+---
+
+Run the task described by the user:
+
+$ARGUMENTS
+
+State the expected output format and any constraints here.
 `;
 
 export function OpencodeStudio() {
@@ -81,21 +97,16 @@ export function OpencodeStudio() {
 
   const loadList = (which: Tab) => {
     setLoading(true);
-    if (which === 'skills') {
-      listStudioSkills()
-        .then((r) => {
-          setItems(r.skills || []);
-          setLoading(false);
-        })
-        .catch(() => setLoading(false));
-    } else {
-      listStudioAgents()
-        .then((r) => {
-          setItems(r.agents || []);
-          setLoading(false);
-        })
-        .catch(() => setLoading(false));
-    }
+    const p =
+      which === 'skills'
+        ? listStudioSkills().then((r) => r.skills || [])
+        : which === 'commands'
+          ? listStudioCommands().then((r) => r.commands || [])
+          : listStudioAgents().then((r) => r.agents || []);
+    p.then((list) => {
+      setItems(list);
+      setLoading(false);
+    }).catch(() => setLoading(false));
   };
 
   useEffect(() => {
@@ -117,7 +128,9 @@ export function OpencodeStudio() {
 
   const openItem = async (name: string) => {
     try {
-      const r = tab === 'skills' ? await getStudioSkill(name) : await getStudioAgent(name);
+      const getter =
+        tab === 'skills' ? getStudioSkill : tab === 'commands' ? getStudioCommand : getStudioAgent;
+      const r = await getter(name);
       setSelected(name);
       setDraftName(name);
       setContent(r.content);
@@ -130,7 +143,9 @@ export function OpencodeStudio() {
   const newItem = () => {
     setSelected('__new__');
     setDraftName('');
-    setContent(tab === 'skills' ? SKILL_TEMPLATE : AGENT_TEMPLATE);
+    setContent(
+      tab === 'skills' ? SKILL_TEMPLATE : tab === 'commands' ? COMMAND_TEMPLATE : AGENT_TEMPLATE,
+    );
     setDirty(true);
   };
 
@@ -143,6 +158,7 @@ export function OpencodeStudio() {
     setBusy(true);
     try {
       if (tab === 'skills') await saveStudioSkill(name, content);
+      else if (tab === 'commands') await saveStudioCommand(name, content);
       else await saveStudioAgent(name, content);
       flash('ok', `Saved '${name}' — new opencode sessions pick it up immediately`);
       setSelected(name);
@@ -159,6 +175,7 @@ export function OpencodeStudio() {
     setBusy(true);
     try {
       if (tab === 'skills') await deleteStudioSkill(name);
+      else if (tab === 'commands') await deleteStudioCommand(name);
       else await deleteStudioAgent(name);
       flash('ok', `Deleted '${name}'`);
       if (selected === name) {
@@ -215,6 +232,7 @@ export function OpencodeStudio() {
         <span style="display:inline-flex;align-items:center;gap:4px;margin-left:8px">
           <button class={`btn-ghost sm${tab === 'agents' ? ' active' : ''}`} onClick={() => setTab('agents')}><Bot width={13} height={13} class="icon" /> Subagents</button>
           <button class={`btn-ghost sm${tab === 'skills' ? ' active' : ''}`} onClick={() => setTab('skills')}><Sparkles width={13} height={13} class="icon" /> Skills</button>
+          <button class={`btn-ghost sm${tab === 'commands' ? ' active' : ''}`} onClick={() => setTab('commands')}><Terminal width={13} height={13} class="icon" /> Commands</button>
           <button class={`btn-ghost sm${tab === 'config' ? ' active' : ''}`} onClick={() => setTab('config')}><SlidersHorizontal width={13} height={13} class="icon" /> Config</button>
         </span>
         <span style="flex:1" />
@@ -298,6 +316,11 @@ export function OpencodeStudio() {
                         {it.mode}
                       </span>
                     )}
+                    {tab === 'commands' && it.agent && (
+                      <span title="Bound agent" style="font-size:0.62rem;padding:1px 6px;border-radius:999px;background:rgba(255,255,255,.08)">
+                        @{it.agent}
+                      </span>
+                    )}
                     <Trash2
                       width={13}
                       height={13}
@@ -323,21 +346,25 @@ export function OpencodeStudio() {
           {/* Editor column */}
           <div style="flex:1;display:flex;flex-direction:column;gap:8px;min-width:0">
             {selected == null ? (
-              <div class="empty-state" style="margin:auto;text-align:center">
-                <div class="big-icon">
-                  {tab === 'skills'
-                    ? <Sparkles width={30} height={30} class="icon" />
-                    : <Bot width={30} height={30} class="icon" />}
-                </div>
+                <div class="empty-state" style="margin:auto;text-align:center">
+                  <div class="big-icon">
+                    {tab === 'skills' ? (
+                      <Sparkles width={30} height={30} class="icon" />
+                    ) : tab === 'commands' ? (
+                      <Terminal width={30} height={30} class="icon" />
+                    ) : (
+                      <Bot width={30} height={30} class="icon" />
+                    )}
+                  </div>
                 Select an item or press New to create one.
-              </div>
+                </div>
             ) : (
               <>
                 <div style="display:flex;gap:8px;align-items:center">
                   <input
                     class="modern-input mono"
                     style="width:240px;font-size:0.78rem;padding:6px 10px"
-                    placeholder={tab === 'skills' ? 'skill-name' : 'agent-name'}
+                    placeholder={tab === 'skills' ? 'skill-name' : tab === 'commands' ? 'command-name' : 'agent-name'}
                     value={selected === '__new__' ? draftName : selected!}
                     readOnly={selected !== '__new__'}
                     onInput={(e: any) => setDraftName(e.target.value)}
@@ -368,7 +395,13 @@ export function OpencodeStudio() {
         open={confirmDelete != null}
         danger
         loading={busy}
-        title={tab === 'skills' ? `Delete skill '${confirmDelete}'?` : `Delete subagent '${confirmDelete}'?`}
+        title={
+          tab === 'skills'
+            ? `Delete skill '${confirmDelete}'?`
+            : tab === 'commands'
+              ? `Delete command '/${confirmDelete}'?`
+              : `Delete subagent '${confirmDelete}'?`
+        }
         message="Removed from the global opencode config. Existing sessions keep working; new ones will not see it."
         confirmLabel="Delete"
         onConfirm={() => remove(confirmDelete!)}

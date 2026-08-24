@@ -30,9 +30,14 @@ Use when working inside the WSD-Pro repository so every change follows house rul
 - Ask clarifying questions before starting new work
 
 ## House style
-- Icons: lucide-preact (`class="icon"`); ConfirmModal for destructive actions; dark mode only; version `2.0.0-beta`
-- Security defaults: opt-in CORS, SSRF guards on metadata IPs, scoped JWTs never pass generic auth, secrets sealed with AES-256-GCM
+- Icons: lucide-preact (`class="icon"`, spin via `.icon.spin`); ConfirmModal for destructive/sensitive actions; ReAuthModal sudo pattern for password-gated ops; dark mode only; version `2.0.0-beta`
+- Security defaults: opt-in CORS, SSRF guards on metadata IPs, scoped JWTs never pass generic auth, secrets sealed with AES-256-GCM, masked-value echo rejection
+- API conventions: error shape `{error, message}`, correct status codes (400/401/403/404/409/429), dedicated rate-limit scopes for auth-class endpoints, audit events for security-relevant actions
 
 ## Windows host quirks
-- PowerShell: no `&&` — use `if ($?)`; git stderr prints as PS errors harmlessly
-- Container scripts: write to temp file + `docker cp` + exec, never inline-quote complex sh through PowerShell
+- PowerShell: no `&&` — use `if ($?)`; git stderr prints as PS errors harmlessly; avoid `Select-Object -First/-Last` truncation (full output already captured)
+- Container scripts: write to temp file + `docker cp` + exec, never inline-quote complex sh through PowerShell (`$(...)` gets mangled)
+
+## Test discipline
+- Serial runs only (`--test-concurrency=1`) — parallel + browser polling trips the rate limiter
+- Suites self-clean their data; optional suites self-skip without credentials — read the table in AGENTS.md before assuming coverage

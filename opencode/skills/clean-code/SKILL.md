@@ -22,6 +22,11 @@ Apply these standards to every function you write or modify.
 - Guard clauses over nested pyramids; return early
 - Comments explain WHY, never WHAT; if the WHAT needs explaining, rename things first
 
+## State & boundaries
+- Minimize mutable state; prefer immutable data flowing through pure transforms
+- Side effects (I/O, clock, randomness, network) pushed to the edges — cores stay deterministic and testable
+- Module boundaries: public surface minimal and explicit; everything else private; no leaking of internal types
+
 ## Change discipline
 - Make the change easy to review: small diffs, no drive-by reformatting, no mixed concern commits
 - Leave code cleaner than found — but only within touching distance of your task (campground rule)

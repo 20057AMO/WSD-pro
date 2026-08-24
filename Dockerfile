@@ -65,11 +65,12 @@ RUN cd backend && npm install --omit=dev --no-fund --no-audit
 # Frontend (served statically by the backend)
 COPY --from=frontend-build /src/dist ./frontend/dist
 
-# opencode configuration + preset subagents & skills (managed via /opencode-studio)
+# opencode configuration + preset subagents, skills & slash commands (managed via /opencode-studio)
 COPY opencode.json /root/.config/opencode/opencode.json
 COPY opencode/agents/ /root/.config/opencode/agents/
 COPY opencode/skills/ /root/.config/opencode/skills/
-RUN find /root/.config/opencode/agents /root/.config/opencode/skills -type f \( -name '*.md' -o -name 'SKILL.md' \) -exec sed -i 's/\r$//' {} +
+COPY opencode/command/ /root/.config/opencode/command/
+RUN find /root/.config/opencode/agents /root/.config/opencode/skills /root/.config/opencode/command -type f \( -name '*.md' -o -name 'SKILL.md' \) -exec sed -i 's/\r$//' {} +
 
 # code-server default settings (dark theme, auto-save, format-on-save, etc.)
 COPY code-server-settings.json /root/.config/code-server/User/settings.json

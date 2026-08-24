@@ -1,9 +1,10 @@
 /**
  * opencode-studio.test.ts
  * API-level coverage for the Opencode Studio (against the running container):
- *  - preset subagents & skills are baked into the image and listed
+ *  - preset subagents, skills and slash commands are baked into the image
  *  - subagent CRUD lifecycle (create → list → get → update → delete → 404)
  *  - skill CRUD lifecycle (create writes <name>/SKILL.md layout)
+ *  - command CRUD lifecycle (<name>.md, frontmatter required, agent badge listed)
  *  - kebab-case name validation + traversal rejection
  *  - config GET/PUT roundtrip preserves existing keys, rejects junk
  *
@@ -16,6 +17,7 @@ import { reqAuth, uniqueId } from './helpers.ts';
 
 let agentName = '';
 let skillName = '';
+let commandName = '';
 
 const AGENT_MD = `---
 description: Automated test reviewer
@@ -35,11 +37,20 @@ description: A skill created by automated tests
 Do the thing.
 `;
 
+const COMMAND_MD = `---
+description: A command created by automated tests
+agent: code-reviewer
+---
+
+Review $ARGUMENTS.
+`;
+
 describe('Opencode Studio API', () => {
   after(async () => {
     for (const [kind, name] of [
       ['agents', agentName],
       ['skills', skillName],
+      ['commands', commandName],
     ] as const) {
       if (!name) continue;
       try {
@@ -53,7 +64,29 @@ describe('Opencode Studio API', () => {
     assert.equal(agents.status, 200);
     const { agents: list } = await agents.json();
     const names = list.map((a: any) => a.name);
-    for (const expected of ['code-reviewer', 'security-auditor', 'test-writer', 'wsd-expert']) {
+    // Full v2 roster: originals + lifecycle specialists + language experts
+    for (const expected of [
+      'architect',
+      'backend-developer',
+      'code-reviewer',
+      'db-expert',
+      'debugger',
+      'devops-engineer',
+      'doc-writer',
+      'frontend-developer',
+      'golang-expert',
+      'pentester',
+      'perf-optimizer',
+      'python-expert',
+      'refactorer',
+      'rust-expert',
+      'security-auditor',
+      'test-writer',
+      'ux-designer',
+      'wsd-expert',
+      'api-designer',
+      'release-manager',
+    ]) {
       assert.ok(names.includes(expected), `preset agent '${expected}' present`);
     }
     const codeReviewer = list.find((a: any) => a.name === 'code-reviewer');
@@ -62,9 +95,39 @@ describe('Opencode Studio API', () => {
     const skills = await reqAuth('GET', '/opencode-studio/skills');
     const { skills: slist } = await skills.json();
     const snames = slist.map((s: any) => s.name);
-    for (const expected of ['git-release', 'docker-debug', 'wsd-workflow']) {
+    for (const expected of [
+      'clean-code',
+      'docker-debug',
+      'git-release',
+      'planning-methodology',
+      'debugging-methodology',
+      'testing-strategy',
+      'security-hardening',
+      'api-design-guidelines',
+      'performance-profiling',
+      'wsd-workflow',
+    ]) {
       assert.ok(snames.includes(expected), `preset skill '${expected}' present`);
     }
+
+    const commands = await reqAuth('GET', '/opencode-studio/commands');
+    assert.equal(commands.status, 200);
+    const { commands: clist } = await commands.json();
+    const cnames = clist.map((c: any) => c.name);
+    for (const expected of [
+      'review',
+      'audit-security',
+      'plan-feature',
+      'tdd',
+      'fix-issue',
+      'refactor-safely',
+      'explain-code',
+      'release',
+    ]) {
+      assert.ok(cnames.includes(expected), `preset command '${expected}' present`);
+    }
+    const review = clist.find((c: any) => c.name === 'review');
+    assert.equal(review.agent, 'code-reviewer', 'command agent badge parsed from frontmatter');
   });
 
   test('agent CRUD lifecycle', async () => {
@@ -125,6 +188,36 @@ describe('Opencode Studio API', () => {
       const res = await reqAuth('GET', `/opencode-studio/agents/${encodeURIComponent(bad)}`);
       assert.equal(res.status, 400, `'${bad}' rejected`);
     }
+  });
+
+  test('command CRUD lifecycle', async () => {
+    commandName = uniqueId('zz-command').slice(0, 40);
+
+    const created = await reqAuth('POST', `/opencode-studio/commands/${commandName}`, { content: COMMAND_MD });
+    assert.equal(created.status, 200);
+
+    const listed = await (await reqAuth('GET', '/opencode-studio/commands')).json();
+    const found = listed.commands.find((c: any) => c.name === commandName);
+    assert.equal(found.description, 'A command created by automated tests');
+    assert.equal(found.agent, 'code-reviewer');
+
+    const got = await reqAuth('GET', `/opencode-studio/commands/${commandName}`);
+    assert.equal(got.status, 200);
+    const body = await got.json();
+    assert.match(body.content, /Review \$ARGUMENTS\./);
+
+    const gone = await reqAuth('DELETE', `/opencode-studio/commands/${commandName}`);
+    assert.equal(gone.status, 200);
+    const confirm = await reqAuth('GET', `/opencode-studio/commands/${commandName}`);
+    assert.equal(confirm.status, 404);
+    commandName = '';
+  });
+
+  test('command without frontmatter rejected with 400', async () => {
+    const res = await reqAuth('POST', '/opencode-studio/commands/zz-no-frontmatter', {
+      content: 'Just a body, no --- markers.',
+    });
+    assert.equal(res.status, 400);
   });
 
   test('config roundtrip preserves keys and rejects junk', async () => {

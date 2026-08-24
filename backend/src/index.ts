@@ -962,6 +962,38 @@ app.delete('/api/opencode-studio/skills/:name', (req, res) => {
   }
 });
 
+app.get('/api/opencode-studio/commands', (_req, res) => {
+  res.json({ commands: studio.listCommands() });
+});
+
+app.get('/api/opencode-studio/commands/:name', (req, res) => {
+  try {
+    res.json(studio.getCommand(String(req.params.name)));
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.post('/api/opencode-studio/commands/:name', (req, res) => {
+  try {
+    const content = typeof req.body?.content === 'string' ? req.body.content : '';
+    studio.saveCommand(String(req.params.name), content);
+    recordAudit('opencode-studio', true);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/opencode-studio/commands/:name', (req, res) => {
+  try {
+    studio.deleteCommand(String(req.params.name));
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
 app.get('/api/opencode-studio/config', (_req, res) => {
   res.json(studio.getConfig());
 });
