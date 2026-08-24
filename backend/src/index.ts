@@ -32,6 +32,7 @@ import {
   WORKSPACES_ROOT,
 } from './services/docker-manager';
 import { startJanitor } from './services/workspace-janitor';
+import * as studio from './services/opencode-studio';
 import { listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, renameWorkspacePath, deleteWorkspacePath, resolveProjectSubdir } from './services/workspace-files';
 import { loadMeta, saveMeta } from './services/projects-meta';
 import { getIdeStatus } from './services/ide-service';
@@ -890,6 +891,102 @@ app.post('/api/opencode/open', async (req, res) => {
     res.json({ ok: true });
   } catch (err: any) {
     res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// ── Opencode Studio: subagents / skills / config CRUD + update ──────────
+
+app.get('/api/opencode-studio/agents', (_req, res) => {
+  res.json({ agents: studio.listAgents() });
+});
+
+app.get('/api/opencode-studio/agents/:name', (req, res) => {
+  try {
+    res.json(studio.getAgent(String(req.params.name)));
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.post('/api/opencode-studio/agents/:name', (req, res) => {
+  try {
+    const content = String(req.body?.content ?? '');
+    if (!content.trim()) return res.status(400).json({ error: 'Agent content is required' });
+    studio.saveAgent(String(req.params.name), content);
+    recordAudit('opencode-studio', true);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/opencode-studio/agents/:name', (req, res) => {
+  try {
+    studio.deleteAgent(String(req.params.name));
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.get('/api/opencode-studio/skills', (_req, res) => {
+  res.json({ skills: studio.listSkills() });
+});
+
+app.get('/api/opencode-studio/skills/:name', (req, res) => {
+  try {
+    res.json(studio.getSkill(String(req.params.name)));
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.post('/api/opencode-studio/skills/:name', (req, res) => {
+  try {
+    const content = String(req.body?.content ?? '');
+    if (!content.trim()) return res.status(400).json({ error: 'Skill content is required' });
+    studio.saveSkill(String(req.params.name), content);
+    recordAudit('opencode-studio', true);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/opencode-studio/skills/:name', (req, res) => {
+  try {
+    studio.deleteSkill(String(req.params.name));
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.get('/api/opencode-studio/config', (_req, res) => {
+  res.json(studio.getConfig());
+});
+
+app.put('/api/opencode-studio/config', (req, res) => {
+  try {
+    res.json(studio.updateConfig(req.body));
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.get('/api/opencode-studio/version', async (_req, res) => {
+  try {
+    res.json(await studio.getVersionInfo());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/opencode-studio/update', async (_req, res) => {
+  try {
+    res.json(await studio.runUpdate());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

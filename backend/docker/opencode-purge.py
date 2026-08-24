@@ -11,6 +11,10 @@ instance ('/') is always kept. At boot this runs BEFORE `opencode web`
 launches (no locking concerns); at runtime it is best-effort while opencode
 is up - WAL plus a busy timeout keep it safe, and any failure is non-fatal
 because the next restart re-purges everything.
+
+The script introspects the schema before deleting: if expected tables or
+columns are missing (e.g. a future major version reshapes storage) it skips
+safely instead of guessing.
 """
 import os
 import sqlite3
@@ -19,7 +23,24 @@ import sys
 WORKTREE_PREFIX = "/workspaces/"
 
 
+def columns(cur, table):
+    try:
+        return {row[1] for row in cur.execute(f"PRAGMA table_info({table})").fetchall()}
+    except sqlite3.Error:
+        return set()
+
+
 def stale_slugs(cur, live_dir, targets):
+    proj_cols = columns(cur, "project")
+    dir_cols = columns(cur, "project_directory")
+    need = {"id", "worktree"}
+    if not need.issubset(proj_cols):
+        print(
+            f"opencode-purge: unexpected schema (project cols={sorted(proj_cols)}) - skipping",
+            file=sys.stderr,
+        )
+        return [], False
+
     dead_ids = []
     for pid, worktree in cur.execute("SELECT id, worktree FROM project").fetchall():
         if not isinstance(worktree, str) or not worktree.startswith(WORKTREE_PREFIX):
@@ -32,7 +53,9 @@ def stale_slugs(cur, live_dir, targets):
         if os.path.isfile(os.path.join(live_dir, slug, "meta.json")):
             continue  # still a live project
         dead_ids.append(pid)
-    return dead_ids
+
+    can_clean_dirs = {"project_id"}.issubset(dir_cols)
+    return dead_ids, can_clean_dirs
 
 
 def main() -> int:
@@ -50,11 +73,12 @@ def main() -> int:
         con = sqlite3.connect(db_path, timeout=5)
         try:
             cur = con.cursor()
-            dead_ids = stale_slugs(cur, live_dir, targets)
+            dead_ids, can_clean_dirs = stale_slugs(cur, live_dir, targets)
             for pid in dead_ids:
-                cur.execute(
-                    "DELETE FROM project_directory WHERE project_id=?", (pid,)
-                )
+                if can_clean_dirs:
+                    cur.execute(
+                        "DELETE FROM project_directory WHERE project_id=?", (pid,)
+                    )
                 cur.execute("DELETE FROM project WHERE id=?", (pid,))
             con.commit()
         finally:

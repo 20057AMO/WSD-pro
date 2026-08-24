@@ -47,8 +47,9 @@ RUN code-server --install-extension dbaeumer.vscode-eslint \
     && code-server --install-extension PKief.material-icon-theme \
     && code-server --install-extension Gruntfuggly.todo-tree
 
-# opencode CLI (project building agent, web UI on port 4096)
-RUN npm install -g opencode-ai --no-fund --no-audit
+# opencode CLI (project building agent, web UI on port 4096) — pinned
+# baseline; the Studio Update button upgrades it inside the running container.
+RUN npm install -g opencode-ai@1.18.22 --no-fund --no-audit
 
 # Headless container: opencode tries to auto-open a browser via xdg-open on
 # `opencode web`; provide a no-op stub so it never errors out.
@@ -64,8 +65,11 @@ RUN cd backend && npm install --omit=dev --no-fund --no-audit
 # Frontend (served statically by the backend)
 COPY --from=frontend-build /src/dist ./frontend/dist
 
-# opencode configuration
+# opencode configuration + preset subagents & skills (managed via /opencode-studio)
 COPY opencode.json /root/.config/opencode/opencode.json
+COPY opencode/agents/ /root/.config/opencode/agents/
+COPY opencode/skills/ /root/.config/opencode/skills/
+RUN find /root/.config/opencode/agents /root/.config/opencode/skills -type f \( -name '*.md' -o -name 'SKILL.md' \) -exec sed -i 's/\r$//' {} +
 
 # code-server default settings (dark theme, auto-save, format-on-save, etc.)
 COPY code-server-settings.json /root/.config/code-server/User/settings.json

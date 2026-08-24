@@ -7,5 +7,6 @@
       }
     }
   },
-  "model": "opencode/big-pickle"
+  "model": "opencode/big-pickle",
+  "subagent_depth": 2
 }

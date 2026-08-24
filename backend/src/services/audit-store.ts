@@ -33,7 +33,10 @@ export type AuditEvent =
   | 'backup-export'
   | 'backup-import'
   | 'workspace-janitor'
-  | 'project-files-deleted';
+  | 'project-files-deleted'
+  | 'opencode-studio'
+  | 'opencode-update'
+  | 'opencode-update-failed';
 
 export interface AuditEntry {
   ts: string;

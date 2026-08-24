@@ -42,6 +42,7 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 | Providers page journey | `tests/providers-page-journey.test.ts` | Live-audit gaps: detection_required shape, duplicate guards, masked-key echo (POST+PUT), chat open while locked, cross-session replay via REAL logins, cooldown bans even the correct password (isolated server only; canary self-skips lock sections while the 15-min ban from a previous run is active) |
 | Secret box (at-rest crypto) | `tests/crypto.test.ts` | AES-256-GCM roundtrip, fresh-IV, tamper→empty, mask-without-decrypt + API-level sealing of providers.json (file assertions when `WSD_TEST_PROVIDERS_FILE` points at the server's data dir; set `WSD_DATA_DIR` to the same dir so the test process shares the server's salt) |
 | Workspace janitor | `tests/janitor.test.ts` | Orphan archiving, live-project safety, dot-dir skip, archive purge (`WSD_ARCHIVE_DAYS=0`) — offline, temp dirs only |
+| Opencode Studio | `tests/opencode-studio.test.ts` | Presets baked into image, agent/skill CRUD lifecycle, kebab-name + traversal rejection, config merge preserves keys / rejects junk, version-info shape (against running container) |
 | Security | `tests/security.test.ts` | Path traversal, upload sanitization, malformed auth headers |
 | Smoke | `tests/smoke.test.ts` | Health, core endpoints, project roundtrip |
 | WebSocket matrix | `tests/websocket.test.ts` | 6 endpoints × {no token→401, valid→open, invalid→401} |
@@ -86,6 +87,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 | `/settings` | Settings | Change password, account info, logout |
 | `/ide` | EmbeddedIDE | code-server iframe |
 | `/opencode` | Opencode | opencode web iframe |
+| `/opencode-studio` | OpencodeStudio | subagents/skills/config CRUD + gated update button |
 
 ### Authentication
 - **Unified auth**: Single user password = providers password
@@ -157,9 +159,17 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 ### Workspace janitor & IDE/opencode hygiene
 - Deleting a project now removes EVERYTHING: container + meta store **and its workspace files from disk** (`removeProject`); opencode sessions for that directory are deleted best-effort (`unregisterOpencodeProject`)
 - `services/workspace-janitor.ts` sweeps `/workspaces` at boot (+ every `WSD_JANITOR_INTERVAL_MS`, default 6h): dirs without a live meta store are MOVED to `/workspaces/.archive/<ts>-<slug>` and purged permanently after `WSD_ARCHIVE_DAYS` (default 7). Pure logic in `janitor-core.ts` (import-free so node --test can load it)
-- code-server is rooted at `/workspaces` — archived dot-dir keeps it ghost-free; `entrypoint.sh` registers ONLY live-project dirs into opencode and purges stale rows from its SQLite store (`project`/`project_directory`) BEFORE launching it; `removeProject` and janitor archiving call `purgeOpencodeProjectRows` (`services/opencode-store.ts` → `docker/opencode-purge.py`) so deleted projects vanish from opencode immediately, no restart needed (covered by `tests/opencode-purge.test.ts`, self-skips without host python3)
+- code-server is rooted at `/workspaces` — archived dot-dir keeps it ghost-free; `entrypoint.sh` registers ONLY live-project dirs into opencode and purges stale rows from its SQLite store (`project`/`project_directory`) BEFORE launching it; `removeProject` and janitor archiving call `purgeOpencodeProjectRows` (`services/opencode-store.ts` → `docker/opencode-purge.py`) so deleted projects vanish from opencode immediately, no restart needed (covered by `tests/opencode-purge.test.ts`, self-skips without host python3). The purge script introspects the SQLite schema (`PRAGMA table_info`) and skips safely with a stderr note when columns don't match expectations — future-proof against opencode major upgrades
 - Creating a project whose slug collides with an orphaned non-empty dir returns 409 (janitor archives it within minutes)
 - EmbeddedIDE no longer shows the cosmetic code-server password (server runs `--auth none`); Opencode page has a live-project picker (`POST /api/opencode/open` ensures a session exists)
+
+### Opencode Power Pack (Studio, presets, gated updates)
+- **Pinned baseline**: Dockerfile installs `opencode-ai@1.18.22`; repo-root `opencode.json` (copied to `/root/.config/opencode/`) carries `$schema`, provider config and `subagent_depth: 2`
+- **Baked presets** (image-level, editable at runtime via Studio): 9 subagents in `opencode/agents/*.md` (code-reviewer, security-auditor, test-writer, doc-writer, refactorer, debugger, perf-optimizer, api-designer, wsd-expert) + 4 skills in `opencode/skills/<name>/SKILL.md` (git-release, docker-debug, wsd-workflow, clean-code); CRLF stripped at build so Windows checkouts don't poison frontmatter
+- **Unified adapter** (`services/opencode-api.ts`): all opencode session CRUD goes through one facade; `SUPPORTED_MAJORS=[1]` is the capability gate — version probe (`opencode --version`, cached) feeds it, and future v2 enablement means adding V2 impls + flipping the array, NOT touching call sites
+- **Opencode Studio page** (`/opencode-studio`): tabs Subagents | Skills | Config; full CRUD on `/root/.config/opencode/{agents,skills}` via `/api/opencode-studio/*` (kebab-case names enforced, traversal-proof `safeJoin`, CRLF-normalized writes, frontmatter parsed for list descriptions/mode badges); Config tab edits are MERGED into `opencode.json` with `$schema` protected and unknown keys preserved; deletes audited
+- **Update button (Desktop-style)**: `GET /api/opencode-studio/version` → `{current, latest, upToDate, channelUnlocked, supportedMajors}`; `POST /update` single-flights an `npm i -g opencode-ai@<latest>` then SIGTERMs the supervised web process — entrypoint's while-loop revives the new binary in ~2s (child PID published in `data/opencode-web.pid`). **Gotcha fixed**: inherited `set -e` made a bare `wait` fatal on rc=143, silently killing the supervisor exactly when an update killed opencode — status captured via `wait ... || RC=$?`
+- **Major-gate UX**: if npm latest is a major outside `SUPPORTED_MAJORS`, the button locks to "{version} needs a WSD-Pro update" instead of bricking the install
 
 ### Security activity log (audit)
 - `data/audit.json` — append-only, capped at the last 100 entries

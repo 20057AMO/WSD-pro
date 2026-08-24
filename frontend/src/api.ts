@@ -304,6 +304,52 @@ export const getOpencodeStatus = () => api<OpencodeStatus>('/api/opencode/status
 export const openOpencodeProject = (slug: string) =>
   api<{ ok: boolean }>('/api/opencode/open', { method: 'POST', body: JSON.stringify({ slug }) });
 
+// ── Opencode Studio ─────────────────────────────────────────────────────
+export interface StudioItem {
+  name: string;
+  description: string;
+  mode?: string;
+}
+export interface StudioVersionInfo {
+  current: string;
+  latest: string | null;
+  upToDate: boolean | null;
+  channelUnlocked: boolean;
+  supportedMajors: number[];
+  updateRunning: boolean;
+}
+export const listStudioAgents = () => api<{ agents: StudioItem[] }>('/api/opencode-studio/agents');
+export const getStudioAgent = (name: string) =>
+  api<{ name: string; content: string }>(`/api/opencode-studio/agents/${encodeURIComponent(name)}`);
+export const saveStudioAgent = (name: string, content: string) =>
+  api<{ ok: boolean }>(`/api/opencode-studio/agents/${encodeURIComponent(name)}`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+export const deleteStudioAgent = (name: string) =>
+  api<{ ok: boolean }>(`/api/opencode-studio/agents/${encodeURIComponent(name)}`, { method: 'DELETE' });
+export const listStudioSkills = () => api<{ skills: StudioItem[] }>('/api/opencode-studio/skills');
+export const getStudioSkill = (name: string) =>
+  api<{ name: string; content: string }>(`/api/opencode-studio/skills/${encodeURIComponent(name)}`);
+export const saveStudioSkill = (name: string, content: string) =>
+  api<{ ok: boolean }>(`/api/opencode-studio/skills/${encodeURIComponent(name)}`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+export const deleteStudioSkill = (name: string) =>
+  api<{ ok: boolean }>(`/api/opencode-studio/skills/${encodeURIComponent(name)}`, { method: 'DELETE' });
+export const getStudioConfig = () => api<Record<string, unknown>>('/api/opencode-studio/config');
+export const updateStudioConfig = (patch: Record<string, unknown>) =>
+  api<Record<string, unknown>>('/api/opencode-studio/config', {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  });
+export const getStudioVersion = () => api<StudioVersionInfo>('/api/opencode-studio/version');
+export const runStudioUpdate = () =>
+  api<{ ok: boolean; updatedTo?: string; error?: string }>('/api/opencode-studio/update', {
+    method: 'POST',
+  });
+
 export interface AgentDef {
   id: string;
   name: string;

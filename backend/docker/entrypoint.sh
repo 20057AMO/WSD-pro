@@ -36,25 +36,45 @@ if [ -f "$OPENCODE_DB" ] && command -v python3 >/dev/null 2>&1; then
   python3 /app/opencode-purge.py "$DATA_DIR" || true
 fi
 
-echo "WSD-Pro: starting opencode web on 0.0.0.0:${WSD_OPENCODE_PORT:-4096} (cwd /workspaces)"
+echo "WSD-Pro: starting supervised opencode web on 0.0.0.0:${WSD_OPENCODE_PORT:-4096} (cwd /workspaces)"
 mkdir -p "$DATA_DIR/opencode"
-cd /workspaces
-# env -u PORT avoids the dashboard PORT=3000 leaking into opencode.
-# HOME=/workspaces makes the web UI's project picker start at /workspaces so the
-# user's project folders are visible immediately. XDG_* pins keep the Big Pickle
-# config, session state, cache and data in their original locations (so opencode
-# does not litter /workspaces with .cache/.npm runtime folders). npm_config_cache
-# redirects the npm cache the opencode process creates at startup.
-env -u PORT \
-  HOME=/workspaces \
-  XDG_CONFIG_HOME=/root/.config \
-  XDG_STATE_HOME=/root/.local/state \
-  XDG_CACHE_HOME=/root/.cache \
-  XDG_DATA_HOME="$DATA_DIR/opencode" \
-  npm_config_cache=/root/.npm \
-  opencode web --hostname 0.0.0.0 --port "${WSD_OPENCODE_PORT:-4096}" \
-  > /tmp/opencode-web.log 2>&1 &
-OPENCODE_PID=$!
+# Supervised restart loop: the Studio Update button kills the running
+# opencode process after installing a newer binary — this loop revives it
+# into the new version within ~2s. PID of the live child is published in
+# $DATA_DIR/opencode-web.pid for the backend to target precisely.
+OPENCODE_PID_FILE="$DATA_DIR/opencode-web.pid"
+rm -f "$OPENCODE_PID_FILE"
+(
+  cd /workspaces
+  while true; do
+    # env -u PORT avoids the dashboard PORT=3000 leaking into opencode.
+    # HOME=/workspaces makes the web UI's project picker start at /workspaces so the
+    # user's project folders are visible immediately. XDG_* pins keep the Big Pickle
+    # config, session state, cache and data in their original locations (so opencode
+    # does not litter /workspaces with .cache/.npm runtime folders). npm_config_cache
+    # redirects the npm cache the opencode process creates at startup.
+    env -u PORT \
+      HOME=/workspaces \
+      XDG_CONFIG_HOME=/root/.config \
+      XDG_STATE_HOME=/root/.local/state \
+      XDG_CACHE_HOME=/root/.cache \
+      XDG_DATA_HOME="$DATA_DIR/opencode" \
+      npm_config_cache=/root/.npm \
+      opencode web --hostname 0.0.0.0 --port "${WSD_OPENCODE_PORT:-4096}" \
+      > /tmp/opencode-web.log 2>&1 &
+    OPENCODE_CHILD=$!
+    printf '%s' "$OPENCODE_CHILD" > "$OPENCODE_PID_FILE"
+    # NOTE: inherited `set -e` makes a bare `wait` FATAL when the child dies
+    # from a signal (rc=143) — which silently killed this whole supervision
+    # loop exactly when the Studio Update button killed opencode. Capture
+    # the status explicitly instead.
+    RC=0
+    wait "$OPENCODE_CHILD" || RC=$?
+    echo "WSD-Pro: opencode web exited (code=$RC) - restarting in 2s" >&2
+    sleep 2
+  done
+) &
+OPENCODE_SUPERVISOR=$!
 
 # ── Register existing projects with opencode ──────────────────
 # opencode only gives a directory its own project once a session is created
@@ -96,7 +116,8 @@ if opencode_ready; then
 fi
 
 cleanup() {
-  kill "$CODE_SERVER_PID" "$OPENCODE_PID" 2>/dev/null || true
+  kill "$CODE_SERVER_PID" "$OPENCODE_SUPERVISOR" 2>/dev/null || true
+  [ -f "$OPENCODE_PID_FILE" ] && kill "$(cat "$OPENCODE_PID_FILE")" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 

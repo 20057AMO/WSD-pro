@@ -12,6 +12,7 @@ import {
   Settings as SettingsIcon,
   Code2,
   Unlock,
+  Wand2,
 } from 'lucide-preact';
 import { AuthProvider, useAuth } from './auth';
 import { Login } from './views/Login';
@@ -27,7 +28,8 @@ import {
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })));
 const Projects = lazy(() => import('./views/Projects').then(m => ({ default: m.Projects })));
 const Project = lazy(() => import('./views/Project').then(m => ({ default: m.Project })));
-const Opencode = lazy(() => import('./views/Opencode').then(m => ({ default: m.Opencode })));
+  const Opencode = lazy(() => import('./views/Opencode').then(m => ({ default: m.Opencode })));
+  const OpencodeStudio = lazy(() => import('./views/OpencodeStudio').then(m => ({ default: m.OpencodeStudio })));
 const Agents = lazy(() => import('./views/Agents').then(m => ({ default: m.Agents })));
 const EmbeddedIDE = lazy(() => import('./views/EmbeddedIDE').then(m => ({ default: m.EmbeddedIDE })));
 const Providers = lazy(() => import('./views/Providers').then(m => ({ default: m.Providers })));
@@ -171,6 +173,7 @@ function Sidebar() {
         <NavButton href="/projects" label="Projects" icon={FolderOpen} />
         <NavButton href="/agents" label="Agents" icon={Bot} />
         <NavButton href="/opencode" label="opencode" icon={SquareTerminal} />
+        <NavButton href="/opencode-studio" label="OC Studio" icon={Wand2} />
         <NavButton href="/providers" label="Providers" icon={KeyRound} />
         <NavButton href="/settings" label="Settings" icon={SettingsIcon} />
         <NavButton href="/ide" label="Web IDE" icon={Code2} />
@@ -212,6 +215,9 @@ function Shell() {
     return null;
   }
 
+  if (location.startsWith('/opencode-studio')) {
+    return <Suspense fallback={<div class="app-view" style="display:flex;align-items:center;justify-content:center;height:100vh;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}><OpencodeStudio /></Suspense>;
+  }
   if (location.startsWith('/opencode')) {
     return <Suspense fallback={<div class="app-view" style="display:flex;align-items:center;justify-content:center;height:100vh;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}><Opencode /></Suspense>;
   }

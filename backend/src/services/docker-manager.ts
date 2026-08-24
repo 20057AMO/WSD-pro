@@ -13,6 +13,11 @@ import crypto from 'crypto';
 import { execSync, spawn, execFileSync } from 'child_process';
 import { loadMeta, saveMeta, deleteMeta, touchActivity, listMetaSlugs, type ProjectMeta } from './projects-meta';
 import { purgeOpencodeProjectRows } from './opencode-store';
+import {
+  createOpencodeSession,
+  ensureOpencodeSession as ensureOpencodeSessionApi,
+  unregisterOpencodeProjectSessions,
+} from './opencode-api';
 
 const docker = new Docker(); // uses /var/run/docker.sock by default
 
@@ -153,61 +158,16 @@ function ensureWorkspaceDir(slug: string): string {
   return dir;
 }
 
-// opencode web server port (same container), used to register new projects
-// with the web UI so they appear in the sidebar without a restart.
-const OPENCODE_PORT = process.env.WSD_OPENCODE_PORT || '4096';
-
-/**
- * Register a project directory with the opencode web server (POST /session is
- * the official "open project" mechanism — it records the project and creates a
- * fresh empty session). opencode only treats a directory as its own project
- * once a session exists there AND it can resolve a project id (git remote >
- * cached id in <gitdir>/opencode > root commit > global), so we seed a git
- * repo + deterministic cached id first. Non-fatal: if opencode is still
- * starting, the entrypoint's startup sync registers every /workspaces/*
- * directory anyway.
- */
-function seedOpencodeProjectId(dir: string): void {
-  try {
-    if (!fs.existsSync(path.join(dir, '.git'))) {
-      execSync('git init -q', { cwd: dir, stdio: 'ignore' });
-    }
-    const sha = crypto.createHash('sha1').update(path.basename(dir)).digest('hex');
-    fs.writeFileSync(path.join(dir, '.git', 'opencode'), sha);
-  } catch {
-    /* best effort — startup sync in entrypoint covers it */
-  }
-}
+// opencode runtime integration (sessions, version, updates) lives in
+// services/opencode-api.ts — this module only forwards to it.
 
 function registerOpencodeProject(slug: string): void {
-  const directory = path.join(WORKSPACES_ROOT, slug);
-  seedOpencodeProjectId(directory);
-  fetch(`http://localhost:${OPENCODE_PORT}/session?directory=${encodeURIComponent(directory)}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: '{}',
-  }).catch(() => {
-    /* opencode not ready yet — startup sync in entrypoint covers it */
-  });
+  createOpencodeSession(slug);
 }
 
 /** Ensure a project has at least one opencode session (no duplicates). */
 export function ensureOpencodeSession(slug: string): void {
-  const directory = path.join(WORKSPACES_ROOT, slug);
-  const base = `http://localhost:${OPENCODE_PORT}`;
-  fetch(`${base}/session?directory=${encodeURIComponent(directory)}`, {
-    signal: AbortSignal.timeout(3000),
-  })
-    .then((r) => (r.ok ? r.json() : []))
-    .then((sessions) => {
-      if (Array.isArray(sessions) && sessions.length > 0) return;
-      registerOpencodeProject(slug);
-    })
-    .catch(() => {
-      // opencode unreachable or an unexpected response shape — fall back to
-      // the plain registration call; it is idempotent enough for this purpose.
-      registerOpencodeProject(slug);
-    });
+  ensureOpencodeSessionApi(slug);
 }
 
 /**
@@ -216,25 +176,7 @@ export function ensureOpencodeSession(slug: string): void {
  * failure (opencode down, API shape drift) is silently ignored.
  */
 function unregisterOpencodeProject(slug: string): void {
-  const directory = path.join(WORKSPACES_ROOT, slug);
-  const base = `http://localhost:${OPENCODE_PORT}`;
-  fetch(`${base}/session?directory=${encodeURIComponent(directory)}`, {
-    signal: AbortSignal.timeout(3000),
-  })
-    .then((r) => (r.ok ? r.json() : []))
-    .then((sessions) => {
-      if (!Array.isArray(sessions)) return;
-      for (const s of sessions) {
-        if (!s || typeof s.id !== 'string') continue;
-        fetch(`${base}/session/${encodeURIComponent(s.id)}`, {
-          method: 'DELETE',
-          signal: AbortSignal.timeout(3000),
-        }).catch(() => {});
-      }
-    })
-    .catch(() => {
-      /* non-fatal */
-    });
+  unregisterOpencodeProjectSessions(slug);
 }
 
 /**
