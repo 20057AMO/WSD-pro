@@ -1,5 +1,5 @@
 ---
-description: Prepare a release — inventory changes since last tag, honest semver bump, user-facing changelog, tag and notes
+description: Prepare a release — semver bump, user-facing changelog, annotated tag and migration notes. Use when work is ready to ship past the last tag.
 agent: release-manager
 ---
 

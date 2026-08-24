@@ -1,18 +1,18 @@
 ---
 name: wsd-workflow
-description: WSD-Pro project conventions — build gates, Docker rebuild rule, test suite, commit discipline
+description: WSD-Pro house rules — Docker rebuild gate, tsc/vite checks, serial test suite, commit discipline, PowerShell quirks. Use when working inside THIS repository on any change. Use PROACTIVELY before claiming any WSD-Pro task is done — these gates are non-negotiable.
 ---
 
 # WSD-Pro Workflow skill
 
-Use when working inside the WSD-Pro repository so every change follows house rules.
+Scope: every code change in this repo. If you touched `frontend/` or `backend/` and have not passed the gates below, the task is NOT done.
 
 ## The non-negotiables
-1. **Docker rebuild rule**: after ANY change to `frontend/` or `backend/`:
+1. **Docker rebuild rule**: after ANY frontend/backend change:
    ```
    docker compose build app && docker compose up -d app
    ```
-   Every feature must be tested inside the running container. No exceptions.
+   Every feature is tested inside the running container. No exceptions.
 2. **Local gates before Docker**:
    - `cd frontend && node node_modules\typescript\bin\tsc --noEmit`
    - `cd frontend && node node_modules\vite\bin\vite.js build`
@@ -21,23 +21,21 @@ Use when working inside the WSD-Pro repository so every change follows house rul
    ```
    cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
    ```
-   Serial only — parallel runs trip the rate limiter.
-4. **Commit discipline**: after task + tests + verification → `git add -A`, descriptive message, push, watch CI to green.
+4. **Commit discipline**: task + tests + verification → `git add -A`, descriptive message, push, watch CI green.
 
 ## Area-by-area method (بالقطع)
-- One feature/area per round; never jump between unrelated areas
-- Understand full context + vertical goal BEFORE any code change
-- Ask clarifying questions before starting new work
+One feature/area per round · full context + vertical goal BEFORE any edit · clarifying questions before new work.
 
-## House style
-- Icons: lucide-preact (`class="icon"`, spin via `.icon.spin`); ConfirmModal for destructive/sensitive actions; ReAuthModal sudo pattern for password-gated ops; dark mode only; version `2.0.0-beta`
-- Security defaults: opt-in CORS, SSRF guards on metadata IPs, scoped JWTs never pass generic auth, secrets sealed with AES-256-GCM, masked-value echo rejection
-- API conventions: error shape `{error, message}`, correct status codes (400/401/403/404/409/429), dedicated rate-limit scopes for auth-class endpoints, audit events for security-relevant actions
+## House style quick reference
+ConfirmModal destructive ops · ReAuthModal sudo pattern · lucide-preact icons (`class="icon"`) · dark only · version `2.0.0-beta` · error shape `{error,message}` · audit events for security-relevant actions.
 
 ## Windows host quirks
-- PowerShell: no `&&` — use `if ($?)`; git stderr prints as PS errors harmlessly; avoid `Select-Object -First/-Last` truncation (full output already captured)
-- Container scripts: write to temp file + `docker cp` + exec, never inline-quote complex sh through PowerShell (`$(...)` gets mangled)
+- PowerShell: no `&&` — use `if ($?)`; git stderr prints as PS errors harmlessly
+- Container scripts: temp file → `docker cp` → exec; NEVER inline-quote complex sh through PowerShell (`$(...)` gets mangled)
 
-## Test discipline
-- Serial runs only (`--test-concurrency=1`) — parallel + browser polling trips the rate limiter
-- Suites self-clean their data; optional suites self-skip without credentials — read the table in AGENTS.md before assuming coverage
+## Pitfalls
+- ❌ Parallel test runs ✅ `--test-concurrency=1` — parallel + browser polling trips the rate limiter
+- ❌ Declaring done after local build only ✅ Rebuilt container + suite + manual probe of the changed path
+- ❌ Batching unrelated fixes ✅ One area per commit so review and revert stay surgical
+
+The rebuild gate exists because "works locally" has never once been evidence.

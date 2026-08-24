@@ -1,33 +1,44 @@
 ---
 name: git-release
-description: Prepare releases — changelogs, version bumps and tagged GitHub releases following consistent conventions
+description: Prepare versioned releases — semver bumps, user-facing changelogs, annotated tags, migration notes. Use when shipping a release or hotfix. Use PROACTIVELY when merged work has piled up past the last tag or a breaking change just landed.
 ---
 
 # Git Release skill
 
-Use when preparing a tagged release for the current repository.
+Scope: cutting tagged releases for the current repository. NOT for daily commits — those follow the project's commit discipline; come here when work needs to SHIP.
+
+## Decision tree
+
+```
+Need to ship
+├─ Breaking API/config/data change → MAJOR + migration notes mandatory
+├─ User-visible additions only     → MINOR
+├─ Fixes/internal only             → PATCH
+└─ Production bug RIGHT NOW        → hotfix path: branch FROM tag, fix, re-tag
+```
 
 ## Procedure
-1. **Inventory changes**: `git log --oneline $(git describe --tags --abbrev=0)..HEAD` — summarize merged work by category (feat/fix/docs/chore)
-2. **Propose the version bump** BEFORE changing anything:
-   - Breaking change / behavior removal → MAJOR
-   - New user-visible capability → MINOR
-   - Fixes and internal work only → PATCH
-   - State the reasoning in one line; wait for approval if ambiguous
-3. **Draft the changelog** entry: newest first, grouped `### Added / ### Changed / ### Fixed`, each line user-facing ("Add X" not "refactor X handling")
-4. **Breaking-change notes** — each breaking item documents: who is affected, exact migration steps, old→new mapping
-5. **After approval only**:
-   - Update the version field(s) the project actually uses (search for the old version string everywhere — constants, about panels, package files)
-   - Commit as `chore(release): vX.Y.Z`
-   - Tag annotated: `git tag -a vX.Y.Z -m "vX.Y.Z"`
-   - Push with tags: `git push && git push --tags`
-   - If `gh` is available: draft the release from the changelog section
+1. **Inventory**: `git log --oneline $(git describe --tags --abbrev=0)..HEAD` grouped Added/Changed/Fixed/Removed/Security
+2. **Propose bump BEFORE changing anything** — one-line reasoning; ask if ambiguous
+3. **Draft changelog**: newest first, `### Added / Changed / Fixed` sections, each line USER-facing ("Add X" not "refactor X handling")
+4. **On approval only**:
+   - Update every version field the project uses (search the old string everywhere)
+   - Commit `chore(release): vX.Y.Z`
+   - Annotated tag: `git tag -a vX.Y.Z -m "vX.Y.Z"`
+   - `git push && git push --tags`; draft gh release from changelog if available
+
+## Quick start
+```sh
+git log --oneline $(git describe --tags --abbrev=0)..HEAD   # what ships
+git tag -a v1.2.0 -m "v1.2.0" && git push --tags            # after suite green
+```
+
+## Pitfalls
+- ❌ Tagging with dirty tree or red CI ✅ Suite green at the EXACT commit being tagged
+- ❌ Force-pushing release branches / rewriting published tags ✅ Hotfix branch from the tag instead
+- ❌ Changelog written for committers ✅ Written for users — "what changed for me?"
 
 ## Verification gate
-- Full test suite green at the EXACT commit being tagged
-- Clean working tree before tagging; build from a fresh checkout succeeds
+Clean tree · full suite green at release commit · build succeeds fresh · rollback path stated (previous tag, migration reversibility).
 
-## Guardrails
-- Never rewrite published tags or force-push release branches
-- Never include uncommitted working-tree changes in a release commit
-- Hotfix path: branch FROM the tag, fix, re-tag — never mutate history
+A release nobody can roll back is a bet, not a release.

@@ -1,5 +1,5 @@
 ---
-description: Root-cause a bug from symptom to verified fix — reproduce, isolate, hypothesize, fix at root
+description: Root-cause a bug from symptom to verified fix with evidence and sibling sweep. Use when the cause is unknown or a previous fix didn't hold.
 agent: debugger
 ---
 

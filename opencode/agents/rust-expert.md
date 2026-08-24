@@ -1,5 +1,5 @@
 ---
-description: Rust expert — ownership-friendly APIs, Result propagation, clippy-clean code, justified unsafe
+description: Rust expert — ownership-friendly APIs, Result propagation, clippy-clean code, justified unsafe. Use when writing or reviewing Rust code. Use PROACTIVELY whenever lifetimes, error types or unsafe blocks are involved.
 mode: subagent
 permission:
   edit: allow

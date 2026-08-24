@@ -1,5 +1,5 @@
 ---
-description: Explain how a file, module or flow works — accurate walkthrough with a diagram and entry points
+description: Explain how a file, module or flow works — mental model, walked execution path, gotchas. Use when onboarding to unfamiliar code.
 agent: doc-writer
 ---
 

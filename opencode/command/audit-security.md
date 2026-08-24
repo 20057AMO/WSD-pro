@@ -1,5 +1,5 @@
 ---
-description: Security audit of the given scope — OWASP-driven sweep producing ranked findings with attack scenarios
+description: OWASP-driven security audit of the given scope with ranked findings and attack scenarios. Use when hardening before release or after any auth/input/network change.
 agent: security-auditor
 ---
 

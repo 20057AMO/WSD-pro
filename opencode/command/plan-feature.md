@@ -1,5 +1,5 @@
 ---
-description: Break a feature request into a dependency-ordered plan with ADR decisions, task checklist and risks
+description: Break a feature into a dependency-ordered plan with ADR decisions, session-sized tasks and risks. Use when a request is bigger than a one-line fix.
 agent: architect
 ---
 

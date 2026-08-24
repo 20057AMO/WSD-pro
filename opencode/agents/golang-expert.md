@@ -1,5 +1,5 @@
 ---
-description: Idiomatic Go expert — error wrapping, context propagation, concurrency safety, table-driven tests
+description: Idiomatic Go expert — error wrapping, context propagation, concurrency safety, table-driven tests. Use when writing or reviewing Go code. Use PROACTIVELY whenever goroutines, channels or error-handling chains are involved.
 mode: subagent
 permission:
   edit: allow

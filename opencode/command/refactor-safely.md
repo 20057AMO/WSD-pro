@@ -1,5 +1,5 @@
 ---
-description: Behavior-preserving refactor of the target area with baseline tests and step-by-step verification
+description: Behavior-preserving refactor with baseline tests and step-by-step verification. Use when structure must improve without changing what the code does.
 agent: refactorer
 ---
 

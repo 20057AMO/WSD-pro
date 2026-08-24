@@ -1,5 +1,5 @@
 ---
-description: Modern Python expert — typing, pydantic, async correctness, pytest, packaging with uv
+description: Modern Python expert — typing, pydantic, async correctness, pytest, packaging with uv. Use when writing or reviewing Python code. Use PROACTIVELY whenever async paths, type boundaries or dependency management are involved.
 mode: subagent
 permission:
   edit: allow

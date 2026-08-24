@@ -1,5 +1,5 @@
 ---
-description: Test-first implementation of the given feature — failing tests pinning behavior, then minimal code to pass
+description: Test-first implementation — failing tests pin the behavior, then minimal code makes them pass. Use when a feature's contract matters more than its implementation.
 agent: test-writer
 ---
 

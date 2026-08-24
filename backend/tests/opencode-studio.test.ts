@@ -75,17 +75,20 @@ describe('Opencode Studio API', () => {
       'doc-writer',
       'frontend-developer',
       'golang-expert',
+      'incident-responder',
+      'log-analyst',
       'pentester',
       'perf-optimizer',
+      'prompt-engineer',
       'python-expert',
       'refactorer',
+      'release-manager',
       'rust-expert',
       'security-auditor',
       'test-writer',
       'ux-designer',
       'wsd-expert',
       'api-designer',
-      'release-manager',
     ]) {
       assert.ok(names.includes(expected), `preset agent '${expected}' present`);
     }
@@ -218,6 +221,26 @@ describe('Opencode Studio API', () => {
       content: 'Just a body, no --- markers.',
     });
     assert.equal(res.status, 400);
+  });
+
+  test('baked roster files are intact (frontmatter, no NUL corruption)', async () => {
+    // Regression guard: a baked file once silently became pure NUL bytes and
+    // shipped inside the image because listings derive names from paths.
+    for (const kind of ['agents', 'skills', 'commands'] as const) {
+      const listRes = await reqAuth('GET', `/opencode-studio/${kind}`);
+      const body = await listRes.json();
+      const list: any[] = body[kind] || [];
+      assert.ok(list.length > 0, `${kind} roster not empty`);
+      for (const item of list) {
+        if (item.name.startsWith('zz-')) continue; // transient test items
+        const got = await reqAuth('GET', `/opencode-studio/${kind}/${encodeURIComponent(item.name)}`);
+        assert.equal(got.status, 200, `${kind}/${item.name} readable`);
+        const { content } = await got.json();
+        assert.ok(!String(content).includes('\u0000'), `${kind}/${item.name} has no NUL bytes`);
+        assert.match(String(content), /^---/, `${kind}/${item.name} starts with frontmatter`);
+        assert.ok(String(item.description || '').length > 0, `${kind}/${item.name} description present`);
+      }
+    }
   });
 
   test('config roundtrip preserves keys and rejects junk', async () => {

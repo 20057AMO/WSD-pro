@@ -1,5 +1,5 @@
 ---
-description: Full code review of the given scope (diff, files, or feature) with severity-ranked findings
+description: Full code review of the given scope with severity-ranked findings and a ship verdict. Use when changes need review before merge.
 agent: code-reviewer
 ---
 
