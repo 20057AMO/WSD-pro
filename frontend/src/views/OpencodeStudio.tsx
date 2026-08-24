@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'preact/hooks';
-import { ArrowLeft, Bot, Sparkles, SlidersHorizontal, RefreshCw, CheckCircle2, ArrowUpCircle, Lock, Trash2, Plus, Save, Terminal } from 'lucide-preact';
+import { ArrowLeft, Bot, Sparkles, SlidersHorizontal, RefreshCw, CheckCircle2, ArrowUpCircle, Lock, Trash2, Plus, Save, Terminal, BookOpen, Search, Copy, Check, AlertTriangle } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { StudioGuide } from './studio-guide';
 import {
   listStudioAgents,
   getStudioAgent,
@@ -23,7 +24,14 @@ import {
   type StudioVersionInfo,
 } from '../api';
 
-type Tab = 'agents' | 'skills' | 'commands' | 'config';
+type Tab = 'agents' | 'skills' | 'commands' | 'config' | 'guide';
+
+const TRIGGER_RE = /(Use when|Use PROACTIVELY when|Use ONLY when)/i;
+
+function descriptionMissingTrigger(content: string): boolean {
+  const m = content.match(/^description:\s*(.+)$/m);
+  return !!m && !TRIGGER_RE.test(m[1]);
+}
 
 const AGENT_TEMPLATE = `---
 description: What this subagent does (shown to the model for selection)
@@ -81,6 +89,8 @@ export function OpencodeStudio() {
   const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState('');
+  const [copied, setCopied] = useState<string | null>(null);
 
   // Config tab
   const [configText, setConfigText] = useState('');
@@ -112,6 +122,7 @@ export function OpencodeStudio() {
   useEffect(() => {
     setSelected(null);
     setNotice(null);
+    setQuery('');
     if (tab === 'config') {
       getStudioConfig()
         .then((c) => setConfigText(JSON.stringify(c, null, 2)))
@@ -225,6 +236,14 @@ export function OpencodeStudio() {
     }
   };
 
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? items.filter(
+        (it) =>
+          it.name.toLowerCase().includes(q) || (it.description || '').toLowerCase().includes(q),
+      )
+    : items;
+
   return (
     <div class="opencode-page">
       <div class="opencode-toolbar">
@@ -234,9 +253,10 @@ export function OpencodeStudio() {
           <button class={`btn-ghost sm${tab === 'skills' ? ' active' : ''}`} onClick={() => setTab('skills')}><Sparkles width={13} height={13} class="icon" /> Skills</button>
           <button class={`btn-ghost sm${tab === 'commands' ? ' active' : ''}`} onClick={() => setTab('commands')}><Terminal width={13} height={13} class="icon" /> Commands</button>
           <button class={`btn-ghost sm${tab === 'config' ? ' active' : ''}`} onClick={() => setTab('config')}><SlidersHorizontal width={13} height={13} class="icon" /> Config</button>
+          <button class={`btn-ghost sm${tab === 'guide' ? ' active' : ''}`} onClick={() => setTab('guide')}><BookOpen width={13} height={13} class="icon" /> Guide</button>
         </span>
         <span style="flex:1" />
-        {tab !== 'config' && (
+        {tab !== 'config' && tab !== 'guide' && (
           <button class="btn-primary sm" onClick={newItem}><Plus width={13} height={13} class="icon" /> New</button>
         )}
         {ver && (
@@ -272,7 +292,11 @@ export function OpencodeStudio() {
         </div>
       )}
 
-      {tab === 'config' ? (
+      {tab === 'guide' ? (
+        <div style="flex:1;overflow:hidden">
+          <StudioGuide />
+        </div>
+      ) : tab === 'config' ? (
         <div class="studio-editor" style="padding:16px;display:flex;flex-direction:column;gap:10px;overflow:auto">
           <p style="font-size:0.75rem;color:var(--text-3);margin:0">
             Global opencode.json — applies to every project and interface.
@@ -295,12 +319,24 @@ export function OpencodeStudio() {
         <div class="studio-body" style="display:flex;gap:14px;padding:14px 16px;overflow:hidden;flex:1">
           {/* List column */}
           <div style="width:260px;overflow:auto;border-right:1px solid var(--border,#333);padding-right:10px">
+            <div style="position:relative;margin-bottom:8px">
+              <Search width={12} height={12} class="icon" style="position:absolute;top:7px;inset-inline-start:8px;opacity:.45" />
+              <input
+                class="modern-input"
+                style="width:100%;font-size:0.72rem;padding:5px 8px 5px 24px;box-sizing:border-box"
+                placeholder="Filter…"
+                value={query}
+                onInput={(e: any) => setQuery(e.target.value)}
+              />
+            </div>
             {loading ? (
               <p style="color:var(--text-3);font-size:0.75rem">Loading…</p>
-            ) : items.length === 0 ? (
-              <p style="color:var(--text-3);font-size:0.75rem">Nothing yet — create one with New.</p>
+            ) : filtered.length === 0 ? (
+              <p style="color:var(--text-3);font-size:0.75rem">
+                {items.length === 0 ? 'Nothing yet — create one with New.' : 'No matches.'}
+              </p>
             ) : (
-              items.map((it) => (
+              filtered.map((it) => (
                 <div
                   key={it.name}
                   class="studio-item"
@@ -321,16 +357,38 @@ export function OpencodeStudio() {
                         @{it.agent}
                       </span>
                     )}
-                    <Trash2
-                      width={13}
-                      height={13}
-                      class="icon"
-                      style="opacity:.5;cursor:pointer"
-                      onClick={(e: Event) => {
-                        e.stopPropagation();
-                        setConfirmDelete(it.name);
-                      }}
-                    />
+                    <span style="display:inline-flex;align-items:center;gap:4px;margin-inline-start:auto">
+                      {it.description && (
+                        copied === it.name ? (
+                          <Check width={13} height={13} class="icon" style="opacity:.8;color:var(--ok,#4ade80)" />
+                        ) : (
+                          <Copy
+                            width={13}
+                            height={13}
+                            class="icon"
+                            title="Copy description — paste into chat to summon this specialist by name"
+                            style="opacity:.5;cursor:pointer"
+                            onClick={(e: Event) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(it.description).then(() => {
+                                setCopied(it.name);
+                                setTimeout(() => setCopied((c) => (c === it.name ? null : c)), 1500);
+                              });
+                            }}
+                          />
+                        )
+                      )}
+                      <Trash2
+                        width={13}
+                        height={13}
+                        class="icon"
+                        style="opacity:.5;cursor:pointer"
+                        onClick={(e: Event) => {
+                          e.stopPropagation();
+                          setConfirmDelete(it.name);
+                        }}
+                      />
+                    </span>
                   </div>
                   {it.description && (
                     <div style="font-size:0.68rem;color:var(--text-3);margin-top:2px">
@@ -375,6 +433,12 @@ export function OpencodeStudio() {
                     <Save width={13} height={13} class="icon" /> Save
                   </button>
                 </div>
+                {descriptionMissingTrigger(content) && (
+                  <div style="display:flex;gap:6px;align-items:center;font-size:0.7rem;color:#fbbf24;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);padding:6px 10px;border-radius:8px">
+                    <AlertTriangle width={13} height={13} class="icon" />
+                    Description lacks a trigger phrase ("Use when…") — opencode may never select this item automatically.
+                  </div>
+                )}
                 <textarea
                   class="modern-input mono"
                   style="flex:1;resize:none;font-size:0.78rem;line-height:1.55;white-space:pre;min-height:300px"
