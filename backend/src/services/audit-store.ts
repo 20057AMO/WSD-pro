@@ -31,7 +31,9 @@ export type AuditEvent =
   | '2fa-disabled-failed'
   | 'login-2fa-failed'
   | 'backup-export'
-  | 'backup-import';
+  | 'backup-import'
+  | 'workspace-janitor'
+  | 'project-files-deleted';
 
 export interface AuditEntry {
   ts: string;

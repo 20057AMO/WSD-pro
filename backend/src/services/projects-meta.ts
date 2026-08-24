@@ -61,6 +61,17 @@ export function deleteMeta(slug: string): void {
   }
 }
 
+/** Slugs of every project that has a meta store — the "live project" set. */
+export function listMetaSlugs(): string[] {
+  try {
+    return fs
+      .readdirSync(META_DIR)
+      .filter((s) => s && !s.startsWith('.') && fs.existsSync(metaFile(s)));
+  } catch {
+    return [];
+  }
+}
+
 export function touchActivity(slug: string, action: string): ProjectMeta | null {
   const clean = String(slug ?? '');
   const meta = loadMeta(clean) || { activity: [] };

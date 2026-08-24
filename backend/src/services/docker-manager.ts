@@ -11,7 +11,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { execSync, spawn, execFileSync } from 'child_process';
-import { loadMeta, saveMeta, deleteMeta, touchActivity, type ProjectMeta } from './projects-meta';
+import { loadMeta, saveMeta, deleteMeta, touchActivity, listMetaSlugs, type ProjectMeta } from './projects-meta';
 
 const docker = new Docker(); // uses /var/run/docker.sock by default
 
@@ -190,6 +190,52 @@ function registerOpencodeProject(slug: string): void {
   });
 }
 
+/** Ensure a project has at least one opencode session (no duplicates). */
+export function ensureOpencodeSession(slug: string): void {
+  const directory = path.join(WORKSPACES_ROOT, slug);
+  const base = `http://localhost:${OPENCODE_PORT}`;
+  fetch(`${base}/session?directory=${encodeURIComponent(directory)}`, {
+    signal: AbortSignal.timeout(3000),
+  })
+    .then((r) => (r.ok ? r.json() : []))
+    .then((sessions) => {
+      if (Array.isArray(sessions) && sessions.length > 0) return;
+      registerOpencodeProject(slug);
+    })
+    .catch(() => {
+      // opencode unreachable or an unexpected response shape — fall back to
+      // the plain registration call; it is idempotent enough for this purpose.
+      registerOpencodeProject(slug);
+    });
+}
+
+/**
+ * Best-effort cleanup of opencode sessions bound to a deleted project's
+ * directory, so stale sessions don't linger in the web UI. Non-fatal: any
+ * failure (opencode down, API shape drift) is silently ignored.
+ */
+function unregisterOpencodeProject(slug: string): void {
+  const directory = path.join(WORKSPACES_ROOT, slug);
+  const base = `http://localhost:${OPENCODE_PORT}`;
+  fetch(`${base}/session?directory=${encodeURIComponent(directory)}`, {
+    signal: AbortSignal.timeout(3000),
+  })
+    .then((r) => (r.ok ? r.json() : []))
+    .then((sessions) => {
+      if (!Array.isArray(sessions)) return;
+      for (const s of sessions) {
+        if (!s || typeof s.id !== 'string') continue;
+        fetch(`${base}/session/${encodeURIComponent(s.id)}`, {
+          method: 'DELETE',
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => {});
+      }
+    })
+    .catch(() => {
+      /* non-fatal */
+    });
+}
+
 /**
  * Make sure the project image exists locally; if not, pull it so
  * `docker create` never fails on a missing image (fresh hosts, CI, etc).
@@ -225,6 +271,27 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   }
 
   const slug = clean.slug;
+  // Guard against silently inheriting files left behind by a previously
+  // deleted project (crash mid-delete, pre-upgrade leftovers, manual dirs).
+  // The janitor archives such strays automatically, so this window is small.
+  const workDirPath = path.join(WORKSPACES_ROOT, slug);
+  if (!loadMeta(slug) && fs.existsSync(workDirPath)) {
+    let hasLeftovers = false;
+    try {
+      hasLeftovers = fs
+        .readdirSync(workDirPath)
+        .some((f) => f !== '.archive' && !f.startsWith('.'));
+    } catch {
+      /* unreadable — let creation proceed */
+    }
+    if (hasLeftovers) {
+      throw new HttpError(
+        409,
+        `A workspace folder '${slug}' already exists from an earlier project. ` +
+          'It is archived automatically within a few minutes — retry shortly.',
+      );
+    }
+  }
   const workDir = ensureWorkspaceDir(slug);
   const bindSource = WORKSPACES_HOST_DIR
     ? `${WORKSPACES_HOST_DIR.replace(/\\/g, '/')}/${slug}`
@@ -426,7 +493,8 @@ export async function stopProject(slug: string): Promise<ProjectInfo> {
 }
 
 /**
- * Remove a project container entirely (keeps workspace dir).
+ * Remove a project entirely: container, meta store AND its workspace files
+ * from disk. opencode session cleanup is best-effort (non-fatal).
  */
 export async function removeProject(slug: string): Promise<void> {
   const projectSlug = validateProjectSlug(slug);
@@ -434,6 +502,23 @@ export async function removeProject(slug: string): Promise<void> {
   const container = docker.getContainer(`wsd-${projectSlug}`);
   await container.remove({ force: true });
   deleteMeta(projectSlug);
+  removeWorkspaceDir(projectSlug);
+  unregisterOpencodeProject(projectSlug);
+}
+
+/**
+ * Delete a workspace directory from disk — path-escape guarded, and failures
+ * are non-fatal (the janitor archives any leftover on its next sweep).
+ */
+function removeWorkspaceDir(slug: string): void {
+  try {
+    const root = path.resolve(WORKSPACES_ROOT);
+    const dir = path.resolve(root, slug);
+    if (dir !== root && !dir.startsWith(root + path.sep)) return;
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    /* janitor archives leftovers */
+  }
 }
 
 /**

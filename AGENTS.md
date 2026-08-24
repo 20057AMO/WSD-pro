@@ -41,6 +41,7 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 | Providers lock & backup | `tests/providers-lock.test.ts` | Lock flow E2E (needs `WSD_TEST_ACCOUNT_PASSWORD`; self-skips without it) |
 | Providers page journey | `tests/providers-page-journey.test.ts` | Live-audit gaps: detection_required shape, duplicate guards, masked-key echo (POST+PUT), chat open while locked, cross-session replay via REAL logins, cooldown bans even the correct password (isolated server only; canary self-skips lock sections while the 15-min ban from a previous run is active) |
 | Secret box (at-rest crypto) | `tests/crypto.test.ts` | AES-256-GCM roundtrip, fresh-IV, tamper→empty, mask-without-decrypt + API-level sealing of providers.json (file assertions when `WSD_TEST_PROVIDERS_FILE` points at the server's data dir; set `WSD_DATA_DIR` to the same dir so the test process shares the server's salt) |
+| Workspace janitor | `tests/janitor.test.ts` | Orphan archiving, live-project safety, dot-dir skip, archive purge (`WSD_ARCHIVE_DAYS=0`) — offline, temp dirs only |
 | Security | `tests/security.test.ts` | Path traversal, upload sanitization, malformed auth headers |
 | Smoke | `tests/smoke.test.ts` | Health, core endpoints, project roundtrip |
 | WebSocket matrix | `tests/websocket.test.ts` | 6 endpoints × {no token→401, valid→open, invalid→401} |
@@ -152,6 +153,13 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - `POST /api/settings/export` (JSON body with `accountPassword`) → JSON backup; **provider API keys are stripped by design**
 - `POST /api/settings/import` merges by id — existing items always win, secrets are never imported
 - Both operations require account-password re-auth
+
+### Workspace janitor & IDE/opencode hygiene
+- Deleting a project now removes EVERYTHING: container + meta store **and its workspace files from disk** (`removeProject`); opencode sessions for that directory are deleted best-effort (`unregisterOpencodeProject`)
+- `services/workspace-janitor.ts` sweeps `/workspaces` at boot (+ every `WSD_JANITOR_INTERVAL_MS`, default 6h): dirs without a live meta store are MOVED to `/workspaces/.archive/<ts>-<slug>` and purged permanently after `WSD_ARCHIVE_DAYS` (default 7). Pure logic in `janitor-core.ts` (import-free so node --test can load it)
+- code-server is rooted at `/workspaces` — archived dot-dir keeps it ghost-free; `entrypoint.sh` registers ONLY live-project dirs into opencode and purges stale rows from its SQLite store (`project`/`project_directory`) BEFORE launching it via python3
+- Creating a project whose slug collides with an orphaned non-empty dir returns 409 (janitor archives it within minutes)
+- EmbeddedIDE no longer shows the cosmetic code-server password (server runs `--auth none`); Opencode page has a live-project picker (`POST /api/opencode/open` ensures a session exists)
 
 ### Security activity log (audit)
 - `data/audit.json` — append-only, capped at the last 100 entries

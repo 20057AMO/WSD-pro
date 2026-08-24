@@ -27,9 +27,11 @@ import {
   recreateProject,
   runProjectScript,
   cloneIntoWorkspace,
+  ensureOpencodeSession,
   HttpError,
   WORKSPACES_ROOT,
 } from './services/docker-manager';
+import { startJanitor } from './services/workspace-janitor';
 import { listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, renameWorkspacePath, deleteWorkspacePath, resolveProjectSubdir } from './services/workspace-files';
 import { loadMeta, saveMeta } from './services/projects-meta';
 import { getIdeStatus } from './services/ide-service';
@@ -866,10 +868,25 @@ app.post('/api/projects/:slug/stop', async (req, res) => {
   }
 });
 
-// Remove project (container only; workspace kept)
+// Remove project — container, meta store AND workspace files from disk.
 app.delete('/api/projects/:slug', rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
   try {
     await removeProject(req.params.slug);
+    recordAudit('project-files-deleted', true, req.ip);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Open a project in opencode (ensures registration + a session exists) so the
+// opencode page's project picker can land the user on the right workspace.
+app.post('/api/opencode/open', async (req, res) => {
+  try {
+    const slug = String(req.body?.slug || '');
+    const info = await getProject(slug);
+    if (!info) return res.status(404).json({ error: 'Project not found' });
+    ensureOpencodeSession(slug);
     res.json({ ok: true });
   } catch (err: any) {
     res.status(err.statusCode || 500).json({ error: err.message });
@@ -1165,6 +1182,9 @@ server.listen(PORT, HOST, () => {
   console.log(`[WSD-Pro] Chat model: ${getChatConfig().model}`);
   console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
 });
+
+// Automatic orphaned-workspace cleanup (boot + every WSD_JANITOR_INTERVAL_MS).
+startJanitor();
 
 
 

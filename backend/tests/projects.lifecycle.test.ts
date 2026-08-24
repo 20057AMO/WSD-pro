@@ -1,5 +1,7 @@
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert';
+import fs from 'fs';
+import path from 'path';
 import { uniqueId, reqAuth } from './helpers.ts';
 
 describe('Project lifecycle (real Docker container)', () => {
@@ -96,6 +98,17 @@ describe('Project lifecycle (real Docker container)', () => {
   test('deleted project is gone (404)', async () => {
     const res = await reqAuth('GET', `/projects/${slug}`);
     assert.strictEqual(res.status, 404);
+  });
+
+  // The container bind-mounts ./workspaces, so the host-side path must be
+  // gone too after deletion (files are no longer kept by design).
+  test('workspace files are removed from disk', async () => {
+    const hostDir = path.resolve(import.meta.dirname!, '..', '..', 'workspaces', slug);
+    assert.strictEqual(
+      fs.existsSync(hostDir),
+      false,
+      `expected workspace dir to be deleted: ${hostDir}`,
+    );
   });
 
 });

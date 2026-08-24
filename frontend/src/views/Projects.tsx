@@ -442,7 +442,7 @@ export function Projects() {
             ? `Delete ${confirmState.slugs.length} project(s)?`
             : `Delete project '${confirmState?.kind === 'delete' ? confirmState.slug : ''}'?`
         }
-        message="The container is removed. Workspace files are kept."
+        message="The container and its workspace files are permanently removed."
         confirmLabel="Delete"
         onConfirm={runConfirmed}
         onCancel={() => { if (!confirmBusy) setConfirm(null); }}

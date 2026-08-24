@@ -7,7 +7,6 @@ export function EmbeddedIDE() {
   const [, setLocation] = useHashLocation();
   const [running, setRunning] = useState<boolean | null>(null);
   const [port, setPort] = useState(8100);
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -18,7 +17,6 @@ export function EmbeddedIDE() {
           if (cancelled) return;
           setRunning(s.ide.running);
           setPort(s.ide.port);
-          setPassword(s.ide.password);
           setLoading(false);
         })
         .catch(() => {
@@ -56,7 +54,7 @@ export function EmbeddedIDE() {
           {folder !== '/workspaces' ? folder.replace('/workspaces/', '') : 'All Projects'}
         </span>
         <span style="font-size: 0.68rem; color: var(--text-3); margin-left: 12px">
-          Password: <span class="mono" style="color: var(--text-2)">{password || '...'}</span>
+          {running === false ? 'IDE offline' : running ? 'IDE running' : ''}
         </span>
       </div>
       {loading ? (

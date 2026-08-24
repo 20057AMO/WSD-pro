@@ -678,7 +678,7 @@ function OverviewPanel({
       <div class="panel danger-zone">
         <div class="panel-title" style="color: var(--red)">Danger zone</div>
         <div class="kv" style="align-items:center">
-          <span>Delete the project container. Workspace files on disk are kept.</span>
+          <span>Deletes the container and permanently removes its workspace files from disk.</span>
           <div style="display:flex; gap:8px; align-items:center">
             <input
               class="modern-input"
