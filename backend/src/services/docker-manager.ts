@@ -104,7 +104,7 @@ function validateProjectSpec(spec: ProjectSpec): { name: string; slug: string; d
       throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro dashboard.`);
     }
     if (port === idePort) {
-      throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro Web IDE.`);
+      throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro VS Code service.`);
     }
     if (port === opencodePort) {
       throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro opencode web UI.`);

@@ -223,7 +223,7 @@ export function Project({ params }: { params: { slug: string } }) {
 
   const openIde = () => {
     if (!ideRunning) {
-      setIdeNotice('Web IDE is not running yet.');
+      setIdeNotice('VS Code is not running yet.');
       return;
     }
     const folder = subdirInfo?.hostPath || `/workspaces/${slug}`;

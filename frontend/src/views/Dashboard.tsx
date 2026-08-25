@@ -3,7 +3,6 @@ import { useHashLocation } from 'wouter/use-hash-location';
 import {
   FolderOpen,
   Bot,
-  Code2,
   KeyRound,
   Loader2,
   Play,
@@ -11,6 +10,7 @@ import {
   MonitorCheck,
   MonitorOff,
 } from 'lucide-preact';
+import { VSCodeIcon } from '../components/brand-icons';
 import {
   listProjects,
   getServerInfo,
@@ -64,7 +64,7 @@ export function Dashboard() {
   const quickLinks = [
     { label: 'Projects', Icon: FolderOpen, desc: `${projects.length} total`, route: '/projects' },
     { label: 'Agents', Icon: Bot, desc: `${agents.length} agents`, route: '/agents' },
-    { label: 'Web IDE', Icon: Code2, desc: ide?.running ? 'Running' : 'Stopped', route: '/ide' },
+    { label: 'VS Code', Icon: VSCodeIcon, desc: ide?.running ? 'Running' : 'Stopped', route: '/ide' },
     { label: 'Providers', Icon: KeyRound, desc: 'LLM config', route: '/providers' },
   ];
 
@@ -115,7 +115,7 @@ export function Dashboard() {
           <div class="dash-stat-icon">{ide?.running ? <MonitorCheck width={18} height={18} class="icon" /> : <MonitorOff width={18} height={18} class="icon" />}</div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{ide?.running ? 'On' : 'Off'}</span>
-            <span class="dash-stat-label">Web IDE</span>
+            <span class="dash-stat-label">VS Code</span>
           </div>
         </div>
       </div>

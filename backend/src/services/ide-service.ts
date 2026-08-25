@@ -1,6 +1,6 @@
 /**
  * ide-service.ts
- * WSD-Pro — Unified Web IDE (single code-server in the main container,
+ * WSD-Pro — Unified VS Code service (single code-server in the main container,
  * rooted at /workspaces, so it sees every project).
  * The dashboard shows its host port + password.
  */
