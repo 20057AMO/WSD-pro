@@ -5,8 +5,8 @@
 <h1 align="center">Madar</h1>
 
 <p align="center">
-  <a href="https://github.com/20057AMO/WSD-pro/actions/workflows/ci.yml">
-    <img src="https://github.com/20057AMO/WSD-pro/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  <a href="https://github.com/20057AMO/madar/actions/workflows/ci.yml">
+    <img src="https://github.com/20057AMO/madar/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
   <img src="https://img.shields.io/badge/version-2.0.0--beta-blue" alt="version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
@@ -43,8 +43,8 @@ No Node.js or other tooling is needed on the host — everything builds inside D
 
 ```bash
 # 1. Clone
-git clone https://github.com/20057AMO/WSD-pro.git
-cd WSD-Pro
+git clone https://github.com/20057AMO/madar.git
+cd madar
 
 # 2. Create your environment file
 cp .env.example .env
@@ -54,7 +54,7 @@ cp .env.example .env
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 #    - WSD_WORKSPACES_HOST_DIR (required): the ABSOLUTE host path of this
 #      repo's workspaces/ folder, e.g.
-#        Windows: D:/WSD-Pro/workspaces   Linux: /home/me/wsd-pro/workspaces
+#        Windows: D:/madar/workspaces   Linux: /home/me/madar/workspaces
 
 # 4. Build and launch
 docker compose up -d --build

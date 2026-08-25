@@ -16,8 +16,8 @@
 ### 1) انسخ المشروع
 
 ```bash
-git clone <repo-url> wsd-pro
-cd wsd-pro
+git clone <repo-url> madar
+cd madar
 ```
 
 ### 2) أنشئ ملف البيئة
@@ -30,7 +30,7 @@ nano .env   # أو أي محرر
 | المتغير | مطلوب؟ | الوصف |
 | --- | --- | --- |
 | `JWT_SECRET` | ✅ **نعم** | سر توقيع رموز تسجيل الدخول. ولّده بأمر:<br>`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
-| `WSD_WORKSPACES_HOST_DIR` | ✅ **نعم** | المسار **المطلق** لمجلد `workspaces/` كما يراه مضيف Docker (وليس داخل الحاوية). مثال ويندوز: `D:/wsd-pro/workspaces` — لينكس: `/home/me/wsd-pro/workspaces`. يستخدم كمصدر الربط عند تشغيل حاويات المشاريع لتشارك نفس الملفات مع اللوحة |
+| `WSD_WORKSPACES_HOST_DIR` | ✅ **نعم** | المسار **المطلق** لمجلد `workspaces/` كما يراه مضيف Docker (وليس داخل الحاوية). مثال ويندوز: `D:/madar/workspaces` — لينكس: `/home/me/madar/workspaces`. يستخدم كمصدر الربط عند تشغيل حاويات المشاريع لتشارك نفس الملفات مع اللوحة |
 | `OLLAMA_API_KEY` | اختياري | مفتاح Ollama Cloud فقط. بدونها يعمل Ollama المحلي أو أي مزوّد آخر |
 | `OPENCODE_API_KEY` | اختياري | لتمكين صفحة OpenCode/Zen |
 | `WSD_CHAT_MODEL` | اختياري | النموذج الافتراضي للدردشة (افتراضي `qwen3:30b`) |

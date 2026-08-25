@@ -451,7 +451,7 @@ app.post('/api/settings/export', authLimiter, (req: any, res) => {
     const backup = buildBackup('2.0.0-beta');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="wsd-pro-backup-${new Date().toISOString().slice(0, 10)}.json"`
+      `attachment; filename="madar-backup-${new Date().toISOString().slice(0, 10)}.json"`
     );
     res.json(backup);
   } catch (err: any) {

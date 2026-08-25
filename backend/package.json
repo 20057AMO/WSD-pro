@@ -1,5 +1,5 @@
 {
-  "name": "wsd-pro-backend",
+  "name": "madar-backend",
   "version": "0.2.0",
   "description": "Madar — Work Space Development Pro backend. Docker-based isolated workspaces for AI agents.",
   "main": "dist/index.js",
@@ -11,7 +11,7 @@
     "test": "node --test --test-concurrency=1 \"tests/**/*.test.ts\""
   },
   "keywords": [
-    "wsd-pro",
+    "madar",
     "docker",
     "ai-agents",
     "workspace"

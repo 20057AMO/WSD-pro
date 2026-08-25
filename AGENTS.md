@@ -1,6 +1,6 @@
 # AGENTS.md — Madar
 
-> **Naming (2026-08)**: the product was renamed **WSD-Pro → Madar (مدار)**. All user-facing strings, docs and baked opencode content say Madar. Deliberately KEPT for data/infra compatibility: `wsd.*` localStorage keys, `WSD_*` env vars, docker resource names (`wsd-pro` container, `wsd-pro-app` image, `wsd-<slug>` project containers, `wsd/workspace` image), JWT default-secret literals, and the legacy `wsd-pro-backup` marker which is still importable alongside the new `madar-backup`.
+> **Naming (2026-08)**: the product was renamed **WSD-Pro → Madar (مدار)**. All user-facing strings, docs and baked opencode content say Madar; the GitHub repo is now `20057AMO/madar` and backup downloads are named `madar-backup-*.json` (legacy `wsd-pro-backup` exports still importable). Deliberately KEPT for data/infra compatibility: `wsd.*` localStorage keys, `WSD_*` env vars, docker resource names (`wsd-pro` container, `wsd-pro-app` image, `wsd-<slug>` project containers, `wsd/workspace` image), JWT default-secret literals, the per-project goals filename `WSD_PROJECT.md`, and the legacy `wsd-pro-backup` import marker alongside the new `madar-backup`.
 
 ## Docker Rebuild Rule
 
