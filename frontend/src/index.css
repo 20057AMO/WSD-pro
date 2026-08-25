@@ -1,8 +1,8 @@
-/* ═══════════════════════════════════════════════════════
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
    WSD-Pro — Work Space Development Pro
    Professional UI — Remote-inspired dark theme
-   bg #0f1014 · panels #17181d · accent #e8e9ea · mono JetBrains
-   ═══════════════════════════════════════════════════════ */
+   bg #0f1014 Â· panels #17181d Â· accent #e8e9ea Â· mono JetBrains
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
 
 :root {
   --bg: #0f1014;
@@ -43,10 +43,26 @@ input, select { font: inherit; color: inherit; }
 .scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
 .scrollbar::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
 .scrollbar::-webkit-scrollbar-track { background: transparent; }
+
+/* â”€â”€ Global scrollbars (identity-consistent, both engines) â”€â”€ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-2);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: var(--text-3); }
+::-webkit-scrollbar-corner { background: transparent; }
 .mono { font-family: var(--mono); }
 .accent { color: var(--text); background: linear-gradient(90deg, var(--text), var(--text-2)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 
-/* ── Preloader ── */
+/* â”€â”€ Preloader â”€â”€ */
 #preloader {
   position: fixed; inset: 0; z-index: 999;
   background: var(--bg);
@@ -63,7 +79,7 @@ input, select { font: inherit; color: inherit; }
 .preloader-fill { width: 40%; height: 100%; background: var(--text); animation: slide 1s ease-in-out infinite; }
 @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
 
-/* ── Auth ── */
+/* â”€â”€ Auth â”€â”€ */
 .auth-view {
   min-height: 100dvh;
   display: flex; align-items: center; justify-content: center;
@@ -97,7 +113,7 @@ input, select { font: inherit; color: inherit; }
 .login-error { color: var(--red); font-size: 0.75rem; min-height: 16px; margin-top: 6px; }
 .auth-hint { text-align: center; color: var(--text-3); font-size: 0.7rem; margin-top: 20px; }
 
-/* ── Inputs / Buttons ── */
+/* â”€â”€ Inputs / Buttons â”€â”€ */
 .modern-input {
   width: 100%;
   background: var(--bg-2);
@@ -147,7 +163,7 @@ select.modern-input { appearance: none; cursor: pointer; }
 .btn-danger:hover { background: rgba(248,81,73,0.2); }
 .btn-danger.sm { padding: 6px 12px; font-size: 0.75rem; }
 
-/* ── App shell ── */
+/* â”€â”€ App shell â”€â”€ */
 .app-view { display: flex; height: 100dvh; overflow: hidden; }
 
 /* Sidebar */
@@ -397,7 +413,7 @@ select.modern-input { appearance: none; cursor: pointer; }
 .empty-state { text-align: center; color: var(--text-3); padding: 60px 20px; border: 1px dashed var(--border-2); border-radius: var(--radius); }
 .empty-state .big { font-size: 2rem; margin-bottom: 10px; }
 
-/* ── Project detail ── */
+/* â”€â”€ Project detail â”€â”€ */
 .detail-topbar {
   display: flex; align-items: center; gap: 16px;
   padding-bottom: 18px; margin-bottom: 18px;
@@ -1054,8 +1070,8 @@ textarea.agent-prompt-input {
   font-family: var(--mono); font-size: 11px; white-space: pre-wrap; word-break: break-all;
 }
 .task-output summary { list-style: none; }
-.task-output summary::before { content: '▸ '; }
-.task-output[open] summary::before { content: '▾ '; }
+.task-output summary::before { content: 'â–¸ '; }
+.task-output[open] summary::before { content: 'â–¾ '; }
 
 /* Responsive */
 @media (max-width: 860px) {
@@ -1234,7 +1250,7 @@ textarea.agent-prompt-input {
 }
 .error-boundary-btn:hover { border-color: var(--text-3); background: var(--bg-3); }
 
-/* ── Agents page ─────────────────────────────────────────── */
+/* â”€â”€ Agents page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .agents-page {
   display: flex; flex-direction: column;
   height: calc(100dvh - 60px);
@@ -1480,7 +1496,7 @@ textarea.agent-prompt-input {
   .agents-main { min-height: 0; }
 }
 
-/* ── Login / Setup Page ── */
+/* â”€â”€ Login / Setup Page â”€â”€ */
 .login-page {
   display: flex; align-items: center; justify-content: center;
   min-height: 100vh; background: var(--bg);
@@ -1498,7 +1514,7 @@ textarea.agent-prompt-input {
 .login-btn { width: 100%; margin-top: 8px; }
 .login-error { color: var(--red); font-size: 0.78rem; margin-top: 4px; min-height: 1em; }
 
-/* ── Settings Page ── */
+/* â”€â”€ Settings Page â”€â”€ */
 .settings-section { margin-bottom: 16px; }
 .settings-row {
   display: flex; align-items: center; gap: 12px;
@@ -1510,7 +1526,7 @@ textarea.agent-prompt-input {
   margin: 6px 0 12px; line-height: 1.5;
 }
 
-/* ── Beta chip ── */
+/* â”€â”€ Beta chip â”€â”€ */
 .beta-chip {
   display: inline-block;
   font-size: 0.58rem; font-weight: 700; letter-spacing: 0.08em;
@@ -1523,7 +1539,7 @@ textarea.agent-prompt-input {
 }
 .login-beta { margin-top: 8px; }
 
-/* ── Providers unlock indicator (sidebar) ── */
+/* â”€â”€ Providers unlock indicator (sidebar) â”€â”€ */
 .unlock-badge {
   display: flex; align-items: center; gap: 6px;
   width: fit-content;
@@ -1538,7 +1554,7 @@ textarea.agent-prompt-input {
 .unlock-badge:hover { background: rgba(234, 179, 8, 0.22); }
 .sidebar-footer .unlock-badge { margin-bottom: 2px; }
 
-/* ── Two-factor (TOTP) enrollment ── */
+/* â”€â”€ Two-factor (TOTP) enrollment â”€â”€ */
 .totp-enroll {
   display: flex; align-items: flex-start; gap: 14px;
   padding: 10px; border: 1px solid var(--border);
@@ -1557,7 +1573,7 @@ textarea.agent-prompt-input {
   letter-spacing: 0.45em; font-family: ui-monospace, monospace;
 }
 
-/* ── Providers lock badges / countdown ── */
+/* â”€â”€ Providers lock badges / countdown â”€â”€ */
 .badge-ok {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 0.68rem; color: var(--green, #4ade80);
@@ -1577,7 +1593,7 @@ textarea.agent-prompt-input {
   display: flex; flex-direction: column; gap: 10px;
 }
 
-/* ── Security activity log ── */
+/* â”€â”€ Security activity log â”€â”€ */
 .audit-list { display: flex; flex-direction: column; }
 .audit-row {
   display: flex; align-items: center; gap: 10px;
@@ -1594,7 +1610,7 @@ textarea.agent-prompt-input {
 .audit-ip { color: var(--text-3); font-size: 0.65rem; font-family: monospace; }
 .audit-time { color: var(--text-3); font-size: 0.68rem; }
 
-/* ── Password strength meter ── */
+/* â”€â”€ Password strength meter â”€â”€ */
 .pw-meter { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
 .pw-seg {
   width: 22px; height: 4px; border-radius: 2px;
@@ -1603,7 +1619,7 @@ textarea.agent-prompt-input {
 .pw-seg.on { background: var(--border-2); }
 .pw-label { margin-left: 6px; font-size: 0.65rem; color: var(--text-3); }
 
-/* ── Themed file input ── */
+/* â”€â”€ Themed file input â”€â”€ */
 input[type="file"].modern-file {
   font-size: 0.75rem; color: var(--text-2);
   background: var(--bg-2); border: 1px solid var(--border);
@@ -1615,7 +1631,7 @@ input[type="file"].modern-file::file-selector-button {
   font-size: 0.72rem; padding: 0 6px 0 0; cursor: pointer;
 }
 
-/* ── Lucide icon helpers ── */
+/* â”€â”€ Lucide icon helpers â”€â”€ */
 .icon { flex-shrink: 0; vertical-align: middle; }
 .icon.spin { animation: icon-spin 0.9s linear infinite; }
 @keyframes icon-spin { to { transform: rotate(360deg); } }
@@ -1630,7 +1646,7 @@ input[type="file"].modern-file::file-selector-button {
   margin-bottom: 8px;
 }
 
-/* ── ReAuth / unlock / welcome modals ── */
+/* â”€â”€ ReAuth / unlock / welcome modals â”€â”€ */
 .reauth-card { max-width: 340px; text-align: left; }
 .reauth-avatar {
   width: 52px; height: 52px; border-radius: 50%;
@@ -1663,7 +1679,7 @@ input[type="file"].modern-file::file-selector-button {
 .unlock-card, .reauth-card { width: 100%; }
 .unlock-card { max-width: 360px; }
 
-/* ── Skeleton shimmer (Providers checking state) ── */
+/* â”€â”€ Skeleton shimmer (Providers checking state) â”€â”€ */
 .skel-card { pointer-events: none; }
 .skel-line {
   height: 12px; border-radius: 6px; margin-bottom: 10px;
@@ -1694,3 +1710,84 @@ input[type="file"].modern-file::file-selector-button {
 }
 .terminals-page .term-wrap { flex:1; display:flex; flex-direction:column; }
 .terminals-page .term-wrap .term-host { flex:1; }
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+   UI Polish — effects layer (identity-safe, layout-neutral)
+   Subtle motion Â· focus rings Â· entrances Â· watermark life
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+
+/* Keyboard focus rings (a11y + crisp identity) */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--text) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.modern-input:focus-visible { outline: none; /* uses its own box-shadow ring */ }
+
+/* Micro-interactions on buttons */
+.btn-primary { transition: opacity 0.15s, transform 0.12s ease, box-shadow 0.15s ease; }
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); }
+.btn-primary:hover:active { transform: translateY(0) scale(0.98); }
+.btn-ghost { transition: border-color 0.15s, color 0.15s, background 0.15s, transform 0.12s ease; }
+.btn-ghost:active { transform: scale(0.97); }
+
+/* Cards & rows — quiet elevation on hover */
+.proj-card,
+.dash-action-card,
+.studio-item,
+.create-card,
+.modal-dialog {
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.proj-card:hover,
+.dash-action-card:hover {
+  border-color: var(--border-2);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+  transform: translateY(-2px);
+}
+
+/* Tab buttons — smooth state glide */
+.tab-btn { transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease; }
+
+/* Page entrance — single soft rise, iframes excluded */
+@keyframes viewIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.view,
+.opencode-page,
+.terminals-page > div {
+  animation: viewIn 0.24s ease-out both;
+}
+
+/* Modals — overlay fade + dialog settle */
+@keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dialogIn {
+  from { opacity: 0; transform: scale(0.965) translateY(6px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal-overlay {
+  animation: overlayIn 0.16s ease-out both;
+}
+.modal-card,
+.modal-dialog,
+.confirm-dialog {
+  animation: dialogIn 0.18s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+/* Watermark — present on every page, gently alive */
+.watermark { animation: wmBreathe 7s ease-in-out infinite; }
+@keyframes wmBreathe {
+  0%, 100% { opacity: 0.07; }
+  50%      { opacity: 0.13; }
+}
+
+/* Respect users who prefer stillness */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
