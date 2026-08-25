@@ -89,6 +89,10 @@ describe('Opencode Studio API', () => {
       'ux-designer',
       'wsd-expert',
       'api-designer',
+      'observability-engineer',
+      'accessibility-auditor',
+      'websocket-engineer',
+      'data-engineer',
     ]) {
       assert.ok(names.includes(expected), `preset agent '${expected}' present`);
     }
