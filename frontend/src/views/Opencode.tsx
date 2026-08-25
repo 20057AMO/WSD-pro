@@ -41,7 +41,8 @@ export function Opencode() {
     let cancelled = false;
     listProjects()
       .then((r) => {
-        if (!cancelled) setProjects(r.projects || []);
+        if (cancelled) return;
+        setProjects(r.projects || []);
       })
       .catch(() => {});
     return () => {
@@ -67,11 +68,21 @@ export function Opencode() {
     }
   };
 
+  useEffect(() => {
+    const hash = window.location.hash || '';
+    const qIdx = hash.indexOf('?');
+    if (qIdx < 0) return;
+    const project = new URLSearchParams(hash.slice(qIdx)).get('project');
+    if (!project) return;
+    const match = projects.find((p) => p.slug === project);
+    if (match) openProject(match.slug);
+  }, [projects]);
+
   return (
     <div class="opencode-page">
       <div class="opencode-toolbar">
         <button class="btn-ghost sm" onClick={() => setLocation('/')}><ArrowLeft width={13} height={13} class="icon" /> Dashboard</button>
-        <a class="btn-ghost sm" href={url} target="_blank" rel="noreferrer">
+        <a class="btn-ghost sm" href={picked ? '/#/opencode?project=' + encodeURIComponent(picked) : '/#/opencode'} target="_blank" rel="noreferrer" title="Open opencode with the Madar toolbar">
           Open in new tab
         </a>
         <span style="display:inline-flex;align-items:center;gap:6px;margin-left:12px" title="Opens (or reuses) an opencode session for the project">

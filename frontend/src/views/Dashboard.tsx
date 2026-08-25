@@ -3,23 +3,24 @@ import { useHashLocation } from 'wouter/use-hash-location';
 import {
   FolderOpen,
   Bot,
-  KeyRound,
   Loader2,
   Play,
   Square,
   MonitorCheck,
   MonitorOff,
 } from 'lucide-preact';
-import { VSCodeIcon } from '../components/brand-icons';
+import { VSCodeIcon, OpencodeIcon } from '../components/brand-icons';
 import {
   listProjects,
   getServerInfo,
   getIdeStatus,
   listAgents,
+  getOpencodeStatus,
   Project,
   ServerInfo,
   IdeStatus,
   AgentDef,
+  OpencodeStatus,
 } from '../api';
 
 export function Dashboard() {
@@ -28,6 +29,7 @@ export function Dashboard() {
   const [agents, setAgents] = useState<AgentDef[]>([]);
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [ide, setIde] = useState<IdeStatus | null>(null);
+  const [oc, setOc] = useState<OpencodeStatus | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -35,17 +37,19 @@ export function Dashboard() {
     let cancelled = false;
     const tick = async () => {
       try {
-        const [p, i, s, a] = await Promise.all([
+        const [p, i, s, a, o] = await Promise.all([
           listProjects(),
           getServerInfo(),
           getIdeStatus(),
           listAgents(),
+          getOpencodeStatus().catch(() => null),
         ]);
         if (cancelled) return;
         setProjects(p.projects);
         setInfo(i);
         setIde(s.ide);
         setAgents(a.agents);
+        setOc(o);
         setLoadError(null);
       } catch (err: any) {
         if (!cancelled) setLoadError(err.message);
@@ -65,7 +69,7 @@ export function Dashboard() {
     { label: 'Projects', Icon: FolderOpen, desc: `${projects.length} total`, route: '/projects' },
     { label: 'Agents', Icon: Bot, desc: `${agents.length} agents`, route: '/agents' },
     { label: 'VS Code', Icon: VSCodeIcon, desc: ide?.running ? 'Running' : 'Stopped', route: '/ide' },
-    { label: 'Providers', Icon: KeyRound, desc: 'LLM config', route: '/providers' },
+    { label: 'OpenCode', Icon: OpencodeIcon, desc: oc?.running ? 'Running' : 'Stopped', route: '/opencode' },
   ];
 
   if (loading) {
