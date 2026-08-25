@@ -46,3 +46,7 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# Playwright artifacts
+frontend/test-results/
+frontend/playwright-report/
