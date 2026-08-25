@@ -77,7 +77,6 @@ export function EmbeddedIDE() {
         <span style="display:inline-flex;align-items:center;gap:6px;margin-left:8px;font-weight:600;font-size:0.9rem">
           <VSCodeIcon width={15} height={15} /> VS Code
         </span>
-        <a class="btn-ghost sm" href={'/#/ide?folder=' + encodeURIComponent(folder)} target="_blank" rel="noreferrer" title="Open VS Code with the Madar toolbar">Open in new tab</a>
         <span style="display:inline-flex;align-items:center;gap:6px;margin-left:12px" title="Opens the project folder in the IDE">
           <FolderOpen width={13} height={13} class="icon" />
           <select
