@@ -46,12 +46,25 @@ describe('Project Notes', () => {
   });
 
   test('create scratch project', async () => {
-    const res = await reqAuth('POST', '/projects', {
-      name: 'Notes Test Project',
-      slug,
-      description: 'temporary — notes suite',
-    });
-    assert.strictEqual(res.status, 201, `create failed: ${res.status}`);
+    const send = () =>
+      reqAuth('POST', '/projects', {
+        name: 'Notes Test Project',
+        slug,
+        description: 'temporary — notes suite',
+      });
+    let res = await send();
+    // One retry on transient docker hiccups (raw dockerode errors surface as
+    // err.statusCode → 400/5xx). A real 409 conflict fails fast either way.
+    if (res.status !== 201 && res.status !== 409) {
+      await new Promise((r) => setTimeout(r, 2500));
+      res = await send();
+    }
+    let detail = '';
+    if (res.status !== 201) {
+      const body = await res.json().catch(() => null);
+      detail = ` ${JSON.stringify(body?.error ?? body ?? '')}`;
+    }
+    assert.strictEqual(res.status, 201, `create failed: ${res.status}${detail}`);
     created = true;
   });
 
