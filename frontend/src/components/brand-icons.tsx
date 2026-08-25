@@ -24,7 +24,7 @@ export function VSCodeIcon({ width = 13, height = 13, class: cls, style }: IconP
       width={width}
       height={height}
       class={cls}
-      style={`color:#2f9ce8;${style || ''}`}
+      style={style}
       fill="currentColor"
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden="true"
