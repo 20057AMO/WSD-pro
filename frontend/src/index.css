@@ -1687,3 +1687,10 @@ input[type="file"].modern-file::file-selector-button {
 
 
 
+
+/* Terminals page — taller terminal canvas */
+.terminals-page .term-host {
+  height: calc(100vh - 230px);
+}
+.terminals-page .term-wrap { flex:1; display:flex; flex-direction:column; }
+.terminals-page .term-wrap .term-host { flex:1; }

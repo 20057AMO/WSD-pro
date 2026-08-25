@@ -14,6 +14,7 @@
 import fs from 'fs';
 import path from 'path';
 import { listProjects, getProject, projectLogs, WORKSPACES_ROOT, type ProjectInfo } from './docker-manager';
+import { formatNotesForContext, noteCounts, notesSignature } from './project-notes';
 
 export const DEFAULT_MAX_CHARS = 24000;
 const BRIEF_MAX_CHARS = 4000;
@@ -270,7 +271,12 @@ export async function listProjectsBrief(maxChars: number = BRIEF_MAX_CHARS): Pro
         ? ` — preview ${Object.values(p.hostPorts).join(', ')}`
         : '';
     const desc = p.description ? ` — ${p.description}` : '';
-    return `- ${p.name} [${p.slug}] — ${p.status}${desc}${ports}`;
+    const counts = noteCounts(p.slug);
+    const notes =
+      counts && (counts.bugs > 0 || counts.goals > 0)
+        ? ` — notes: ${counts.bugs} open bug(s), ${counts.goals} active goal(s)`
+        : '';
+    return `- ${p.name} [${p.slug}] — ${p.status}${desc}${ports}${notes}`;
   });
   const text = lines.length
     ? `[Project context — all projects]\n${lines.join('\n')}`
@@ -296,6 +302,11 @@ function computeSig(files: ScannedFile[]): string {
   return parts.join('|');
 }
 
+/** Cache key = workspace signature + notes signature, so note edits invalidate. */
+function cacheKey(slug: string, sig: string): string {
+  return `${slug}::${sig}::${notesSignature(slug)}`;
+}
+
 /** Full context block for one project. */
 export async function getProjectContext(
   slug: string,
@@ -308,9 +319,10 @@ export async function getProjectContext(
   if (exists) {
     const files = scanWorkspace(dir);
     const sig = computeSig(files);
+    const key = cacheKey(clean, sig);
     const now = Date.now();
-    const cached = ctxCache.get(clean);
-    if (cached && cached.sig === sig && now - cached.at < CTX_CACHE_TTL_MS) {
+    const cached = ctxCache.get(key);
+    if (cached && now - cached.at < CTX_CACHE_TTL_MS) {
       return { slug: clean, text: cached.text, truncated: cached.truncated };
     }
 
@@ -320,7 +332,7 @@ export async function getProjectContext(
       const oldest = ctxCache.keys().next().value;
       if (oldest !== undefined) ctxCache.delete(oldest);
     }
-    ctxCache.set(clean, { sig, text: built.text, truncated: built.truncated, at: now });
+    ctxCache.set(key, { sig, text: built.text, truncated: built.truncated, at: now });
     return { slug: clean, text: built.text, truncated: built.truncated };
   }
 
@@ -364,6 +376,10 @@ async function buildFullContext(
       /* unreadable goals file */
     }
   }
+
+  // 1.5) Developer notes from the WSD-Pro Notes tab (open bugs → goals → ideas).
+  const notesText = formatNotesForContext(clean);
+  if (notesText) parts.push(`\n## Developer notes (from WSD-Pro Notes)\n${notesText}`);
 
   const byRel = new Map(files.map((f) => [f.rel, f]));
 

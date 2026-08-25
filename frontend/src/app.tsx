@@ -10,11 +10,10 @@ import {
   SquareTerminal,
   KeyRound,
   Settings as SettingsIcon,
-  Code2,
   Unlock,
-  Wand2,
 } from 'lucide-preact';
 import { AuthProvider, useAuth } from './auth';
+import { VSCodeIcon, OpencodeIcon } from './components/brand-icons';
 import { Login } from './views/Login';
 import { ConfirmModal } from './components/ConfirmModal';
 import {
@@ -32,6 +31,7 @@ const Project = lazy(() => import('./views/Project').then(m => ({ default: m.Pro
   const OpencodeStudio = lazy(() => import('./views/OpencodeStudio').then(m => ({ default: m.OpencodeStudio })));
 const Agents = lazy(() => import('./views/Agents').then(m => ({ default: m.Agents })));
 const EmbeddedIDE = lazy(() => import('./views/EmbeddedIDE').then(m => ({ default: m.EmbeddedIDE })));
+const Terminals = lazy(() => import('./views/Terminals').then(m => ({ default: m.Terminals })));
 const Providers = lazy(() => import('./views/Providers').then(m => ({ default: m.Providers })));
 const Settings = lazy(() => import('./views/Settings').then(m => ({ default: m.Settings })));
 
@@ -171,12 +171,13 @@ function Sidebar() {
       <nav class="sidebar-nav">
         <NavButton href="/" label="Dashboard" icon={LayoutDashboard} />
         <NavButton href="/projects" label="Projects" icon={FolderOpen} />
+        <NavButton href="/terminals" label="Terminals" icon={SquareTerminal} />
         <NavButton href="/agents" label="Agents" icon={Bot} />
-        <NavButton href="/opencode" label="opencode" icon={SquareTerminal} />
-        <NavButton href="/opencode-studio" label="OC Studio" icon={Wand2} />
+        <NavButton href="/opencode" label="opencode" icon={OpencodeIcon} />
+        <NavButton href="/opencode-studio" label="OC Studio" icon={OpencodeIcon} />
         <NavButton href="/providers" label="Providers" icon={KeyRound} />
         <NavButton href="/settings" label="Settings" icon={SettingsIcon} />
-        <NavButton href="/ide" label="Web IDE" icon={Code2} />
+        <NavButton href="/ide" label="VS Code" icon={VSCodeIcon} />
       </nav>
       <div class="sidebar-footer">
         <ProvidersUnlockBadge />
@@ -238,6 +239,8 @@ function Shell() {
           <Route path="/" component={Dashboard} />
           <Route path="/projects" component={Projects} />
           <Route path="/project/:slug" component={Project} />
+          <Route path="/terminals" component={Terminals} />
+          <Route path="/terminals/:slug" component={Terminals} />
           <Route path="/providers" component={Providers} />
           <Route path="/settings" component={Settings} />
         </Suspense>

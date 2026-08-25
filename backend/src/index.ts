@@ -50,6 +50,7 @@ import {
 } from './services/provider-store';
 import { detectProvider, checkProvider } from './services/providers-detect';
 import { getProjectContext, listProjectsBrief, capText } from './services/project-context';
+import * as notes from './services/project-notes';
 import { getIndexStats, retrieveProject, formatRetrievedChunks } from './services/project-index';
 import {
   listSessions,
@@ -846,6 +847,22 @@ app.get('/api/projects/:slug', async (req, res) => {
     res.json({ project });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Project notes (ideas / bugs / goals) — read + full-document save
+app.get('/api/projects/:slug/notes', (req, res) => {
+  try {
+    res.json(notes.loadNotes(req.params.slug));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+app.put('/api/projects/:slug/notes', (req, res) => {
+  try {
+    res.json(notes.saveNotes(req.params.slug, req.body));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
   }
 });
 

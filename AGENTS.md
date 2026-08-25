@@ -45,6 +45,7 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 | Opencode Studio | `tests/opencode-studio.test.ts` | Full baked roster (23 agents / 10 skills / 8 slash commands), agent+skill+command CRUD lifecycles, kebab-name + traversal rejection, frontmatter-required command writes, **roster integrity check** (every baked file: frontmatter present, zero NUL bytes, description non-empty — regression guard after a skill once shipped as pure NULs), config merge preserves keys / rejects junk, version-info shape (against running container) |
 | Security | `tests/security.test.ts` | Path traversal, upload sanitization, malformed auth headers |
 | Smoke | `tests/smoke.test.ts` | Health, core endpoints, project roundtrip |
+| Project notes | `tests/project-notes.test.ts` | Notes CRUD + validation (junk body 400, cap 300, truncation, kind normalization) + AI-context injection (`[Developer notes]` section ordering, done-items omitted) + 'all'-brief per-project counts |
 | WebSocket matrix | `tests/websocket.test.ts` | 6 endpoints × {no token→401, valid→open, invalid→401} |
 
 **Test notes:**
@@ -81,11 +82,12 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 | `/login` | Login | Setup + login (unauthenticated only) |
 | `/` | Dashboard | Minimal overview: stats + quick actions |
 | `/projects` | Projects | Cards/table, search, filter, sort, bulk ops |
-| `/project/:slug` | Project | Detail: overview, AI chat, files, logs, terminal, scripts |
+| `/project/:slug` | Project | Detail: overview, AI chat, files, logs, **notes**, scripts (per-project terminal moved to global Terminals page) |
+| `/terminals[/:slug]` | Terminals | Global terminal hub: all projects in one page — project picker (live status dots + search + last-used memory) driving the SAME ProjectTerminal component (tabs, project/control modes, history, zoom, reconnect, quick commands); deep-linkable via `/terminals/<slug>` |
 | `/agents` | Agents | AI agents with chat, RTL/LTR, presets |
 | `/providers` | Providers | LLM provider config |
 | `/settings` | Settings | Change password, account info, logout |
-| `/ide` | EmbeddedIDE | code-server iframe |
+| `/ide` | EmbeddedIDE | code-server iframe ("VS Code" branding with official mark) |
 | `/opencode` | Opencode | opencode web iframe |
 | `/opencode-studio` | OpencodeStudio | subagents/skills/commands/config CRUD + gated update button + bilingual User Guide tab |
 
@@ -147,9 +149,17 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 
 ### UI conventions
 - Icons: **lucide-preact** everywhere (`class="icon"`, spin via `.icon.spin`) — agent preset icons are stored data and stay as-is
+- **Brand honesty**: sidebar uses the REAL product marks — `components/brand-icons.tsx` embeds the official opencode logo (opencode + OC Studio nav) and the official VS Code mark (nav label "VS Code", formerly "Web IDE"; EmbeddedIDE toolbar/empty-states renamed too)
 - **ConfirmModal** replaces native `window.confirm()` for destructive/sensitive actions (project delete single/bulk, container restart/recreate, file delete, provider delete, agent delete, unlock-badge "Lock now") — dark modal matching ReAuthModal; danger variant shows warning avatar + red button and the title always names the exact target; in-app notices replace `alert()` (e.g. IDE-not-running yellow banner)
 - App theme: **dark mode only**
 - Version string: `2.0.0-beta` (health, server/info, About panel, backups all aligned)
+
+### Project notes (ideas / bugs / goals)
+- Per-project structured notes stored in `data/projects/<slug>/notes.json` (`services/project-notes.ts`): items `{id, text, kind: 'idea'|'bug'|'goal', done, createdAt}` — ≤300 items, text ≤2000 chars, junk rows dropped silently on normalize, unknown kinds default to `idea`
+- API: `GET/PUT /api/projects/:slug/notes` (full-document PUT; 400 without `items` array or over cap) — covered by `tests/project-notes.test.ts`
+- Project page tab "Notes" (NotesPanel) replaced the per-project terminal: quick composer with kind selector (Ctrl+Enter), filter chips with live counts, done toggle (completed hidden by default + "Show completed"), delete
+- **Smart context**: `formatNotesForContext()` renders open bugs → active goals → ideas into the AI context block (section `[Developer notes]`, priority right after WSD_PROJECT.md goals, ~2500 char cap, done items summarized as a count); `noteCounts()` appends `— notes: N open bug(s), M active goal(s)` to every project line in the 'all' brief; the context cache key includes a notes mtime:size signature so edits invalidate immediately
+- ws-chat and ws-agent inherit everything automatically via `getProjectContext` — no per-surface wiring
 
 ### Settings Backup (export/import)
 - `POST /api/settings/export` (JSON body with `accountPassword`) → JSON backup; **provider API keys are stripped by design**

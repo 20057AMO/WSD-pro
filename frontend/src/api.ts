@@ -293,6 +293,24 @@ export const stopProject = (slug: string) =>
   api<{ project: Project }>(`/api/projects/${slug}/stop`, { method: 'POST' });
 export const deleteProject = (slug: string) =>
   api<{ ok: boolean }>(`/api/projects/${slug}`, { method: 'DELETE' });
+
+// ── Project notes (ideas / bugs / goals) ─────────────────────────────────
+export type NoteKind = 'idea' | 'bug' | 'goal';
+export interface NoteItem {
+  id: string;
+  text: string;
+  kind: NoteKind;
+  done: boolean;
+  createdAt: string;
+}
+export const getProjectNotes = (slug: string) =>
+  api<{ items: NoteItem[] }>(`/api/projects/${encodeURIComponent(slug)}/notes`);
+export const saveProjectNotes = (slug: string, items: NoteItem[]) =>
+  api<{ items: NoteItem[] }>(`/api/projects/${encodeURIComponent(slug)}/notes`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
 export const getServerInfo = () => api<ServerInfo>('/api/server/info');
 export const getIdeStatus = () => api<{ ide: IdeStatus }>('/api/ide/status');
 export const getChatInfo = () => api<ChatConfig>('/api/chat/info');
