@@ -316,6 +316,9 @@ export async function getProjectContext(
   const dir = safeWorkspaceDir(clean);
   const exists = fs.existsSync(dir);
 
+  // Developer notes survive workspace loss — always computed, shown either way.
+  const notesText = formatNotesForContext(clean);
+
   if (exists) {
     const files = scanWorkspace(dir);
     const sig = computeSig(files);
@@ -338,7 +341,9 @@ export async function getProjectContext(
 
   return {
     slug: clean,
-    text: `[Project context — ${clean}]\n(workspace not found on disk)`,
+    text:
+      `[Project context — ${clean}]\n(workspace not found on disk)` +
+      (notesText ? `\n\n## Developer notes (from WSD-Pro Notes)\n${notesText}` : ''),
     truncated: false,
   };
 }
