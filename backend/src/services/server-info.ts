@@ -1,6 +1,6 @@
 /**
  * server-info.ts
- * WSD-Pro — Detect the host IP (LAN + Tailscale) used for UI links.
+ * Madar — Detect the host IP (LAN + Tailscale) used for UI links.
  */
 import os from 'os';
 

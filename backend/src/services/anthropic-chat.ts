@@ -1,6 +1,6 @@
 /**
  * anthropic-chat.ts
- * WSD-Pro — Streaming chat against the Anthropic Messages API
+ * Madar — Streaming chat against the Anthropic Messages API
  * (POST {baseUrl}/v1/messages, SSE with content_block_delta events).
  * Auth uses x-api-key + anthropic-version headers.
  */

@@ -250,7 +250,7 @@ export function Settings() {
     }
     try {
       const parsed = JSON.parse(await file.text());
-      if (parsed?.kind !== 'wsd-pro-backup') throw new Error('Not a WSD-Pro backup file.');
+      if (parsed?.kind !== 'madar-backup' && parsed?.kind !== 'wsd-pro-backup') throw new Error('Not a Madar backup file.');
       pendingImportRef.current = parsed as BackupFile;
       setBackupMsg(null);
       setPendingAction('import');

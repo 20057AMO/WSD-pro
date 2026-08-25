@@ -1,6 +1,6 @@
-﻿/**
+/**
  * providers-detect.ts
- * WSD-Pro â€” Auto-detect which provider an API key (and/or host) belongs to.
+ * Madar — Auto-detect which provider an API key (and/or host) belongs to.
  * Strategy: order candidates by a fast key-prefix heuristic, then actually probe
  * each candidate endpoint until one responds with HTTP 200.
  */
@@ -39,9 +39,9 @@ function reject(status: number, message: string): never {
 }
 
 /**
- * SSRF guard. Provider hosts MAY legitimately point at private networks â€”
+ * SSRF guard. Provider hosts MAY legitimately point at private networks —
  * local Ollama over host.docker.internal / LAN IPs is a core feature of a
- * self-hosted single-admin tool â€” but cloud metadata endpoints are never
+ * self-hosted single-admin tool — but cloud metadata endpoints are never
  * valid provider targets, and non-HTTP schemes must not reach fetch().
  */
 export function assertFetchableHost(host: string): void {
@@ -67,7 +67,7 @@ export function assertFetchableHost(host: string): void {
   }
 }
 
-// Short-lived cache for full health checks â€” repeated "Test" clicks within a
+// Short-lived cache for full health checks — repeated "Test" clicks within a
 // minute don't re-fire real billable chat completions against the provider.
 const checkCache = new Map<string, { at: number; result: CheckResult }>();
 
@@ -255,7 +255,7 @@ export interface CheckResult {
 const VERIFY_REASON_MSG: Record<string, string> = {
   auth: 'Invalid or unauthorized API key',
   quota: 'API key has no remaining quota',
-  rate_limited: 'Rate limited â€” try again shortly',
+  rate_limited: 'Rate limited — try again shortly',
   no_models: 'No chat-capable models found',
   verification_failed: 'Key verification failed',
 };
@@ -324,7 +324,7 @@ export interface DetectResult {
  * Auto-detect a provider. Returns null when nothing matched.
  * - With an explicit host: probe that host as openai â†’ anthropic â†’ ollama.
  * - With only an API key: probe known openai/anthropic/ollama templates, ordered
- *   by key-prefix heuristic. Ollama templates are included â€” false positives are
+ *   by key-prefix heuristic. Ollama templates are included — false positives are
  *   prevented by the verifyChat() call which sends an actual chat request.
  */
 export async function detectProvider(input: DetectInput): Promise<{
@@ -345,7 +345,7 @@ export async function detectProvider(input: DetectInput): Promise<{
       { name: host, host, type: 'anthropic' },
       { name: host, host, type: 'ollama' },
     ];
-    // Azure resource endpoints are unmistakable â€” try the deployment API first.
+    // Azure resource endpoints are unmistakable — try the deployment API first.
     // Azure keys carry no distinctive prefix, so this pattern is the only signal.
     if (/\.openai\.azure\.com/i.test(host)) {
       candidates.unshift({ name: host, host, type: 'azure' });

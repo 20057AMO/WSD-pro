@@ -1,6 +1,6 @@
 /**
  * workspace-files.ts
- * WSD-Pro — Filesystem access to project workspaces for the Files tab:
+ * Madar — Filesystem access to project workspaces for the Files tab:
  * safe path resolution (no traversal), directory listing, text preview,
  * write/create, rename/move, and delete. Uploads exist via
  * /api/projects/:slug/upload.

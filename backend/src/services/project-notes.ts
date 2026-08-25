@@ -1,6 +1,6 @@
 /**
  * project-notes.ts
- * WSD-Pro — Per-project developer notes (ideas / bugs / goals) stored as JSON
+ * Madar — Per-project developer notes (ideas / bugs / goals) stored as JSON
  * under WSD_DATA_DIR/projects/<slug>/notes.json, next to meta.json.
  *
  * Notes are surfaced in two places:

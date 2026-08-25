@@ -1,6 +1,6 @@
 /**
  * stream-lines.ts
- * WSD-Pro — Shared line-based stream reader for NDJSON (Ollama) and SSE
+ * Madar — Shared line-based stream reader for NDJSON (Ollama) and SSE
  * (OpenAI-compatible / Anthropic) responses.
  */
 

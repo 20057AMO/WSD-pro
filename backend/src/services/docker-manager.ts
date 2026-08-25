@@ -1,6 +1,6 @@
 /**
  * docker-manager.ts
- * WSD-Pro — Docker orchestration layer.
+ * Madar — Docker orchestration layer.
  * Creates, starts, stops, and inspects per-project containers via Dockerode.
  * Each project gets its own container on its own port(s); the workspace dir
  * lives under WORKSPACES_ROOT and is bind-mounted at /workspace.
@@ -101,13 +101,13 @@ function validateProjectSpec(spec: ProjectSpec): { name: string; slug: string; d
     const idePort = Number(process.env.WSD_IDE_PORT) || 8100;
     const opencodePort = Number(process.env.WSD_OPENCODE_PORT) || 4096;
     if (port === dashboardPort) {
-      throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro dashboard.`);
+      throw new HttpError(400, `Port ${port} is reserved for the Madar dashboard.`);
     }
     if (port === idePort) {
-      throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro VS Code service.`);
+      throw new HttpError(400, `Port ${port} is reserved for the Madar VS Code service.`);
     }
     if (port === opencodePort) {
-      throw new HttpError(400, `Port ${port} is reserved for the WSD-Pro opencode web UI.`);
+      throw new HttpError(400, `Port ${port} is reserved for the Madar opencode web UI.`);
     }
 
     if (seen.has(port)) continue;

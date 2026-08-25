@@ -1,6 +1,6 @@
 /**
  * brand-icons.tsx
- * WSD-Pro — Official product marks used in the sidebar (kept offline in-repo).
+ * Madar — Official product marks used in the sidebar (kept offline in-repo).
  *
  *  - VSCodeIcon:    the Visual Studio Code mark (simple-icons v12 path,
  *                   pre-removal; renders with currentColor so it adapts).

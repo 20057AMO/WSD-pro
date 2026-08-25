@@ -34,7 +34,7 @@ export function Login() {
       <div class="login-page">
         <div class="login-card">
           <div class="login-brand">
-            <img src="/logo.png" alt="WSD-Pro" class="login-logo" />
+            <img src="/logo.png" alt="Madar" class="login-logo" />
             <h1 class="login-title">Two-factor</h1>
             <p class="login-sub">Enter the 6-digit code from your authenticator app.</p>
           </div>
@@ -108,8 +108,8 @@ export function Login() {
     <div class="login-page">
       <div class="login-card">
         <div class="login-brand">
-          <img src="/logo.png" alt="WSD-Pro" class="login-logo" />
-          <h1 class="login-title">WSD-Pro</h1>
+          <img src="/logo.png" alt="Madar" class="login-logo" />
+          <h1 class="login-title">Madar</h1>
           <p class="login-sub">
             {isSetup
               ? 'Set up your account to get started'

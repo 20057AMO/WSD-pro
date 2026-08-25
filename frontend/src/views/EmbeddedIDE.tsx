@@ -113,7 +113,7 @@ export function EmbeddedIDE() {
           key={frameKey}
           class="opencode-frame"
           src={ideUrl}
-          title="WSD-Pro VS Code"
+          title="Madar VS Code"
           allow="clipboard-read; clipboard-write"
         />
       )}

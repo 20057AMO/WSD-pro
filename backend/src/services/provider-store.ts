@@ -1,6 +1,6 @@
-﻿/**
+/**
  * provider-store.ts
- * WSD-Pro â€” Persisted provider credentials.
+ * Madar — Persisted provider credentials.
  * Stored in WSD_DATA_DIR/providers.json. Env vars act as defaults.
  * Providers are fully dynamic: any number of Ollama / OpenAI-compatible /
  * Anthropic endpoints can be added, edited or deleted from the UI.
@@ -120,7 +120,7 @@ function load(): Record<string, ProviderConfig> {
       }
     }
   } catch {
-    // Corrupt file â€” quarantine it and rebuild from seeds
+    // Corrupt file — quarantine it and rebuild from seeds
     try { fs.renameSync(STORE_FILE, STORE_FILE + '.bak'); } catch { /* ignore */ }
     base = seeded();
   }
@@ -173,13 +173,13 @@ export function maskKey(key: string): string {
 /**
  * Guard against masked-key echo: the API only ever hands out maskKey() /
  * maskStored() output, so a client posting bullets back would silently
- * overwrite a real key. Reject bullet runs â€” pure (`â€¢â€¢â€¢â€¢`) and the exact
- * displayed shape (`â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢ab3d`) alike â€” instead of storing them.
+ * overwrite a real key. Reject bullet runs — pure (`â€¢â€¢â€¢â€¢`) and the exact
+ * displayed shape (`â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢ab3d`) alike — instead of storing them.
  */
 function assertNotMasked(apiKey: unknown): void {
   const key = String(apiKey ?? '');
   if (key && /^[\u2022\u00b7*]+[\w=-]{0,4}$/.test(key)) {
-    throwStatus(400, 'Received a masked API key â€” send the real key or omit the field');
+    throwStatus(400, 'Received a masked API key — send the real key or omit the field');
   }
 }
 

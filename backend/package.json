@@ -1,7 +1,7 @@
 {
   "name": "wsd-pro-backend",
   "version": "0.2.0",
-  "description": "WSD-Pro — Work Space Development Pro backend. Docker-based isolated workspaces for AI agents.",
+  "description": "Madar — Work Space Development Pro backend. Docker-based isolated workspaces for AI agents.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

@@ -2,7 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 import { uniqueId, reqAuth, req } from './helpers.ts';
 
-describe('WSD-Pro API Smoke Tests', () => {
+describe('Madar API Smoke Tests', () => {
 
   const testProjectSlug = uniqueId('smoke-test');
 

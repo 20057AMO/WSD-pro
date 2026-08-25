@@ -162,10 +162,10 @@ function Sidebar() {
   return (
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <div class="brand-mark"><img class="brand-logo" src="/logo.png" alt="WSD-Pro" /></div>
+        <div class="brand-mark"><img class="brand-logo" src="/logo.png" alt="Madar" /></div>
         <div class="brand-text">
-          <span class="brand-name">WSD-Pro</span>
-          <span class="brand-tag">workspace dev</span>
+          <span class="brand-name">Madar</span>
+          <span class="brand-tag">مدار · orbit</span>
         </div>
       </div>
       <nav class="sidebar-nav">

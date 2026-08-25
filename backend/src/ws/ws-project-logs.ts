@@ -1,6 +1,6 @@
 /**
  * ws-project-logs.ts
- * WSD-Pro — Live tail of a project container's logs over WebSocket.
+ * Madar — Live tail of a project container's logs over WebSocket.
  * Frames: { type: 'ready' } | { type: 'logs', data: string } | { type: 'error', message }.
  */
 import { WebSocket } from 'ws';

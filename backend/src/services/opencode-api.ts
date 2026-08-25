@@ -215,7 +215,7 @@ export function performOpencodeUpdate(): Promise<UpdateResult> {
       if (!reg.latest || !reg.channelUnlocked) {
         return done({
           ok: false,
-          error: `Latest release (${reg.latest ?? 'unknown'}) is not supported by this WSD-Pro build yet`,
+          error: `Latest release (${reg.latest ?? 'unknown'}) is not supported by this Madar build yet`,
         });
       }
       return new Promise<UpdateResult>((resolve) => {

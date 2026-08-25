@@ -1,6 +1,6 @@
 /**
  * openai-chat.ts
- * WSD-Pro — Streaming chat against any OpenAI-compatible endpoint
+ * Madar — Streaming chat against any OpenAI-compatible endpoint
  * (OpenAI, OpenRouter, Groq, DeepSeek, Mistral, Together, xAI, HuggingFace,
  * Fireworks, Google AI Studio via its official OpenAI-compatible API, …).
  * Streams POST {baseUrl}/chat/completions (SSE). No SDK required.

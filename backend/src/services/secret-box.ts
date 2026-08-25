@@ -1,6 +1,6 @@
 /**
  * secret-box.ts
- * WSD-Pro — At-rest encryption for provider API keys (AES-256-GCM).
+ * Madar — At-rest encryption for provider API keys (AES-256-GCM).
  *
  * Ciphertext format (single JSON-safe string):
  *   enc1:<ivB64>:<authTagB64>:<ciphertextB64>:<last4>

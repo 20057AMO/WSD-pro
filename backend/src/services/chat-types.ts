@@ -1,6 +1,6 @@
 /**
  * chat-types.ts
- * WSD-Pro — Shared chat types used by every chat engine.
+ * Madar — Shared chat types used by every chat engine.
  * Images are base64 data URLs (data:image/...;base64,...) so the mime type is preserved.
  */
 

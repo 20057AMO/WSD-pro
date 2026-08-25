@@ -1,6 +1,6 @@
 /**
  * ws-projects-status.ts
- * WSD-Pro — Global project status broadcaster over WebSocket.
+ * Madar — Global project status broadcaster over WebSocket.
  * Polls all containers every 4 s; only sends when any project's status or stats change.
  * Frames: { type:'ready', projects:[{ slug, status }] }
  *         { type:'update', slug, status }

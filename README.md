@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="frontend/public/logo.png" alt="WSD-Pro" width="110" />
+  <img src="frontend/public/logo.png" alt="Madar" width="110" />
 </p>
 
-<h1 align="center">WSD-Pro</h1>
+<h1 align="center">Madar</h1>
 
 <p align="center">
   <a href="https://github.com/20057AMO/WSD-pro/actions/workflows/ci.yml">
@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
 </p>
 
-**WSD-Pro** is a self-hosted workspace platform for developers and AI-assisted workflows. Every project gets its own isolated Docker container, and the whole stack is driven from a single web dashboard: browser IDE, live logs, terminal, AI chat that understands your codebase, autonomous agents, and multi-provider LLM configuration.
+**Madar** is a self-hosted workspace platform for developers and AI-assisted workflows. Every project gets its own isolated Docker container, and the whole stack is driven from a single web dashboard: browser IDE, live logs, terminal, AI chat that understands your codebase, autonomous agents, and multi-provider LLM configuration.
 
 Designed for local or private deployment — no domain, no SSL, no cloud dependency required.
 
@@ -97,7 +97,7 @@ Provider keys (Anthropic, Gemini, Azure, custom OpenAI-compatible endpoints) are
 ## Features in Depth
 
 ### Projects
-Create a project with a name and optional exposed ports (`8080,8081`). WSD-Pro generates `workspaces/<slug>/`, launches container `wsd-<slug>` from the bundled `wsd/workspace` image (Ubuntu 24.04), and wires status polling, CPU/memory stats, live log tailing, and an interactive terminal over WebSocket — all with HTTP-polling fallbacks.
+Create a project with a name and optional exposed ports (`8080,8081`). Madar generates `workspaces/<slug>/`, launches container `wsd-<slug>` from the bundled `wsd/workspace` image (Ubuntu 24.04), and wires status polling, CPU/memory stats, live log tailing, and an interactive terminal over WebSocket — all with HTTP-polling fallbacks.
 
 ### Project AI Chat & Agents
 The **AI Chat** tab inside every project streams answers grounded in that project's files (automatic context injection + file retrieval). The standalone **Agents** page runs tool-using agents that can read/write files, execute commands, and explore project trees — with per-session history and RTL/LTR toggles.

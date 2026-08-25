@@ -1,6 +1,6 @@
 /**
  * index.ts
- * WSD-Pro — Work Space Development Pro v2
+ * Madar — Work Space Development Pro v2
  * Docker-compose app: dashboard + unified code-server IDE + opencode + chat.
  * Each project = isolated container with durable workspace.
  */
@@ -203,7 +203,7 @@ const upload = multer({
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
-    service: 'WSD-Pro',
+    service: 'Madar',
     version: '2.0.0-beta',
     timestamp: new Date().toISOString(),
   });
@@ -1303,7 +1303,7 @@ if (fs.existsSync(frontendDist)) {
     if (req.path.startsWith('/api/')) return next();
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
-  console.log(`[WSD-Pro] Serving frontend from ${frontendDist}`);
+  console.log(`[Madar] Serving frontend from ${frontendDist}`);
 }
 
 // ── Error handler ────────────────────────────────────────────
@@ -1312,7 +1312,7 @@ app.use((err: any, _req: any, res: any, next: any) => {
   if (err instanceof HttpError) {
     return res.status(err.statusCode).json({ error: err.message });
   }
-  console.error('[WSD-Pro] Unhandled error:', err?.stack || err);
+  console.error('[Madar] Unhandled error:', err?.stack || err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
@@ -1321,12 +1321,12 @@ const server = http.createServer(app);
 attachWebSockets(server);
 
 server.listen(PORT, HOST, () => {
-  console.log(`[WSD-Pro] Dashboard on http://${HOST}:${PORT}`);
-  console.log(`[WSD-Pro] WebSocket hub on ws://${HOST}:${PORT}/ws`);
-  console.log(`[WSD-Pro] Workspaces root: ${WORKSPACES_ROOT}`);
-  console.log(`[WSD-Pro] opencode web on port ${OPENCODE_PORT}`);
-  console.log(`[WSD-Pro] Chat model: ${getChatConfig().model}`);
-  console.log(`[WSD-Pro] Docker socket: /var/run/docker.sock`);
+  console.log(`[Madar] Dashboard on http://${HOST}:${PORT}`);
+  console.log(`[Madar] WebSocket hub on ws://${HOST}:${PORT}/ws`);
+  console.log(`[Madar] Workspaces root: ${WORKSPACES_ROOT}`);
+  console.log(`[Madar] opencode web on port ${OPENCODE_PORT}`);
+  console.log(`[Madar] Chat model: ${getChatConfig().model}`);
+  console.log(`[Madar] Docker socket: /var/run/docker.sock`);
 });
 
 // Automatic orphaned-workspace cleanup (boot + every WSD_JANITOR_INTERVAL_MS).

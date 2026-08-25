@@ -81,7 +81,7 @@ export function verifyTotp(secretBase32: string, code: string, atMs = Date.now()
 }
 
 /** otpauth:// provisioning URI for authenticator apps ("add by URL"). */
-export function otpauthUri(secret: string, accountName: string, issuer = 'WSD-Pro'): string {
+export function otpauthUri(secret: string, accountName: string, issuer = 'Madar'): string {
   const label = encodeURIComponent(`${issuer}:${accountName}`);
   const params = new URLSearchParams({
     secret,

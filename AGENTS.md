@@ -1,4 +1,6 @@
-# AGENTS.md — WSD-Pro
+# AGENTS.md — Madar
+
+> **Naming (2026-08)**: the product was renamed **WSD-Pro → Madar (مدار)**. All user-facing strings, docs and baked opencode content say Madar. Deliberately KEPT for data/infra compatibility: `wsd.*` localStorage keys, `WSD_*` env vars, docker resource names (`wsd-pro` container, `wsd-pro-app` image, `wsd-<slug>` project containers, `wsd/workspace` image), JWT default-secret literals, and the legacy `wsd-pro-backup` marker which is still importable alongside the new `madar-backup`.
 
 ## Docker Rebuild Rule
 
@@ -184,7 +186,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - **Studio UX helpers**: list filter box (name+description, client-side), copy-description button per row (paste into chat to summon a specialist by name, check-mark feedback), and a live trigger-lint warning above the editor when a description lacks a `Use when…` phrase (non-blocking — MISSING_TRIGGER standard)
 - **User Guide tab**: bilingual AR/EN (`studio-guide.tsx`, toggle persisted in `localStorage['wsd.studio.guideLang']`, RTL for Arabic) teaching how to drive subagents/skills/commands: mental model, auto vs explicit delegation, slash-command table with bound agents, permissions matrix (why reviewers are read-only), workflow recipes (feature/bug/security/incident), effective-prompting rules; the two roster tables pull LIVE agent/skill lists from the existing APIs so the guide never goes stale after Studio edits
 - **Update button (Desktop-style)**: `GET /api/opencode-studio/version` → `{current, latest, upToDate, channelUnlocked, supportedMajors}`; `POST /update` single-flights an `npm i -g opencode-ai@<latest>` then SIGTERMs the supervised web process — entrypoint's while-loop revives the new binary in ~2s (child PID published in `data/opencode-web.pid`). **Gotcha fixed**: inherited `set -e` made a bare `wait` fatal on rc=143, silently killing the supervisor exactly when an update killed opencode — status captured via `wait ... || RC=$?`
-- **Major-gate UX**: if npm latest is a major outside `SUPPORTED_MAJORS`, the button locks to "{version} needs a WSD-Pro update" instead of bricking the install
+- **Major-gate UX**: if npm latest is a major outside `SUPPORTED_MAJORS`, the button locks to "{version} needs a Madar update" instead of bricking the install
 - **E2E-verified behavior (live runs, 2026-08)**: task-tool delegation enforces subagent permissions structurally — security-auditor spawned with NO write-capable tools (read/grep/glob only) and refused edits by policy; primary correctly picked code-reviewer for post-change security review (trigger descriptions working); on a provider outage mid-subagent, the primary degraded gracefully and self-completed the review citing the security-hardening skill; scrypt+salt+timingSafeEqual implementation shipped with 11/11 passing tests. Known opencode quirk (upstream, harmless here): running an agent DIRECTLY via `opencode run --agent <name>` bypasses its frontmatter permission deny — permissions only bind on task-tool delegation, which is how real sessions use subagents
 
 ### Security activity log (audit)

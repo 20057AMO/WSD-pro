@@ -271,8 +271,8 @@ export function OpencodeStudio() {
                 <ArrowUpCircle width={12} height={12} class="icon" /> Update to {ver.latest}
               </button>
             ) : ver.upToDate === false ? (
-              <span title={`v${ver.latest} is a newer major than this WSD-Pro build supports (${ver.supportedMajors.join(', ')}). Update WSD-Pro first.`}>
-                <Lock width={12} height={12} /> {ver.latest} needs a WSD-Pro update
+              <span title={`v${ver.latest} is a newer major than this Madar build supports (${ver.supportedMajors.join(', ')}). Update Madar first.`}>
+                <Lock width={12} height={12} /> {ver.latest} needs a Madar update
               </span>
             ) : null}
           </span>
@@ -300,7 +300,7 @@ export function OpencodeStudio() {
         <div class="studio-editor" style="padding:16px;display:flex;flex-direction:column;gap:10px;overflow:auto">
           <p style="font-size:0.75rem;color:var(--text-3);margin:0">
             Global opencode.json — applies to every project and interface.
-            The $schema key is managed by WSD-Pro.
+            The $schema key is managed by Madar.
           </p>
           <textarea
             class="modern-input mono"

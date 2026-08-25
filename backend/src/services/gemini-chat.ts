@@ -1,6 +1,6 @@
 /**
  * gemini-chat.ts
- * WSD-Pro — Streaming chat against the native Gemini API
+ * Madar — Streaming chat against the native Gemini API
  * (Google AI Studio keys: old AIza… and new AQ… format).
  * Uses /models/{model}:streamGenerateContent?alt=sse.
  * NOTE: new "AQ." keys do NOT work on the OpenAI-compatible endpoint yet

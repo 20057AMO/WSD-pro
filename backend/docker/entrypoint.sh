@@ -18,7 +18,7 @@ else
 fi
 
 # ── Web IDE ───────────────────────────────────────────────────
-echo "WSD-Pro: starting code-server IDE on 0.0.0.0:8080 (no auth)"
+echo "Madar: starting code-server IDE on 0.0.0.0:8080 (no auth)"
 # NOTE: code-server reads the PORT env var and it overrides --bind-addr,
 # so unset it (PORT is used by the dashboard node app).
 # Auth disabled (--auth none) — safe in local Docker environment.
@@ -28,7 +28,7 @@ env -u PORT code-server --auth none --disable-telemetry --disable-update-check \
 CODE_SERVER_PID=$!
 
 # ── opencode web (native UI, rooted at /workspaces) ───────────
-# Purge stale opencode projects BEFORE it starts: deleted WSD-Pro projects
+# Purge stale opencode projects BEFORE it starts: deleted Madar projects
 # must never haunt the opencode web UI. Shared python script also runs at
 # runtime (best-effort) on every project delete / janitor archive.
 OPENCODE_DB="$DATA_DIR/opencode/opencode/opencode.db"
@@ -36,7 +36,7 @@ if [ -f "$OPENCODE_DB" ] && command -v python3 >/dev/null 2>&1; then
   python3 /app/opencode-purge.py "$DATA_DIR" || true
 fi
 
-echo "WSD-Pro: starting supervised opencode web on 0.0.0.0:${WSD_OPENCODE_PORT:-4096} (cwd /workspaces)"
+echo "Madar: starting supervised opencode web on 0.0.0.0:${WSD_OPENCODE_PORT:-4096} (cwd /workspaces)"
 mkdir -p "$DATA_DIR/opencode"
 # Supervised restart loop: the Studio Update button kills the running
 # opencode process after installing a newer binary — this loop revives it
@@ -70,7 +70,7 @@ rm -f "$OPENCODE_PID_FILE"
     # the status explicitly instead.
     RC=0
     wait "$OPENCODE_CHILD" || RC=$?
-    echo "WSD-Pro: opencode web exited (code=$RC) - restarting in 2s" >&2
+    echo "Madar: opencode web exited (code=$RC) - restarting in 2s" >&2
     sleep 2
   done
 ) &
@@ -121,6 +121,6 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "WSD-Pro: starting dashboard on 0.0.0.0:${PORT:-3000}"
+echo "Madar: starting dashboard on 0.0.0.0:${PORT:-3000}"
 cd /app/backend
 exec node dist/index.js

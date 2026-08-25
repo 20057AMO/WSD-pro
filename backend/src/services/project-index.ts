@@ -1,6 +1,6 @@
 /**
  * project-index.ts
- * WSD-Pro — Lazy per-project text index + BM25 retrieval.
+ * Madar — Lazy per-project text index + BM25 retrieval.
  * Chunks every text file in a project workspace and persists the index to
  * WSD_DATA_DIR/projects/<slug>/index.json so only changed files are re-chunked.
  * `retrieveProject` ranks chunks by BM25 against the user's message and returns

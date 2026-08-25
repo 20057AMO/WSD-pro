@@ -1,6 +1,6 @@
 /**
  * ws-server.ts
- * WSD-Pro — WebSocket hub.
+ * Madar — WebSocket hub.
  * Manual upgrade routing (noServer) so nested paths work:
  *   /ws/chat/:slug/:chatId  → chatbot scoped to a project (slug = project or 'global')
  *   /ws/chat/:chatId        → legacy alias for slug = 'global'
@@ -164,7 +164,7 @@ export function attachWebSockets(server: http.Server): void {
   });
 
   wss.on('error', (err) => {
-    console.error('[WSD-Pro] WebSocket server error:', err.message);
+    console.error('[Madar] WebSocket server error:', err.message);
   });
 
   const pingTimer = setInterval(() => {

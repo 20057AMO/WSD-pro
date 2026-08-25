@@ -1,6 +1,6 @@
 /**
  * chat-config.ts
- * WSD-Pro — Persisted chat configuration (provider, model, language, system prompt).
+ * Madar — Persisted chat configuration (provider, model, language, system prompt).
  * Lives in WSD_DATA_DIR/chat-config.json so it survives restarts.
  */
 
@@ -30,7 +30,7 @@ export interface ChatConfig {
 }
 
 export const DEFAULT_SYSTEM_PROMPT =
-  'You are the WSD-Pro assistant. You help users plan, design, and structure ' +
+  'You are the Madar assistant. You help users plan, design, and structure ' +
   'their software projects (architecture, tech choices, project layout, and ' +
   'implementation steps). You only discuss ideas and design — you do not edit ' +
   'files. Answer in the same language the user writes in. Be concise and practical.';

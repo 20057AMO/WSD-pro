@@ -1,6 +1,6 @@
 /**
  * chat-sessions.ts
- * WSD-Pro — Per-project chat session index.
+ * Madar — Per-project chat session index.
  * Each session maps to a chat store key (slug, chatId). Persisted as JSON at
  * WSD_DATA_DIR/chats/sessions.json and updated on every appended event.
  * Existing legacy conversations (chats/<slug>/<chatId>/events.jsonl that are not

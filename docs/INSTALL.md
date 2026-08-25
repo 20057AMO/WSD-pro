@@ -1,4 +1,4 @@
-# دليل التثبيت — WSD-Pro v2 (Beta)
+# دليل التثبيت — Madar v2 (Beta)
 
 تطبيق `docker compose` بسيط، بدون دومين وبدون SSL. كل المطلوب: محرك Docker مع إضافة Compose.
 

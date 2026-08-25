@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Purge stale WSD-Pro project rows from the opencode SQLite store.
+"""Purge stale Madar project rows from the opencode SQLite store.
 
 Usage:
   opencode-purge.py <dataDir>             boot mode: purge ALL stale rows

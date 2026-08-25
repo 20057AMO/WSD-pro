@@ -1,4 +1,4 @@
-# WSD-Pro main container
+# Madar main container
 # Dashboard (3000) + shared code-server IDE (8100) + opencode web (4096) + qwen3:30b chat (Ollama Cloud).
 
 # ---- Stage 1: build frontend ----

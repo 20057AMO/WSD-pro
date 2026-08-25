@@ -1,5 +1,5 @@
 #!/bin/bash
-# WSD-Pro backend launcher
+# Madar backend launcher
 # Restart-proof: keeps the Node server alive with auto-restart
 cd /home/ahmedali/wsd-pro/backend
 export PATH="$PATH:/usr/local/bin:/usr/bin:/bin"

@@ -1,4 +1,4 @@
-# WSD-Pro workspace image
+# Madar workspace image
 # Base image for every project container.
 # Built once (docker compose build workspace) as: wsd/workspace:latest
 #

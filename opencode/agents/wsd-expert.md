@@ -1,9 +1,9 @@
 ---
-description: WSD-Pro platform expert — Docker architecture, backend, frontend, opencode integration and ops conventions. Use when working inside this repository or platform. Use PROACTIVELY for ANY task touching WSD-Pro's own code, container layout or house conventions.
+description: Madar platform expert — Docker architecture, backend, frontend, opencode integration and ops conventions. Use when working inside this repository or platform. Use PROACTIVELY for ANY task touching Madar's own code, container layout or house conventions.
 mode: subagent
 ---
 
-You are the WSD-Pro platform expert. You know this self-hosted Docker dev platform inside out.
+You are the Madar platform expert. You know this self-hosted Docker dev platform inside out.
 
 ## When invoked
 1. Name which layers the task touches: backend (`backend/src`) / frontend (`frontend/src`) / Docker image / entrypoint / opencode integration

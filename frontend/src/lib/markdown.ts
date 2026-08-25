@@ -1,6 +1,6 @@
 /**
  * markdown.ts
- * WSD-Pro — Shared markdown rendering for chat surfaces (Agents, project Chat).
+ * Madar — Shared markdown rendering for chat surfaces (Agents, project Chat).
  * marked → HTML, then whitelist-sanitized so model output can never inject markup.
  */
 import { marked } from 'marked';

@@ -18,7 +18,7 @@ const PROVIDERS_FILE = path.join(DATA_DIR, 'providers.json');
 const CHAT_CONFIG_FILE = path.join(DATA_DIR, 'chat-config.json');
 
 export interface BackupFile {
-  kind: 'wsd-pro-backup';
+  kind: 'madar-backup' | 'wsd-pro-backup'; // wsd-pro-backup = legacy exports (pre-rename), still importable
   version: string;
   exportedAt: string;
   /** True when secrets were stripped during export (always true today). */
@@ -70,7 +70,7 @@ export function buildBackup(version: string): BackupFile {
   const rawChatConfig = readJson(CHAT_CONFIG_FILE);
 
   return {
-    kind: 'wsd-pro-backup',
+    kind: 'madar-backup',
     version,
     exportedAt: new Date().toISOString(),
     sanitized: true,
@@ -97,14 +97,16 @@ export interface RestoreResult {
  */
 export function restoreFromBackup(backup: unknown): RestoreResult {
   const b = backup as Partial<BackupFile> & { data?: BackupFile['data'] };
+  const kindOk =
+    b?.kind === 'madar-backup' /* current */ || b?.kind === 'wsd-pro-backup' /* legacy pre-rename */;
   if (
+    !kindOk ||
     !b ||
-    b.kind !== 'wsd-pro-backup' ||
     !b.data ||
     typeof b.data !== 'object' ||
     Array.isArray(b.data)
   ) {
-    throw Object.assign(new Error('Invalid backup file: missing wsd-pro-backup marker.'), { status: 400 });
+    throw Object.assign(new Error('Invalid backup file: missing madar-backup marker.'), { status: 400 });
   }
 
   const imported: Record<string, number> = {};

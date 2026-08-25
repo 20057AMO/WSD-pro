@@ -1,5 +1,5 @@
 /**
- * Shared test helpers for WSD-Pro backend test suites.
+ * Shared test helpers for Madar backend test suites.
  * Runs under `node --test` (Node 22 type stripping) — plain TS only,
  * relative imports must include the explicit `.ts` extension.
  */

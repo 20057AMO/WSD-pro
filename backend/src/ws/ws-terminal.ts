@@ -1,6 +1,6 @@
 /**
  * ws-terminal.ts
- * WSD-Pro — In-page project terminal.
+ * Madar — In-page project terminal.
  * Two modes, both scoped to the project path:
  *   mode=project  → docker exec into the project container at /workspace (dev toolchain).
  *   mode=control  → shell in the app/control container at /workspaces/<slug> (git + docker CLI + socket).

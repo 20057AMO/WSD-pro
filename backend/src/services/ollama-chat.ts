@@ -1,6 +1,6 @@
 /**
  * ollama-chat.ts
- * WSD-Pro — Chat dispatcher. Resolves the configured provider and routes to the
+ * Madar — Chat dispatcher. Resolves the configured provider and routes to the
  * matching engine:
  *   - type 'ollama'    → /api/chat (NDJSON)  — implemented below
  *   - type 'openai'    → OpenAI-compatible   — openai-chat.ts

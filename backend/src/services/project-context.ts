@@ -1,6 +1,6 @@
 /**
  * project-context.ts
- * WSD-Pro — Deep "project awareness" block injected into the chat system prompt.
+ * Madar — Deep "project awareness" block injected into the chat system prompt.
  *
  *   - project === 'all'  → brief summary of every project.
  *   - project === slug   → full context: metadata + WSD_PROJECT.md goals +
@@ -343,7 +343,7 @@ export async function getProjectContext(
     slug: clean,
     text:
       `[Project context — ${clean}]\n(workspace not found on disk)` +
-      (notesText ? `\n\n## Developer notes (from WSD-Pro Notes)\n${notesText}` : ''),
+      (notesText ? `\n\n## Developer notes (from Madar Notes)\n${notesText}` : ''),
     truncated: false,
   };
 }
@@ -382,9 +382,9 @@ async function buildFullContext(
     }
   }
 
-  // 1.5) Developer notes from the WSD-Pro Notes tab (open bugs → goals → ideas).
+  // 1.5) Developer notes from the Madar Notes tab (open bugs → goals → ideas).
   const notesText = formatNotesForContext(clean);
-  if (notesText) parts.push(`\n## Developer notes (from WSD-Pro Notes)\n${notesText}`);
+  if (notesText) parts.push(`\n## Developer notes (from Madar Notes)\n${notesText}`);
 
   const byRel = new Map(files.map((f) => [f.rel, f]));
 

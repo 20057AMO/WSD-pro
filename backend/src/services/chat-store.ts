@@ -1,6 +1,6 @@
 /**
  * chat-store.ts
- * WSD-Pro — Persistent chat history (JSONL, one file per conversation).
+ * Madar — Persistent chat history (JSONL, one file per conversation).
  * Every event: { seq, type, content, timestamp }
  * Types: user_message | agent_chunk | agent_done | agent_error
  */

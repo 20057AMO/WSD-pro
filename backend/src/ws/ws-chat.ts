@@ -1,6 +1,6 @@
 /**
  * ws-chat.ts
- * WSD-Pro — Chatbot over WebSocket (any configured provider: Ollama,
+ * Madar — Chatbot over WebSocket (any configured provider: Ollama,
  * OpenAI-compatible, Anthropic, or Gemini).
  * History is persisted via chat-store under slug = project slug (or 'global').
  * Sessions are indexed via chat-sessions for the sessions rail in the UI.

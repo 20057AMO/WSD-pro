@@ -1,6 +1,6 @@
 /**
  * projects-meta.ts
- * WSD-Pro — Durable per-project metadata (description, image, ports, env,
+ * Madar — Durable per-project metadata (description, image, ports, env,
  * activity history) stored as JSON under WSD_DATA_DIR/projects/<slug>/meta.json.
  * Docker labels are too limited for this (no description label, no update
  * endpoint for labels), so the meta store is the source of truth for anything

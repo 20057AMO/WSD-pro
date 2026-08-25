@@ -1,6 +1,6 @@
 /**
  * ws-project-status.ts
- * WSD-Pro — Push project status + stats over WebSocket.
+ * Madar — Push project status + stats over WebSocket.
  * Polls container inspect every 3 s; only sends when status or stats change.
  * Frames: { type:'ready', status, stats } | { type:'update', status, stats } | { type:'error', message }.
  */

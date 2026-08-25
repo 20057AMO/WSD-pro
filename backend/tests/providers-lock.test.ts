@@ -150,7 +150,7 @@ describe('Providers security lock & backup', () => {
     });
     assert.strictEqual(yes.status, 200);
     const backup = await yes.json();
-    assert.strictEqual(backup.kind, 'wsd-pro-backup');
+    assert.strictEqual(backup.kind, 'madar-backup');
     assert.strictEqual(backup.sanitized, true);
     const text = JSON.stringify(backup.data?.providers ?? []);
     assert.ok(!text.includes('"apiKey":"'), 'export must not contain raw API keys');

@@ -104,7 +104,7 @@ export function Opencode() {
           key={frameKey}
           class="opencode-frame"
           src={url}
-          title="WSD-Pro opencode"
+          title="Madar opencode"
           allow="clipboard-read; clipboard-write"
         />
       )}

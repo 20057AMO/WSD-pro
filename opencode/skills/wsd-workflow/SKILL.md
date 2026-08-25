@@ -1,9 +1,9 @@
 ---
 name: wsd-workflow
-description: WSD-Pro house rules — Docker rebuild gate, tsc/vite checks, serial test suite, commit discipline, PowerShell quirks. Use when working inside THIS repository on any change. Use PROACTIVELY before claiming any WSD-Pro task is done — these gates are non-negotiable.
+description: Madar house rules — Docker rebuild gate, tsc/vite checks, serial test suite, commit discipline, PowerShell quirks. Use when working inside THIS repository on any change. Use PROACTIVELY before claiming any Madar task is done — these gates are non-negotiable.
 ---
 
-# WSD-Pro Workflow skill
+# Madar Workflow skill
 
 Scope: every code change in this repo. If you touched `frontend/` or `backend/` and have not passed the gates below, the task is NOT done.
 

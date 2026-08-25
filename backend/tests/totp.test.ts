@@ -84,8 +84,8 @@ describe('TOTP algorithm (RFC vectors)', () => {
 
   test('provisioning URI encodes issuer/account/digits', () => {
     const uri = otpauthUri('ABC234DEF234', 'someone');
-    assert.ok(uri.startsWith('otpauth://totp/WSD-Pro%3Asomeone'));
-    assert.ok(uri.includes('issuer=WSD-Pro'));
+    assert.ok(uri.startsWith('otpauth://totp/Madar%3Asomeone'));
+    assert.ok(uri.includes('issuer=Madar'));
     assert.ok(uri.includes('digits=6'));
     assert.ok(uri.includes('period=30'));
   });
@@ -125,7 +125,7 @@ describe('TOTP endpoints & login flow', () => {
     assert.strictEqual(res.status, 200);
     const body = await res.json();
     assert.match(body.secret, /^[A-Z2-7]{32}$/);
-    assert.ok(String(body.uri).startsWith('otpauth://totp/WSD-Pro%3A'), body.uri);
+    assert.ok(String(body.uri).startsWith('otpauth://totp/Madar%3A'), body.uri);
     assert.ok(String(body.uri).includes(`secret=${body.secret}`));
     enrolledSecret = String(body.secret);
   });

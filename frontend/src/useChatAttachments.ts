@@ -1,6 +1,6 @@
 /**
  * useChatAttachments.ts
- * WSD-Pro — Shared file-attachment staging for chat surfaces (Agents, project Chat).
+ * Madar — Shared file-attachment staging for chat surfaces (Agents, project Chat).
  * Reads images as data URLs and text files inline; binary files travel name-only.
  */
 import { useState, useRef } from 'preact/hooks';

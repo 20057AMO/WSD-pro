@@ -1,6 +1,6 @@
 /**
  * workspace-janitor.ts
- * WSD-Pro — automatic cleanup of orphaned workspace directories.
+ * Madar — automatic cleanup of orphaned workspace directories.
  *
  * A "orphan" is a directory under WORKSPACES_ROOT that has no live project
  * meta store (data/projects/<slug>/meta.json). These appear when a project

@@ -1,6 +1,6 @@
 /**
  * ProjectChat.tsx
- * WSD-Pro — Project-scoped AI chat panel ("AI Chat" tab in the project page).
+ * Madar — Project-scoped AI chat panel ("AI Chat" tab in the project page).
  * Talks to the ws-chat backend: streaming replies with project context +
  * BM25 retrieval over the workspace. Sessions persist per project slug.
  */
