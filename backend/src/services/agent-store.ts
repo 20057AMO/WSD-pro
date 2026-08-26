@@ -463,6 +463,7 @@ export function createAgent(patch: Partial<Omit<Agent, 'id'>>): Agent {
     model: patch.model,
     enabled: patch.enabled ?? true,
     toolsEnabled: patch.toolsEnabled ?? false,
+    permission: patch.permission,
   };
   agents.push(agent);
   saveAgents(agents);

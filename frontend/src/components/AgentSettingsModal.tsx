@@ -215,7 +215,7 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
               <div style="margin-top:8px">
                 <label class="agent-settings-field-label">Permission level</label>
                 <select
-                  class="modern-select"
+                  class="modern-input"
                   value={permission}
                   onChange={(e: any) => setPermission(e.target.value)}
                 >
@@ -240,16 +240,18 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
         </div>
       </div>
 
-      <ConfirmModal
-        open={confirmDelete}
-        danger
-        loading={deleting}
-        title={`Delete agent '${name.trim() || agent.name}'?`}
-        message="The agent and its settings are removed permanently."
-        confirmLabel="Delete"
-        onConfirm={runDelete}
-        onCancel={() => { if (!deleting) setConfirmDelete(false); }}
-      />
+      <div onClick={(e: any) => e.stopPropagation()}>
+        <ConfirmModal
+          open={confirmDelete}
+          danger
+          loading={deleting}
+          title={`Delete agent '${name.trim() || agent.name}'?`}
+          message="The agent and its settings are removed permanently."
+          confirmLabel="Delete"
+          onConfirm={runDelete}
+          onCancel={() => { if (!deleting) setConfirmDelete(false); }}
+        />
+      </div>
     </div>
   );
 }
