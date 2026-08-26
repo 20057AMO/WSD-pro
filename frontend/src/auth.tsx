@@ -5,6 +5,7 @@ import { relockProviders, clearProvidersUnlock } from './api';
 interface AuthUser {
   id: string;
   username: string;
+  role: 'admin' | 'editor' | 'viewer';
   createdAt: string;
   passwordChangedAt?: string;
 }
@@ -93,7 +94,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
     }
     localStorage.setItem('wsd.token', data.token);
     setToken(data.token);
-    setUser({ id: data.id, username: data.username, createdAt: '' });
+    setUser({ id: data.id, username: data.username, role: data.role || 'editor', createdAt: '' });
     setHasUser(true);
     return {};
   }, []);
@@ -110,7 +111,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
     setPending2faToken(null);
     localStorage.setItem('wsd.token', data.token);
     setToken(data.token);
-    setUser({ id: data.id, username: data.username, createdAt: '' });
+    setUser({ id: data.id, username: data.username, role: data.role || 'editor', createdAt: '' });
     setHasUser(true);
   }, [pending2faToken]);
 
@@ -126,7 +127,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
     if (!res.ok) throw new Error(data.error || 'Setup failed');
     localStorage.setItem('wsd.token', data.token);
     setToken(data.token);
-    setUser({ id: data.id, username: data.username, createdAt: '' });
+    setUser({ id: data.id, username: data.username, role: data.role || 'admin', createdAt: '' });
     setHasUser(true);
   }, []);
 

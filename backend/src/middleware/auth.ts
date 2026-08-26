@@ -1,7 +1,7 @@
-import { verifyToken } from '../services/user-store';
+import { verifyToken, type UserRole } from '../services/user-store';
 
 export interface AuthRequest extends Express.Request {
-  user?: { id: string; username: string };
+  user?: { id: string; username: string; role: UserRole; jti?: string };
 }
 
 export function authMiddleware(req: any, res: any, next: any): void {
@@ -16,4 +16,26 @@ export function authMiddleware(req: any, res: any, next: any): void {
 
   req.user = user;
   next();
+}
+
+/** Middleware: require admin role. */
+export function requireAdmin(req: any, res: any, next: any): void {
+  if (!req.user || req.user.role !== 'admin') {
+    res.status(403).json({ error: 'Admin access required' });
+    return;
+  }
+  next();
+}
+
+/** Middleware: require minimum role (admin > editor > viewer). */
+export function requireRole(minRole: UserRole) {
+  const hierarchy: Record<UserRole, number> = { admin: 3, editor: 2, viewer: 1 };
+  return (req: any, res: any, next: any) => {
+    const userRole: UserRole | undefined = req.user?.role;
+    if (!userRole || (hierarchy[userRole] || 0) < hierarchy[minRole]) {
+      res.status(403).json({ error: `${minRole} access required` });
+      return;
+    }
+    next();
+  };
 }

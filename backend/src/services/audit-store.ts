@@ -36,7 +36,10 @@ export type AuditEvent =
   | 'project-files-deleted'
   | 'opencode-studio'
   | 'opencode-update'
-  | 'opencode-update-failed';
+  | 'opencode-update-failed'
+  | 'user-created'
+  | 'user-role-changed'
+  | 'user-deleted';
 
 export interface AuditEntry {
   ts: string;

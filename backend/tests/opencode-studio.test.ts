@@ -13,7 +13,7 @@
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { reqAuth, uniqueId } from './helpers.ts';
+import { reqAuth, uniqueId, initTestAuth } from './helpers.ts';
 
 let agentName = '';
 let skillName = '';
@@ -46,6 +46,8 @@ Review $ARGUMENTS.
 `;
 
 describe('Opencode Studio API', () => {
+  before(async () => { await initTestAuth(); });
+
   after(async () => {
     for (const [kind, name] of [
       ['agents', agentName],

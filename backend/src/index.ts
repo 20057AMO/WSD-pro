@@ -66,6 +66,12 @@ import {
   changePassword,
   hasUser,
   getUser,
+  getUserCount,
+  listUsers,
+  getUserInfo,
+  createUser,
+  updateUserRole,
+  deleteUser,
   verifyToken,
   hasProvidersPassword,
   setProvidersPassword,
@@ -86,7 +92,7 @@ import {
 import { otpauthUri } from './services/totp';
 import { buildBackup, restoreFromBackup } from './services/settings-export';
 import { recordAudit, listAudit } from './services/audit-store';
-import { authMiddleware } from './middleware/auth';
+import { authMiddleware, requireAdmin, requireRole } from './middleware/auth';
 import { attachWebSockets } from './ws/ws-server';
 
 dotenv.config();
@@ -215,7 +221,8 @@ app.get('/api/auth/status', (req: any, res) => {
   if (!exists) return res.json({ hasUser: false });
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  const user = token && verifyToken(token) ? getUser() : null;
+  const decoded = token ? verifyToken(token) : null;
+  const user = decoded ? getUserInfo(decoded.id) : null;
   res.json({ hasUser: true, user });
 });
 
@@ -239,10 +246,10 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
       recordAudit('login-failed', false, req.ip);
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
-    // Correct password + 2FA enabled → do NOT issue a session yet. Hand back
-    // a short-lived pending token that only the code-verify step accepts.
     if (isTotpEnabled()) {
-      return res.json({ requires2fa: true, pendingToken: signPending2faToken() });
+      // Find the user to get their id for 2FA token
+      const user = getUser();
+      return res.json({ requires2fa: true, pendingToken: signPending2faToken(user?.id || '') });
     }
     const result = issueSessionToken();
     recordAudit('login', true, req.ip);
@@ -260,11 +267,12 @@ const totpLimiter = rateLimit('totp', RATE_WINDOW, 8);
 
 app.post('/api/auth/login/verify', totpLimiter, (req: any, res) => {
   const { pendingToken, code } = req.body || {};
-  if (!isTotpEnabled() || !verifyPending2faToken(typeof pendingToken === 'string' ? pendingToken : null)) {
+  const pendingUserId = verifyPending2faToken(typeof pendingToken === 'string' ? pendingToken : null);
+  if (!pendingUserId || !isTotpEnabled(pendingUserId)) {
     return res.status(401).json({ error: 'Login session expired. Sign in again.' });
   }
-  const user = getUser();
-  if (!user || !verifyTotpCode(String(code || ''))) {
+  const user = getUserInfo(pendingUserId);
+  if (!user || !verifyTotpCode(String(code || ''), pendingUserId)) {
     recordAudit('login-2fa-failed', false, req.ip);
     return res.status(401).json({ error: 'Invalid authenticator code.' });
   }
@@ -287,17 +295,19 @@ app.get('/api/auth/audit', (req: any, res) => {
 });
 
 // ── Two-factor authentication (TOTP) ──────────────────────────
-app.get('/api/auth/2fa/status', (_req, res) => {
-  res.json({ enabled: isTotpEnabled() });
+app.get('/api/auth/2fa/status', (req: any, res) => {
+  res.json({ enabled: isTotpEnabled(req.user?.id) });
 });
 
 // Enrollment step 1: generate a fresh pending secret. Safe to re-run while
 // still unverified — it simply replaces the not-yet-enabled secret.
 app.post('/api/auth/2fa/setup', authLimiter, (req: any, res) => {
   try {
-    const { secret } = beginTotpSetup();
-    const owner = getUser();
-    res.json({ secret, uri: otpauthUri(secret, owner?.username || 'owner') });
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Authentication required.' });
+    const { secret } = beginTotpSetup(userId);
+    const user = getUserInfo(userId);
+    res.json({ secret, uri: otpauthUri(secret, user?.username || 'owner') });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -305,8 +315,10 @@ app.post('/api/auth/2fa/setup', authLimiter, (req: any, res) => {
 
 // Enrollment step 2: activate once the app proves it can produce valid codes.
 app.post('/api/auth/2fa/enable', authLimiter, (req: any, res) => {
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Authentication required.' });
   const { code } = req.body || {};
-  if (enableTotp(String(code || ''))) {
+  if (enableTotp(String(code || ''), userId)) {
     recordAudit('2fa-enabled', true, req.ip);
     return res.json({ ok: true });
   }
@@ -316,13 +328,15 @@ app.post('/api/auth/2fa/enable', authLimiter, (req: any, res) => {
 
 // Turning 2FA off is dangerous → account-password re-auth required.
 app.post('/api/auth/2fa/disable', authLimiter, (req: any, res) => {
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Authentication required.' });
   const { accountPassword } = req.body || {};
   if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
-  if (!verifyAccountPassword(String(accountPassword))) {
+  if (!verifyAccountPassword(String(accountPassword), userId)) {
     recordAudit('2fa-disabled-failed', false, req.ip);
     return res.status(401).json({ error: 'Account password is incorrect.' });
   }
-  disableTotp();
+  disableTotp(userId);
   recordAudit('2fa-disabled', true, req.ip);
   res.json({ ok: true });
 });
@@ -331,10 +345,10 @@ app.post('/api/auth/change-password', authLimiter, (req: any, res) => {
   try {
     const { currentPassword, newPassword } = req.body || {};
     if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required.' });
-    const { token } = changePassword(String(currentPassword), String(newPassword));
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ error: 'Authentication required.' });
+    const { token } = changePassword(String(currentPassword), String(newPassword), userId);
     recordAudit('password-change', true, req.ip);
-    // Other sessions are revoked; the caller receives a fresh token to keep
-    // its current session alive.
     res.json({ ok: true, token });
   } catch (err: any) {
     recordAudit('password-change-failed', false, req.ip);
@@ -410,7 +424,7 @@ app.post('/api/auth/providers-password', authLimiter, (req: any, res) => {
     if (!accountPassword || !newPassword) {
       return res.status(400).json({ error: 'Account password and new providers password are required.' });
     }
-    setProvidersPassword(String(accountPassword), String(newPassword));
+    setProvidersPassword(String(accountPassword), String(newPassword), req.user?.id);
     recordAudit('providers-lock-change', true, req.ip);
     const unlock = issueUnlockToken(String(newPassword), String(req.user?.jti || ''));
     res.json({
@@ -429,7 +443,7 @@ app.delete('/api/auth/providers-password', authLimiter, (req: any, res) => {
   try {
     const { accountPassword } = req.body || {};
     if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
-    removeProvidersPassword(String(accountPassword));
+    removeProvidersPassword(String(accountPassword), req.user?.id);
     recordAudit('providers-lock-change', true, req.ip);
     res.json({ ok: true, enabled: false });
   } catch (err: any) {
@@ -443,7 +457,7 @@ app.delete('/api/auth/providers-password', authLimiter, (req: any, res) => {
 
 app.post('/api/settings/export', authLimiter, (req: any, res) => {
   const accountPassword = String((req.body?.accountPassword) || '');
-  if (!verifyAccountPassword(accountPassword)) {
+  if (!verifyAccountPassword(accountPassword, req.user?.id)) {
     return res.status(401).json({ error: 'Account password is incorrect.' });
   }
   try {
@@ -463,7 +477,7 @@ app.post('/api/settings/import', authLimiter, async (req: any, res) => {
   try {
     const { accountPassword, backup } = req.body || {};
     if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
-    if (!verifyAccountPassword(String(accountPassword))) {
+    if (!verifyAccountPassword(String(accountPassword), req.user?.id)) {
       return res.status(401).json({ error: 'Account password is incorrect.' });
     }
     const result = restoreFromBackup(backup);
@@ -472,6 +486,46 @@ app.post('/api/settings/import', authLimiter, async (req: any, res) => {
   } catch (err: any) {
     res.status(err?.status || 500).json({ error: err.message });
   }
+});
+
+// ── User management (admin only) ──────────────────────────────
+
+app.get('/api/users', (req: any, res) => {
+  res.json(listUsers());
+});
+
+app.post('/api/users', requireAdmin, authLimiter, (req: any, res) => {
+  try {
+    const { username, password, role } = req.body || {};
+    if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
+    const result = createUser(String(username), String(password), (role as any) || 'editor', req.user?.id);
+    recordAudit('user-created', true, req.ip);
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.patch('/api/users/:userId/role', requireAdmin, (req: any, res) => {
+  const { role } = req.body || {};
+  if (!['admin', 'editor', 'viewer'].includes(String(role))) {
+    return res.status(400).json({ error: 'Invalid role. Must be admin, editor, or viewer.' });
+  }
+  const ok = updateUserRole(req.params.userId, role as any);
+  if (!ok) return res.status(404).json({ error: 'User not found.' });
+  recordAudit('user-role-changed', true, req.ip);
+  res.json({ ok: true });
+});
+
+app.delete('/api/users/:userId', requireAdmin, authLimiter, (req: any, res) => {
+  // Prevent admin from deleting themselves
+  if (req.params.userId === req.user?.id) {
+    return res.status(400).json({ error: 'Cannot delete your own account.' });
+  }
+  const ok = deleteUser(req.params.userId);
+  if (!ok) return res.status(404).json({ error: 'User not found.' });
+  recordAudit('user-deleted', true, req.ip);
+  res.json({ ok: true });
 });
 
 // ── Server info / networking ─────────────────────────────────

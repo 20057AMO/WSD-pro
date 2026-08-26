@@ -1,8 +1,9 @@
-import { test, describe, after } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { uniqueId, reqAuth } from './helpers.ts';
+import { uniqueId, reqAuth, initTestAuth } from './helpers.ts';
 
 describe('Providers / Agents / Chat sessions CRUD', () => {
+  before(async () => { await initTestAuth(); });
 
   const runId = Date.now().toString(36);
   const providerName = uniqueId('prov');

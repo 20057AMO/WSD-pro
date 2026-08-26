@@ -8,11 +8,13 @@
  *
  * Runs against the live container on port 3000.
  */
-import { test, describe, after } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { uniqueId, reqAuth } from './helpers.ts';
+import { uniqueId, reqAuth, initTestAuth } from './helpers.ts';
 
 describe('Project Notes', () => {
+  before(async () => { await initTestAuth(); });
+
   const slug = uniqueId('notes-test');
   let created = false;
 

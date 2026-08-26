@@ -11,6 +11,7 @@ import {
   KeyRound,
   Settings as SettingsIcon,
   Unlock,
+  Users,
 } from 'lucide-preact';
 import { AuthProvider, useAuth } from './auth';
 import { VSCodeIcon, OpencodeIcon } from './components/brand-icons';
@@ -35,6 +36,7 @@ const EmbeddedIDE = lazy(() => import('./views/EmbeddedIDE').then(m => ({ defaul
 const Terminals = lazy(() => import('./views/Terminals').then(m => ({ default: m.Terminals })));
 const Providers = lazy(() => import('./views/Providers').then(m => ({ default: m.Providers })));
 const Settings = lazy(() => import('./views/Settings').then(m => ({ default: m.Settings })));
+const Team = lazy(() => import('./views/Team').then(m => ({ default: m.Team })));
 
 
 interface ErrorBoundaryProps { children: ComponentChildren; }
@@ -196,6 +198,7 @@ function Sidebar() {
         <NavButton label="opencode" icon={OpencodeIcon} newTabUrl={`${toolBase}:${ocPort}/`} />
         <NavButton href="/opencode-studio" label="OC Studio" icon={OpencodeIcon} />
         <NavButton href="/providers" label="Providers" icon={KeyRound} />
+        {user?.role === 'admin' && <NavButton href="/team" label="Team" icon={Users} />}
         <NavButton href="/settings" label="Settings" icon={SettingsIcon} />
         <NavButton href="/ide" label="VS Code" icon={VSCodeIcon} />
       </nav>
@@ -256,6 +259,7 @@ function Shell() {
           <Route path="/terminals/:slug" component={Terminals} />
           <Route path="/providers" component={Providers} />
           <Route path="/settings" component={Settings} />
+          <Route path="/team" component={Team} />
         </Suspense>
       </main>
     </div>

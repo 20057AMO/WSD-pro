@@ -1,7 +1,7 @@
-import { test, describe, after } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import jwt from 'jsonwebtoken';
-import { uniqueId, reqAuth, signTestToken, API_URL, JWT_SECRET } from './helpers.ts';
+import { uniqueId, reqAuth, signTestToken, API_URL, JWT_SECRET, initTestAuth } from './helpers.ts';
 
 /**
  * Providers-lock + settings backup tests.
@@ -11,6 +11,7 @@ import { uniqueId, reqAuth, signTestToken, API_URL, JWT_SECRET } from './helpers
  * otherwise the suite self-skips.
  */
 describe('Providers security lock & backup', () => {
+  before(async () => { await initTestAuth(); });
 
   const accountPassword = process.env.WSD_TEST_ACCOUNT_PASSWORD || '';
   let providersPw = `pl-${uniqueId('k')}-secret`;

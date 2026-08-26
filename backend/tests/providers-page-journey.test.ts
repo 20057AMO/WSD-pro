@@ -1,6 +1,6 @@
-import { test, describe, after } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { API_URL } from './helpers.ts';
+import { API_URL, initTestAuth } from './helpers.ts';
 
 /**
  * ════════════════════════════════════════════════════════════════
@@ -57,6 +57,7 @@ async function realLogin(password: string): Promise<string> {
 }
 
 describe('Providers page journey — regression for live-audit gaps', () => {
+  before(async () => { await initTestAuth(); });
 
   const KEY = `tstj-key-${Date.now().toString(36)}`;
   const LOCK_PW = `tstj-lock-${Date.now().toString(36)}`;

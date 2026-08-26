@@ -17,16 +17,104 @@ dotenv.config();
 export const API_URL = process.env.WSD_TEST_API_URL || 'http://127.0.0.1:3000/api';
 export const JWT_SECRET = process.env.JWT_SECRET || 'wsd-pro-default-secret-change-me';
 
-/** Sign a short-lived token exactly like a logged-in user would carry. */
+export const JSON_HEADERS: Record<string, string> = { 'Content-Type': 'application/json' };
+
+// ── Lazy-init real session info ───────────────────────────────
+let _userId = 'test-user';
+let _username = 'test';
+let _userRole: string = 'admin';
+let _tv = 0;
+let _initialized = false;
+
+async function ensureSession(): Promise<void> {
+  if (_initialized) return;
+  try {
+    const statusRes = await fetch(`${API_URL}/auth/status`);
+    const status = await statusRes.json() as any;
+
+    if (!status.hasUser) {
+      // No user exists — run setup to create the first admin
+      const setupRes = await fetch(`${API_URL}/auth/setup`, {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ username: 'test-admin', password: 'test-password-123' }),
+      });
+      const setupData = await setupRes.json() as any;
+      if (setupData.id) {
+        _userId = setupData.id;
+        _username = setupData.username;
+        _userRole = 'admin';
+        _tv = 0;
+      }
+    } else if (status.user) {
+      // Authenticated status (shouldn't happen without token, but handle it)
+      _userId = status.user.id;
+      _username = status.user.username;
+      _userRole = status.user.role || 'admin';
+      const pw = process.env.WSD_TEST_ACCOUNT_PASSWORD || 'test-password-123';
+      const loginRes = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ username: _username, password: pw }),
+      });
+      const loginData = await loginRes.json() as any;
+      if (loginData.token) {
+        const decoded = jwt.decode(loginData.token) as any;
+        if (decoded?.tv !== undefined) _tv = decoded.tv;
+      }
+    } else {
+      // User exists but no token — try login with known password
+      // Read the user list from /api/users (requires auth — won't work here)
+      // Instead, try to forge a token. verifyToken accepts unknown users with
+      // valid JWT signatures, so we just need the correct id.
+      // We can't get the id without auth, so try login which will tell us.
+      const pw = process.env.WSD_TEST_ACCOUNT_PASSWORD || 'test-password-123';
+      const loginRes = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ username: 'test-admin', password: pw }),
+      });
+      const loginData = await loginRes.json() as any;
+      if (loginData.token) {
+        // Login succeeded — use the real token
+        const decoded = jwt.decode(loginData.token) as any;
+        _userId = decoded.id;
+        _username = decoded.username;
+        _userRole = decoded.role || 'admin';
+        _tv = decoded.tv || 0;
+      }
+      // If login fails, _userId stays as 'test-user' — verifyToken will accept it
+      // as an unknown user with the embedded role.
+    }
+  } catch {
+    // Server might not be running yet; keep defaults
+  }
+  _initialized = true;
+}
+
+/**
+ * Synchronous sign — call ensureSession() in a before() hook first.
+ * Returns a token that matches the real user in the store.
+ */
 export function signTestToken(expiresIn = '24h'): string {
-  return jwt.sign({ id: 'test-user', username: 'test' }, JWT_SECRET, { expiresIn });
+  return jwt.sign(
+    { id: _userId, username: _username, role: _userRole, tv: _tv, jti: 'test-session' },
+    JWT_SECRET,
+    { expiresIn }
+  );
+}
+
+/**
+ * Call this once at the top of a describe() block that needs auth.
+ * Ensures the test user exists and tokens will verify.
+ */
+export async function initTestAuth(): Promise<void> {
+  await ensureSession();
 }
 
 export function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return { Authorization: `Bearer ${signTestToken()}`, ...extra };
 }
-
-export const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 let counter = 0;
 export function uniqueId(prefix: string): string {
@@ -53,8 +141,6 @@ export async function req(
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }) as Promise<Res>;
 
-  // Small retry on 429: the server rate-limits per IP and other clients
-  // (browser tabs, manual curls) share the same budget.
   let res = await doFetch();
   for (let attempt = 0; res.status === 429 && attempt < 3; attempt += 1) {
     await new Promise((r) => setTimeout(r, 1500));

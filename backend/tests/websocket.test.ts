@@ -1,7 +1,7 @@
-import { test, describe } from 'node:test';
+import { test, describe, before } from 'node:test';
 import assert from 'node:assert';
 import WebSocket from 'ws';
-import { signTestToken, firstProjectSlug } from './helpers.ts';
+import { signTestToken, firstProjectSlug, initTestAuth } from './helpers.ts';
 
 const WS_BASE = (process.env.WSD_TEST_API_URL || 'http://127.0.0.1:3000/api')
   .replace('/api', '')
@@ -33,6 +33,7 @@ function replaceSlug(p: string, slug: string): string {
 }
 
 describe('WebSocket authentication matrix', () => {
+  before(async () => { await initTestAuth(); });
 
   let slug = 'probe-slug';
 

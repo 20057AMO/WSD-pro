@@ -1,6 +1,6 @@
-import { test, describe, after } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { signTestToken, API_URL } from './helpers.ts';
+import { signTestToken, API_URL, initTestAuth } from './helpers.ts';
 
 /**
  * ════════════════════════════════════════════════════════════════
@@ -41,6 +41,7 @@ async function sensitive(url: string, init?: any): Promise<Response> {
 }
 
 describe('Scenario: Providers lock journey', () => {
+  before(async () => { await initTestAuth(); });
 
   const accountPassword = process.env.WSD_TEST_ACCOUNT_PASSWORD || '';
   const LOCK_V1 = `journey-${Date.now().toString(36)}-v1`;

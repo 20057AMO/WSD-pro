@@ -1,7 +1,7 @@
-import { test, describe } from 'node:test';
+import { test, describe, before } from 'node:test';
 import assert from 'node:assert';
 import fs from 'fs';
-import { signTestToken, API_URL } from './helpers.ts';
+import { signTestToken, API_URL, initTestAuth } from './helpers.ts';
 import { isSealed, maskStored, openSecret, sealSecret } from '../src/services/secret-box.ts';
 
 /**
@@ -16,6 +16,7 @@ import { isSealed, maskStored, openSecret, sealSecret } from '../src/services/se
  */
 
 describe('secret-box · algorithm', () => {
+  before(async () => { await initTestAuth(); });
 
   test('roundtrip seal → open preserves the secret', () => {
     const samples = [

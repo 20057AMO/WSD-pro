@@ -1,6 +1,6 @@
-import { test, describe, after } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
-import { API_URL } from './helpers.ts';
+import { API_URL, initTestAuth } from './helpers.ts';
 
 /**
  * Session revocation (logout everywhere) + password-change token rotation.
@@ -8,6 +8,7 @@ import { API_URL } from './helpers.ts';
  * isolated server instance. Self-skips without WSD_TEST_ACCOUNT_PASSWORD.
  */
 describe('Session revocation', () => {
+  before(async () => { await initTestAuth(); });
 
   const accountPassword = process.env.WSD_TEST_ACCOUNT_PASSWORD || '';
   const username = process.env.WSD_TEST_USER || 'revoketester';

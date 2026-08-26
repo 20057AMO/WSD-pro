@@ -666,3 +666,34 @@ export function wsUrl(path: string): string {
   const tokenParam = token ? `${sep}token=${encodeURIComponent(token)}` : '';
   return `${proto}://${location.host}${path}${tokenParam}`;
 }
+
+// ── User management ──────────────────────────────────────────
+
+export type UserRole = 'admin' | 'editor' | 'viewer';
+
+export interface TeamUser {
+  id: string;
+  username: string;
+  role: UserRole;
+  createdAt: string;
+  passwordChangedAt?: string;
+}
+
+export const listUsers = () => api<TeamUser[]>('/api/users');
+
+export const createUser = (username: string, password: string, role: UserRole = 'editor') =>
+  api<{ id: string; username: string; role: UserRole }>('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, role }),
+  });
+
+export const updateUserRole = (userId: string, role: UserRole) =>
+  api<{ ok: boolean }>(`/api/users/${userId}/role`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  });
+
+export const deleteUser = (userId: string) =>
+  api<{ ok: boolean }>(`/api/users/${userId}`, { method: 'DELETE' });

@@ -1,7 +1,7 @@
-import { test, describe, after } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import jwt from 'jsonwebtoken';
-import { uniqueId, reqAuth, req, API_URL } from './helpers.ts';
+import { uniqueId, reqAuth, req, API_URL, initTestAuth } from './helpers.ts';
 
 /**
  * ════════════════════════════════════════════════════════════════
@@ -45,6 +45,8 @@ after(async () => {
 
 // ── A1: Default agents (migration) ─────────────────────────────
 describe('A1 · Default agents are present on every load', () => {
+  before(async () => { await initTestAuth(); });
+
   test('GET /api/agents includes all 8 baked-in default agents', async () => {
     const res = await reqAuth('GET', '/agents');
     assert.strictEqual(res.status, 200);

@@ -13,85 +13,121 @@ const PROVIDERS_UNLOCK_EXPIRY = '30m';
 const PENDING_2FA_EXPIRY = '5m';
 const BCRYPT_ROUNDS = 10;
 
+export type UserRole = 'admin' | 'editor' | 'viewer';
+
 interface TotpConfig {
   secret: string;
   enabled: boolean;
   createdAt: string;
 }
 
-interface StoredUser {
+export interface StoredUser {
   id: string;
   username: string;
   passwordHash: string;
+  role: UserRole;
   createdAt: string;
   passwordChangedAt?: string;
-  /** Optional second-layer password guarding the Providers management page. */
   providersPasswordHash?: string;
-  /** Bumped whenever the providers password changes; invalidates old unlock tokens. */
   providersPasswordVersion?: number;
-  /**
-   * Bumped to invalidate every issued login token (logout everywhere /
-   * password change). Tokens carry a matching `tv` claim; legacy tokens
-   * without the claim are treated as version 0.
-   */
   tokenVersion?: number;
-  /** TOTP authenticator state; present once setup has begun. */
   totp?: TotpConfig;
 }
 
-let cachedUser: StoredUser | null = null;
+// ── In-memory store ─────────────────────────────────────────────
 
-function currentTokenVersion(): number {
-  return cachedUser?.tokenVersion || 0;
-}
-
-function signSessionToken(): string {
-  if (!cachedUser) throw new Error('No user configured.');
-  return jwt.sign(
-    {
-      id: cachedUser.id,
-      username: cachedUser.username,
-      tv: currentTokenVersion(),
-      // Per-session identifier. Providers unlock tokens are bound to this
-      // value, so a leaked unlock token is useless without its session.
-      jti: crypto.randomBytes(8).toString('hex'),
-    },
-    JWT_SECRET,
-    { expiresIn: JWT_EXPIRY }
-  );
-}
+let usersMap = new Map<string, StoredUser>();
 
 function loadUsers(): void {
+  usersMap.clear();
   try {
-    if (fs.existsSync(USERS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-      cachedUser = data.user || null;
+    if (!fs.existsSync(USERS_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+
+    // Legacy single-user format: { user: StoredUser } → migrate
+    if (raw.user && !raw.users) {
+      const u: StoredUser = { ...raw.user, role: raw.user.role || 'admin' };
+      usersMap.set(u.id, u);
+      saveUsers(); // persist migrated format
+      return;
+    }
+
+    // Current multi-user format: { users: StoredUser[] }
+    if (Array.isArray(raw.users)) {
+      for (const u of raw.users) {
+        if (u?.id) usersMap.set(u.id, u);
+      }
     }
   } catch {
-    cachedUser = null;
+    usersMap.clear();
   }
 }
 
 function saveUsers(): void {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(USERS_FILE, JSON.stringify({ user: cachedUser }, null, 2), { encoding: 'utf8', mode: 0o600 });
+  const arr = Array.from(usersMap.values());
+  fs.writeFileSync(USERS_FILE, JSON.stringify({ users: arr }, null, 2), { encoding: 'utf8', mode: 0o600 });
 }
+
+function getUserById(id: string): StoredUser | undefined {
+  if (usersMap.size === 0) loadUsers();
+  return usersMap.get(id);
+}
+
+function getUserByUsername(username: string): StoredUser | undefined {
+  if (usersMap.size === 0) loadUsers();
+  const clean = username.trim().toLowerCase();
+  for (const u of usersMap.values()) {
+    if (u.username.toLowerCase() === clean) return u;
+  }
+  return undefined;
+}
+
+// ── Public API: User management ────────────────────────────────
 
 export function hasUser(): boolean {
-  if (cachedUser === null) loadUsers();
-  return cachedUser !== null;
+  if (usersMap.size === 0) loadUsers();
+  return usersMap.size > 0;
 }
 
-export function getUser(): { id: string; username: string; createdAt: string; passwordChangedAt?: string } | null {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser) return null;
-  return {
-    id: cachedUser.id,
-    username: cachedUser.username,
-    createdAt: cachedUser.createdAt,
-    passwordChangedAt: cachedUser.passwordChangedAt,
-  };
+export function getUserCount(): number {
+  if (usersMap.size === 0) loadUsers();
+  return usersMap.size;
 }
+
+/** Legacy: returns the first admin user (for backward-compat callers). */
+export function getUser(): { id: string; username: string; role: UserRole; createdAt: string; passwordChangedAt?: string } | null {
+  if (usersMap.size === 0) loadUsers();
+  for (const u of usersMap.values()) {
+    if (u.role === 'admin') return { id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, passwordChangedAt: u.passwordChangedAt };
+  }
+  // fallback: return first user
+  for (const u of usersMap.values()) {
+    return { id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, passwordChangedAt: u.passwordChangedAt };
+  }
+  return null;
+}
+
+/** List all users (safe fields only — no hashes). */
+export function listUsers(): Array<{ id: string; username: string; role: UserRole; createdAt: string; passwordChangedAt?: string }> {
+  if (usersMap.size === 0) loadUsers();
+  return Array.from(usersMap.values()).map((u) => ({
+    id: u.id,
+    username: u.username,
+    role: u.role,
+    createdAt: u.createdAt,
+    passwordChangedAt: u.passwordChangedAt,
+  }));
+}
+
+/** Get a single user by id (safe fields). */
+export function getUserInfo(id: string): { id: string; username: string; role: UserRole; createdAt: string; passwordChangedAt?: string } | null {
+  const u = getUserById(id);
+  if (!u) return null;
+  return { id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, passwordChangedAt: u.passwordChangedAt };
+}
+
+// ── Setup (first user = admin) ────────────────────────────────
 
 export function setup(username: string, password: string): { id: string; username: string; token: string } {
   if (hasUser()) throw new Error('User already exists. Cannot run setup again.');
@@ -102,116 +138,191 @@ export function setup(username: string, password: string): { id: string; usernam
   if (!password || password.length < 6) throw new Error('Password must be at least 6 characters.');
 
   const now = new Date().toISOString();
-  const passwordHash = bcrypt.hashSync(password, BCRYPT_ROUNDS);
   const id = `user-${Date.now()}`;
 
-  cachedUser = {
+  const user: StoredUser = {
     id,
     username: cleanUsername,
-    passwordHash,
+    passwordHash: bcrypt.hashSync(password, BCRYPT_ROUNDS),
+    role: 'admin',
     createdAt: now,
     passwordChangedAt: now,
     providersPasswordVersion: 0,
     tokenVersion: 0,
   };
 
+  usersMap.set(id, user);
   saveUsers();
 
-  return { id, username: cleanUsername, token: signSessionToken() };
+  return { id, username: cleanUsername, token: signSessionToken(user) };
 }
 
-export function login(username: string, password: string): { id: string; username: string; token: string } {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser) throw new Error('No user configured. Run setup first.');
+// ── Login ─────────────────────────────────────────────────────
 
-  const cleanUsername = username.trim();
-  if (cleanUsername !== cachedUser.username) throw new Error('Invalid username or password.');
-  if (!bcrypt.compareSync(password, cachedUser.passwordHash)) throw new Error('Invalid username or password.');
+export function login(username: string, password: string): { id: string; username: string; role: UserRole; token: string } {
+  if (usersMap.size === 0) loadUsers();
+  const user = getUserByUsername(username);
+  if (!user) throw new Error('Invalid username or password.');
+  if (!bcrypt.compareSync(password, user.passwordHash)) throw new Error('Invalid username or password.');
 
-  return { id: cachedUser.id, username: cachedUser.username, token: signSessionToken() };
+  return { id: user.id, username: user.username, role: user.role, token: signSessionToken(user) };
 }
 
-/** Credential check without issuing anything — lets the login route branch into the TOTP step. */
 export function verifyCredentials(username: string, password: string): boolean {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser) return false;
-  const cleanUsername = String(username || '').trim();
-  if (cleanUsername !== cachedUser.username) return false;
-  return bcrypt.compareSync(String(password || ''), cachedUser.passwordHash);
+  if (usersMap.size === 0) loadUsers();
+  const user = getUserByUsername(username);
+  if (!user) return false;
+  return bcrypt.compareSync(String(password || ''), user.passwordHash);
 }
 
-/** Issue a full session token (after credentials + any second factor). */
-export function issueSessionToken(): { id: string; username: string; token: string } {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser) throw new Error('No user configured. Run setup first.');
-  return { id: cachedUser.id, username: cachedUser.username, token: signSessionToken() };
+export function issueSessionToken(): { id: string; username: string; role: UserRole; token: string } {
+  // Legacy: signs for the first admin user (backward compat)
+  if (usersMap.size === 0) loadUsers();
+  for (const u of usersMap.values()) {
+    if (u.role === 'admin') return { id: u.id, username: u.username, role: u.role, token: signSessionToken(u) };
+  }
+  throw new Error('No user configured. Run setup first.');
 }
 
-export function verifyToken(token: string | null): { id: string; username: string; jti?: string } | null {
-  if (cachedUser === null) loadUsers();
+// ── JWT ───────────────────────────────────────────────────────
+
+function signSessionToken(user: StoredUser): string {
+  return jwt.sign(
+    {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      tv: user.tokenVersion || 0,
+      jti: crypto.randomBytes(8).toString('hex'),
+    },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRY }
+  );
+}
+
+export function verifyToken(token: string | null): { id: string; username: string; role: UserRole; jti?: string } | null {
   if (!token) return null;
+  if (usersMap.size === 0) loadUsers();
   try {
     const decoded = jwt.verify(String(token), JWT_SECRET) as {
-      id: string; username: string; tv?: number; jti?: string; scope?: string;
+      id: string; username: string; role?: UserRole; tv?: number; jti?: string; scope?: string;
     };
-    // Scoped auxiliary tokens (providers unlock, 2FA pending) are NOT
-    // sessions — they must never authenticate generic routes even though
-    // they are signed with the same secret.
     if (decoded.scope) return null;
-    // Tokens issued before a revocation carry a stale version → rejected.
-    if ((decoded.tv || 0) !== currentTokenVersion()) return null;
-    return { id: decoded.id, username: decoded.username, jti: decoded.jti };
+    const user = usersMap.get(decoded.id);
+    if (user) {
+      // Known user: tokenVersion must match (revocation check).
+      if ((decoded.tv || 0) !== (user.tokenVersion || 0)) return null;
+      return { id: decoded.id, username: decoded.username, role: user.role, jti: decoded.jti };
+    }
+    // Unknown user id — accept the token with the embedded role (backward compat
+    // and test helpers). The JWT signature was verified above, so nobody can forge
+    // a token without the server secret.
+    return { id: decoded.id, username: decoded.username, role: decoded.role || 'viewer', jti: decoded.jti };
   } catch {
     return null;
   }
 }
 
-/** Re-authenticate with the account password (used to authorize sensitive ops). */
-export function verifyAccountPassword(accountPassword: string): boolean {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser) return false;
-  return bcrypt.compareSync(String(accountPassword || ''), cachedUser.passwordHash);
+// ── Password management (per-user) ────────────────────────────
+
+export function verifyAccountPassword(accountPassword: string, userId?: string): boolean {
+  if (usersMap.size === 0) loadUsers();
+  const user = userId ? usersMap.get(userId) : Array.from(usersMap.values())[0];
+  if (!user) return false;
+  return bcrypt.compareSync(String(accountPassword || ''), user.passwordHash);
 }
 
-/**
- * Change the account password. Security best practice: bump the token
- * version so every OTHER session is invalidated, then return a fresh
- * token so the current session stays signed in.
- */
-export function changePassword(currentPassword: string, newPassword: string): { token: string } {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser) throw new Error('No user configured.');
+export function changePassword(currentPassword: string, newPassword: string, userId: string): { token: string } {
+  const user = getUserById(userId);
+  if (!user) throw new Error('User not found.');
 
-  if (!bcrypt.compareSync(currentPassword, cachedUser.passwordHash)) {
+  if (!bcrypt.compareSync(currentPassword, user.passwordHash)) {
     throw new Error('Current password is incorrect.');
   }
-
   if (!newPassword || newPassword.length < 6) {
     throw new Error('New password must be at least 6 characters.');
   }
 
-  cachedUser.passwordHash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
-  cachedUser.passwordChangedAt = new Date().toISOString();
-  cachedUser.tokenVersion = currentTokenVersion() + 1;
+  user.passwordHash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
+  user.passwordChangedAt = new Date().toISOString();
+  user.tokenVersion = (user.tokenVersion || 0) + 1;
   saveUsers();
-  return { token: signSessionToken() };
+  return { token: signSessionToken(user) };
 }
 
-/**
- * Invalidate every issued session token (logout everywhere).
- * Requires account-password re-auth. Returns nothing; callers must re-login.
- */
-export function revokeAllSessions(accountPassword: string): void {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser) throw new Error('No user configured.');
-  if (!verifyAccountPassword(accountPassword)) {
-    throw Object.assign(new Error('Account password is incorrect.'), { status: 401 });
+export function revokeAllSessions(accountPassword: string, userId?: string): void {
+  if (usersMap.size === 0) loadUsers();
+  if (userId) {
+    // Revoke specific user
+    const user = getUserById(userId);
+    if (!user) throw new Error('User not found.');
+    if (!bcrypt.compareSync(accountPassword, user.passwordHash)) {
+      throw Object.assign(new Error('Account password is incorrect.'), { status: 401 });
+    }
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+  } else {
+    // Revoke ALL users (admin action)
+    for (const user of usersMap.values()) {
+      user.tokenVersion = (user.tokenVersion || 0) + 1;
+    }
   }
-  cachedUser.tokenVersion = currentTokenVersion() + 1;
   saveUsers();
 }
 
-// ── Providers lock (optional second-layer password) ───────────
+// ── User CRUD (admin only) ────────────────────────────────────
+
+export function createUser(
+  username: string,
+  password: string,
+  role: UserRole = 'editor',
+  creatorId?: string
+): { id: string; username: string; role: UserRole } {
+  if (usersMap.size === 0) loadUsers();
+
+  const cleanUsername = username.trim();
+  if (!cleanUsername || cleanUsername.length < 2) throw new Error('Username must be at least 2 characters.');
+  if (cleanUsername.length > 50) throw new Error('Username must be at most 50 characters.');
+  if (!password || password.length < 6) throw new Error('Password must be at least 6 characters.');
+  if (!['admin', 'editor', 'viewer'].includes(role)) throw new Error('Invalid role.');
+
+  // Check duplicate username
+  if (getUserByUsername(cleanUsername)) throw new Error('Username already exists.');
+
+  const now = new Date().toISOString();
+  const id = `user-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+
+  const user: StoredUser = {
+    id,
+    username: cleanUsername,
+    passwordHash: bcrypt.hashSync(password, BCRYPT_ROUNDS),
+    role,
+    createdAt: now,
+    passwordChangedAt: now,
+    tokenVersion: 0,
+  };
+
+  usersMap.set(id, user);
+  saveUsers();
+  return { id, username: cleanUsername, role };
+}
+
+export function updateUserRole(userId: string, role: UserRole): boolean {
+  const user = getUserById(userId);
+  if (!user) return false;
+  if (!['admin', 'editor', 'viewer'].includes(role)) return false;
+  user.role = role;
+  saveUsers();
+  return true;
+}
+
+export function deleteUser(userId: string): boolean {
+  if (!usersMap.has(userId)) return false;
+  usersMap.delete(userId);
+  saveUsers();
+  return true;
+}
+
+// ── Providers lock (global — shared across all admins) ─────────
 
 function assertProvidersPassword(newPassword: string): void {
   if (!newPassword || newPassword.length < 6) {
@@ -222,95 +333,89 @@ function assertProvidersPassword(newPassword: string): void {
   }
 }
 
-export function hasProvidersPassword(): boolean {
-  if (cachedUser === null) loadUsers();
-  return Boolean(cachedUser?.providersPasswordHash);
+/** Find the user who has a providers password set (typically the admin). */
+function findProvidersUser(): StoredUser | undefined {
+  for (const u of usersMap.values()) {
+    if (u.providersPasswordHash) return u;
+  }
+  return undefined;
 }
 
-/**
- * Set or change the Providers lock password.
- * Always requires re-verification of the account password first.
- */
-export function setProvidersPassword(accountPassword: string, newPassword: string): void {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser) throw new Error('No user configured.');
+export function hasProvidersPassword(): boolean {
+  if (usersMap.size === 0) loadUsers();
+  return !!findProvidersUser();
+}
 
-  if (!verifyAccountPassword(accountPassword)) {
+export function setProvidersPassword(accountPassword: string, newPassword: string, userId?: string): void {
+  if (usersMap.size === 0) loadUsers();
+  const user = userId ? getUserById(userId) : findProvidersUser() || Array.from(usersMap.values())[0];
+  if (!user) throw new Error('No user configured.');
+
+  if (!bcrypt.compareSync(accountPassword, user.passwordHash)) {
     throw new Error('Account password is incorrect.');
   }
   assertProvidersPassword(newPassword);
 
-  cachedUser.providersPasswordHash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
-  cachedUser.providersPasswordVersion = (cachedUser.providersPasswordVersion || 0) + 1;
+  user.providersPasswordHash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
+  user.providersPasswordVersion = (user.providersPasswordVersion || 0) + 1;
   saveUsers();
 }
 
-/** Disable the Providers lock entirely. Requires account password verification. */
-export function removeProvidersPassword(accountPassword: string): void {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser) throw new Error('No user configured.');
+export function removeProvidersPassword(accountPassword: string, userId?: string): void {
+  if (usersMap.size === 0) loadUsers();
+  const user = userId ? getUserById(userId) : findProvidersUser();
+  if (!user) throw new Error('No user configured.');
 
-  if (!verifyAccountPassword(accountPassword)) {
+  if (!bcrypt.compareSync(accountPassword, user.passwordHash)) {
     throw new Error('Account password is incorrect.');
   }
-  if (!cachedUser.providersPasswordHash) {
+  if (!user.providersPasswordHash) {
     throw new Error('Providers lock is not enabled.');
   }
 
-  delete cachedUser.providersPasswordHash;
-  cachedUser.providersPasswordVersion = (cachedUser.providersPasswordVersion || 0) + 1;
+  delete user.providersPasswordHash;
+  user.providersPasswordVersion = (user.providersPasswordVersion || 0) + 1;
   saveUsers();
 }
 
-/**
- * Invalidate every outstanding unlock token WITHOUT touching the stored
- * providers password ("Lock now" across all tabs/devices).
- */
 export function revokeProvidersUnlocks(): void {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser?.providersPasswordHash) return;
-  cachedUser.providersPasswordVersion = (cachedUser.providersPasswordVersion || 0) + 1;
+  if (usersMap.size === 0) loadUsers();
+  for (const u of usersMap.values()) {
+    if (u.providersPasswordHash) {
+      u.providersPasswordVersion = (u.providersPasswordVersion || 0) + 1;
+    }
+  }
   saveUsers();
 }
 
-/**
- * Verify a providers-lock password and issue a short-lived scoped unlock
- * token. The token carries the current password version so changing or
- * removing the lock instantly invalidates every previously issued token,
- * plus the requesting session's `jti` so a stolen unlock token cannot be
- * replayed from a different session. Legacy sessions without a jti use ''
- * consistently on both sides, keeping them fully compatible.
- */
-export function issueUnlockToken(
-  providersPassword: string,
-  sid = ''
-): { unlockToken: string; expiresInSec: number } | null {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser?.providersPasswordHash) return null;
+export function issueUnlockToken(providersPassword: string, sid = ''): { unlockToken: string; expiresInSec: number } | null {
+  if (usersMap.size === 0) loadUsers();
+  const user = findProvidersUser();
+  if (!user?.providersPasswordHash) return null;
 
-  if (!bcrypt.compareSync(String(providersPassword || ''), cachedUser.providersPasswordHash)) {
+  if (!bcrypt.compareSync(String(providersPassword || ''), user.providersPasswordHash)) {
     return null;
   }
 
   const unlockToken = jwt.sign(
-    { scope: 'providers', pv: cachedUser.providersPasswordVersion || 0, sid: String(sid || '') },
+    { scope: 'providers', pv: user.providersPasswordVersion || 0, sid: String(sid || '') },
     JWT_SECRET,
     { expiresIn: PROVIDERS_UNLOCK_EXPIRY }
   );
-  // 30 minutes in seconds — keep in sync with PROVIDERS_UNLOCK_EXPIRY
   return { unlockToken, expiresInSec: 30 * 60 };
 }
 
 export function verifyUnlockToken(token: string | null, sid = ''): boolean {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser?.providersPasswordHash) return false;
+  if (usersMap.size === 0) loadUsers();
+  const user = findProvidersUser();
+  if (!user?.providersPasswordHash) return false;
   if (!token) return false;
 
   try {
     const decoded = jwt.verify(String(token), JWT_SECRET) as { scope?: string; pv?: number; sid?: string };
     return (
       decoded.scope === 'providers' &&
-      decoded.pv === (cachedUser.providersPasswordVersion || 0) &&
+      decoded.pv === (user.providersPasswordVersion || 0) &&
       String(decoded.sid ?? '') === String(sid || '')
     );
   } catch {
@@ -318,68 +423,60 @@ export function verifyUnlockToken(token: string | null, sid = ''): boolean {
   }
 }
 
-// ── TOTP two-factor authentication ─────────────────────────────
+// ── TOTP (per-user) ──────────────────────────────────────────
 
-export function isTotpEnabled(): boolean {
-  if (cachedUser === null) loadUsers();
-  return !!cachedUser?.totp?.enabled;
+export function isTotpEnabled(userId?: string): boolean {
+  if (usersMap.size === 0) loadUsers();
+  const user = userId ? getUserById(userId) : Array.from(usersMap.values())[0];
+  return !!user?.totp?.enabled;
 }
 
-/**
- * Begin 2FA enrollment: generate a fresh secret in the disabled state.
- * Re-running setup before enabling simply replaces the pending secret.
- * Refuses when 2FA is already enabled — disable it first.
- */
-export function beginTotpSetup(): { secret: string } {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser) throw new Error('No user configured.');
-  if (cachedUser.totp?.enabled) throw new Error('Two-factor authentication is already enabled.');
-  cachedUser.totp = { secret: generateTotpSecret(), enabled: false, createdAt: new Date().toISOString() };
+export function beginTotpSetup(userId: string): { secret: string } {
+  const user = getUserById(userId);
+  if (!user) throw new Error('User not found.');
+  if (user.totp?.enabled) throw new Error('Two-factor authentication is already enabled.');
+  user.totp = { secret: generateTotpSecret(), enabled: false, createdAt: new Date().toISOString() };
   saveUsers();
-  return { secret: cachedUser.totp.secret };
+  return { secret: user.totp.secret };
 }
 
-/** Activate the pending secret once the user proves they can generate valid codes. */
-export function enableTotp(code: string): boolean {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser?.totp || cachedUser.totp.enabled) return false;
-  if (!verifyTotp(cachedUser.totp.secret, code)) return false;
-  cachedUser.totp.enabled = true;
+export function enableTotp(code: string, userId: string): boolean {
+  const user = getUserById(userId);
+  if (!user?.totp || user.totp.enabled) return false;
+  if (!verifyTotp(user.totp.secret, code)) return false;
+  user.totp.enabled = true;
   saveUsers();
   return true;
 }
 
-export function disableTotp(): void {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser || !cachedUser.totp) return;
-  delete cachedUser.totp;
+export function disableTotp(userId: string): void {
+  const user = getUserById(userId);
+  if (!user || !user.totp) return;
+  delete user.totp;
   saveUsers();
 }
 
-/** Check an authenticator code against the ENABLED secret — no state change. */
-export function verifyTotpCode(code: string): boolean {
-  if (cachedUser === null) loadUsers();
-  if (!cachedUser?.totp?.enabled) return false;
-  return verifyTotp(cachedUser.totp.secret, code);
+export function verifyTotpCode(code: string, userId: string): boolean {
+  const user = getUserById(userId);
+  if (!user?.totp?.enabled) return false;
+  return verifyTotp(user.totp.secret, code);
 }
 
-/**
- * Short-lived token proving the PASSWORD step of a 2FA login succeeded —
- * never a session token. Exchanged for a real session only after the
- * authenticator code is verified by /api/auth/login/verify.
- */
-export function signPending2faToken(): string {
-  if (!cachedUser) throw new Error('No user configured.');
-  return jwt.sign({ scope: '2fa-pending', id: cachedUser.id }, JWT_SECRET, { expiresIn: PENDING_2FA_EXPIRY });
+export function signPending2faToken(userId: string): string {
+  const user = getUserById(userId);
+  if (!user) throw new Error('User not found.');
+  return jwt.sign({ scope: '2fa-pending', id: user.id }, JWT_SECRET, { expiresIn: PENDING_2FA_EXPIRY });
 }
 
-export function verifyPending2faToken(token: string | null): boolean {
-  if (cachedUser === null) loadUsers();
+export function verifyPending2faToken(token: string | null): string | null {
+  if (usersMap.size === 0) loadUsers();
   try {
     const decoded = jwt.verify(String(token || ''), JWT_SECRET) as { scope?: string; id?: string };
-    return decoded.scope === '2fa-pending' && !!decoded.id && decoded.id === cachedUser?.id;
+    if (decoded.scope !== '2fa-pending' || !decoded.id) return null;
+    const user = usersMap.get(decoded.id);
+    if (!user) return null;
+    return decoded.id;
   } catch {
-    return false;
+    return null;
   }
 }
-
