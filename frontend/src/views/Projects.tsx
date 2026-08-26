@@ -246,9 +246,14 @@ export function Projects() {
     }
   };
 
-  const openProjectCard = (e: MouseEvent, slug: string) => {
+  const openProjectCard = (e: MouseEvent, p: Project) => {
     e.stopPropagation();
-    setLocation(`/project/${slug}`);
+    if (p.status === 'running' && p.hostPorts && Object.keys(p.hostPorts).length > 0) {
+      const hostPort = Object.values(p.hostPorts)[0];
+      window.open(`http://${window.location.hostname}:${hostPort}`, '_blank');
+    } else {
+      setLocation(`/project/${p.slug}`);
+    }
   };
 
   // Ports field is mandatory: at least one integer in [1..65535].
@@ -359,7 +364,7 @@ export function Projects() {
                 <button class="btn-ghost sm" onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>
                   {p.status === 'running' ? 'Stop' : 'Start'}
                 </button>
-                <button class="btn-ghost sm" onClick={(e) => openProjectCard(e, p.slug)}>
+                <button class="btn-ghost sm" onClick={(e) => openProjectCard(e, p)}>
                   <FolderOpen width={13} height={13} class="icon" /> Open
                 </button>
               </div>
@@ -399,7 +404,7 @@ export function Projects() {
                     <button class="btn-ghost sm" onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>
                       {p.status === 'running' ? '⏹' : '▶'}
                     </button>
-                    <button class="btn-ghost sm" title="Open project" onClick={(e) => openProjectCard(e, p.slug)}>
+                    <button class="btn-ghost sm" title="Open project preview" onClick={(e) => openProjectCard(e, p)}>
                       <FolderOpen width={12} height={12} class="icon" />
                     </button>
                   </td>
