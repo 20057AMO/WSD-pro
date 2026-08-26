@@ -64,6 +64,9 @@ export function Agents() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [creatingPreset, setCreatingPreset] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [agentModels, setAgentModels] = useState<string[]>([]);
@@ -170,7 +173,9 @@ export function Agents() {
       const { session } = await createAgentSession(activeAgentId);
       setSessions((cur) => [session, ...cur]);
       setActiveSession(session);
-    } catch { /* ignore */ }
+    } catch (err: any) {
+      setApiError(err?.message || 'Failed to create session');
+    }
   };
 
   const handleDeleteSession = async (s: AgentSession) => {
@@ -188,19 +193,29 @@ export function Agents() {
         if (next.length > 0) setActiveSession(next[0]);
         else handleNewSession();
       }
-    } catch { /* ignore */ }
+    } catch (err: any) {
+      setApiError(err?.message || 'Failed to delete session');
+    }
     setConfirmDelete(null);
   };
 
-  const handleRenameSession = async (s: AgentSession) => {
-    if (!activeAgentId) return;
-    const name = window.prompt('Session name:', s.name);
-    if (!name || !name.trim() || name.trim() === s.name) return;
+  const handleRenameSession = (s: AgentSession) => {
+    setRenamingSessionId(s.chatId);
+    setRenameValue(s.name);
+  };
+
+  const confirmRenameSession = async () => {
+    if (!activeAgentId || !renamingSessionId) return;
+    const name = renameValue.trim();
+    if (!name) { setRenamingSessionId(null); return; }
     try {
-      const { session } = await renameAgentSession(activeAgentId, s.chatId, name.trim());
+      const { session } = await renameAgentSession(activeAgentId, renamingSessionId, name);
       setSessions((cur) => cur.map((x) => (x.chatId === session.chatId ? session : x)));
       if (activeSession?.chatId === session.chatId) setActiveSession(session);
-    } catch { /* ignore */ }
+    } catch (err: any) {
+      setApiError(err?.message || 'Failed to rename session');
+    }
+    setRenamingSessionId(null);
   };
 
   const submit = async (e: Event) => {
@@ -285,7 +300,9 @@ export function Agents() {
     try {
       const { agent } = await updateAgent(activeAgent.id, { provider });
       setAgents((cur) => cur.map((a) => (a.id === agent.id ? agent : a)));
-    } catch { /* ignore */ }
+    } catch (err: any) {
+      setApiError(err?.message || 'Failed to update provider');
+    }
   };
 
   const handleModelChange = async (model: string) => {
@@ -293,7 +310,9 @@ export function Agents() {
     try {
       const { agent } = await updateAgent(activeAgent.id, { model });
       setAgents((cur) => cur.map((a) => (a.id === agent.id ? agent : a)));
-    } catch { /* ignore */ }
+    } catch (err: any) {
+      setApiError(err?.message || 'Failed to update model');
+    }
   };
 
   const handleContextChange = async (val: string) => {
@@ -410,14 +429,31 @@ export function Agents() {
                 />
                 {filteredSessions.map((s) => (
                   <div class={`session-chip ${s.chatId === activeSession?.chatId ? 'active' : ''}`} key={s.chatId}>
-                    <button class="session-chip-main" type="button" onClick={() => setActiveSession(s)}
-                      onDblClick={() => handleRenameSession(s)}>
-                      <span class="session-chip-name">{s.name}</span>
-                      {s.messageCount > 1 && (
-                        <span class="session-chip-summary">{s.messageCount} messages</span>
-                      )}
-                      <span class="session-chip-meta">{relTime(s.updatedAt)} · {s.messageCount}</span>
-                    </button>
+                    {renamingSessionId === s.chatId ? (
+                      <div class="session-rename-row">
+                        <input
+                          class="modern-input session-rename-input"
+                          type="text"
+                          value={renameValue}
+                          onInput={(e: any) => setRenameValue(e.target.value)}
+                          onKeyDown={(e: KeyboardEvent) => {
+                            if (e.key === 'Enter') confirmRenameSession();
+                            if (e.key === 'Escape') setRenamingSessionId(null);
+                          }}
+                          onBlur={confirmRenameSession}
+                          autoFocus
+                        />
+                      </div>
+                    ) : (
+                      <button class="session-chip-main" type="button" onClick={() => setActiveSession(s)}
+                        onDblClick={() => handleRenameSession(s)}>
+                        <span class="session-chip-name">{s.name}</span>
+                        {s.messageCount > 1 && (
+                          <span class="session-chip-summary">{s.messageCount} messages</span>
+                        )}
+                        <span class="session-chip-meta">{relTime(s.updatedAt)} · {s.messageCount}</span>
+                      </button>
+                    )}
                     <span class="session-chip-actions">
                       <button class="session-chip-act" type="button" title="Rename" onClick={() => handleRenameSession(s)}>✎</button>
                       <button class="session-chip-act" type="button" title="Delete" onClick={() => handleDeleteSession(s)}>×</button>
@@ -503,6 +539,12 @@ export function Agents() {
                   {error && !running && <div class="chat-msg system err" dir={chatDir}>{error}</div>}
                   {attachError && <div class="chat-msg system err" dir={chatDir}>{attachError}</div>}
                   {sendError && <div class="chat-msg system err" dir={chatDir}>{sendError}</div>}
+                  {apiError && (
+                    <div class="chat-msg system err" dir={chatDir}>
+                      {apiError}
+                      <button class="btn-ghost sm" style="margin-left:8px" onClick={() => setApiError(null)}>×</button>
+                    </div>
+                  )}
                 </div>
 
                 {pending.length > 0 && (
