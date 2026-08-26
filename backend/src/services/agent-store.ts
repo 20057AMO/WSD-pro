@@ -5,6 +5,7 @@ import { chatStore, type ChatEvent, type ChatAttachment } from './chat-store';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
+const DELETED_DEFAULTS_FILE = path.join(DATA_DIR, 'agents-deleted-defaults.json');
 const MAX_AGENTS = 100;
 const MAX_SESSIONS_PER_AGENT = 200;
 
@@ -381,8 +382,10 @@ function loadAgents(): Agent[] {
     saveAgents(agentsCache);
   }
   // Inject any new baked-in agents that are missing (migration for existing installs)
+  // Skip agents the user has explicitly deleted
+  const deletedIds = loadDeletedDefaults();
   const existingIds = new Set(agentsCache.map((a) => a.id));
-  const missing = DEFAULT_AGENTS.filter((d) => !existingIds.has(d.id));
+  const missing = DEFAULT_AGENTS.filter((d) => !existingIds.has(d.id) && !deletedIds.has(d.id));
   if (missing.length > 0) {
     agentsCache = [...agentsCache, ...missing];
     saveAgents(agentsCache);
@@ -394,6 +397,30 @@ function saveAgents(agents: Agent[]): void {
   ensureDataDir();
   fs.writeFileSync(AGENTS_FILE, JSON.stringify(agents, null, 2), 'utf8');
   agentsCache = agents;
+}
+
+const DEFAULT_IDS = new Set(DEFAULT_AGENTS.map((d) => d.id));
+
+function loadDeletedDefaults(): Set<string> {
+  try {
+    if (fs.existsSync(DELETED_DEFAULTS_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(DELETED_DEFAULTS_FILE, 'utf8'));
+      return new Set(Array.isArray(raw) ? raw : []);
+    }
+  } catch { /* ignore */ }
+  return new Set();
+}
+
+function saveDeletedDefaults(ids: Set<string>): void {
+  ensureDataDir();
+  fs.writeFileSync(DELETED_DEFAULTS_FILE, JSON.stringify([...ids], null, 2), 'utf8');
+}
+
+function recordDeletedDefault(id: string): void {
+  if (!DEFAULT_IDS.has(id)) return; // not a baked-in default
+  const deleted = loadDeletedDefaults();
+  deleted.add(id);
+  saveDeletedDefaults(deleted);
 }
 
 function genId(): string {
@@ -446,6 +473,8 @@ export function deleteAgent(id: string): boolean {
   if (idx === -1) return false;
   agents.splice(idx, 1);
   saveAgents(agents);
+  // Record deletion of baked-in defaults so migration won't re-add them
+  recordDeletedDefault(id);
   // Clean up associated sessions
   const sessions = loadSessions();
   const filtered = sessions.filter((s) => s.agentId !== id);
