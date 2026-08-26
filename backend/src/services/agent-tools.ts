@@ -13,29 +13,35 @@ const IGNORED_DIRS = new Set([
   '.cache', '__pycache__', '.venv', 'venv', 'target', 'coverage',
 ]);
 
-const DANGEROUS_CMD_PATTERNS: RegExp[] = [
-  /\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|--force)\s+[\/~]/i,
-  /\brm\s+-rf?\s+[\/~]/i,
-  /\bdd\s+/i,
-  /\bmkfs\b/i,
-  /\bformat\b/i,
-  /\b:(){ :\|:& };:/,
-  /\bnohup\b/i,
-  /\bcurl\s+.*\|\s*(ba)?sh/i,
-  /\bwget\s+.*\|\s*(ba)?sh/i,
-  /\b(shutdown|reboot|halt|poweroff)\b/i,
-  /\bchmod\s+777\s+[\/~]/i,
-  /\bsudo\b/i,
-  /\bsu\s+/i,
-  /\bpasswd\b/i,
-  />\s*\/etc\//i,
-  />\s*\/var\//i,
-  />\s*\/usr\//i,
-  />\s*\/root\//i,
-  /\bnc\s+-[a-z]*l/i,
-  /\bncat\b/i,
-  /\bexec\s+[0-9]>/i,
-];
+// Allowlist of permitted shell command prefixes (case-insensitive).
+// Anything not starting with one of these is rejected.
+const SAFE_CMD_PREFIXES = new Set([
+  'git', 'npm', 'npx', 'yarn', 'pnpm', 'bun',
+  'node', 'python', 'python3', 'pip', 'pip3',
+  'ls', 'cat', 'head', 'tail', 'grep', 'find', 'rg', 'fd',
+  'wc', 'sort', 'uniq', 'diff', 'file', 'stat',
+  'mkdir', 'touch', 'cp', 'mv', 'ln', 'echo', 'printf',
+  'pwd', 'which', 'whoami', 'env', 'date',
+  'tar', 'zip', 'unzip', 'gzip', 'gunzip',
+  'curl', 'wget',
+  'docker', 'docker-compose', 'podman',
+  'make', 'cmake',
+  'sh', 'bash', 'zsh',
+  'go', 'cargo', 'rustc', 'gcc', 'g++',
+  'java', 'javac',
+  'sed', 'awk', 'tr', 'cut', 'xargs',
+  'tree',
+]);
+
+// Commands that are always blocked regardless of prefix check.
+const BLOCKED_CMD_PREFIXES = new Set([
+  'rm', 'dd', 'mkfs', 'format', 'chmod', 'chown',
+  'shutdown', 'reboot', 'halt', 'poweroff',
+  'sudo', 'su', 'passwd', 'kill', 'killall', 'pkill',
+  'nc', 'ncat', 'netcat', 'nohup',
+  'systemctl', 'service', 'journalctl',
+  'iptables', 'ufw', 'firewall-cmd',
+]);
 
 function safeSlug(slug: string): string {
   return String(slug).replace(/[^a-z0-9._-]+/gi, '').slice(0, 32);
@@ -100,9 +106,40 @@ export function listFiles(slug: string, rel: string): string {
 
 function isDangerousCommand(cmd: string): string | null {
   if (cmd.length > MAX_CMD_LENGTH) return 'Command too long (max 1000 characters)';
-  for (const re of DANGEROUS_CMD_PATTERNS) {
-    if (re.test(cmd)) return `Blocked dangerous command pattern: ${re.source}`;
+
+  // Block shell chain operators that could hide malicious commands.
+  // Allows only simple single-command execution.
+  if (/(\|\||&&|;|\|`|`|\$\(|\$\{)/.test(cmd)) {
+    return 'Shell chain operators (&&, ||, ;, |, backticks, $()) are not allowed';
   }
+
+  // Block redirection to system directories.
+  if (/[>]\s*\/(etc|var|usr|root|boot|sys|proc)\//i.test(cmd)) {
+    return 'Write redirect to system directory is not allowed';
+  }
+
+  // Fork bomb pattern.
+  if (/:\(\)\s*\{/.test(cmd)) return 'Fork bomb pattern blocked';
+
+  // Pipe to shell.
+  if (/\|\s*(ba)?sh/i.test(cmd)) return 'Piping to shell is not allowed';
+
+  // Extract the first token (command name) after stripping leading whitespace.
+  const trimmed = cmd.trim();
+  const match = trimmed.match(/^(\S+)/);
+  if (!match) return 'Empty command';
+  const cmdName = match[1].split('/').pop()!; // handle /usr/bin/git → git
+
+  // Block explicitly dangerous commands.
+  if (BLOCKED_CMD_PREFIXES.has(cmdName.toLowerCase())) {
+    return `Blocked command: ${cmdName}`;
+  }
+
+  // Allowlist check: command must start with a known-safe prefix.
+  if (!SAFE_CMD_PREFIXES.has(cmdName.toLowerCase())) {
+    return `Unknown command '${cmdName}' — not in the allowed list`;
+  }
+
   return null;
 }
 

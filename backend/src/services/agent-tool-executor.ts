@@ -1,4 +1,5 @@
 import { readFile, writeFile, listFiles, execCommand, getProjectTree } from './agent-tools';
+import type { AgentPermission } from './agent-store';
 
 export interface ToolCall {
   name: string;
@@ -11,14 +12,32 @@ export interface ToolResult {
   output: string;
 }
 
-const TOOL_DEFINITIONS = `
-You have access to the following tools. Use them by writing XML tags in your response:
+function toolDefinitionsForPermission(permission: AgentPermission | undefined): string {
+  const tier = permission || 'full';
+  const tools: string[] = [];
 
-<tool name="readFile" path="path/to/file">Read file contents</tool>
-<tool name="writeFile" path="path/to/file" content="file content here">Write content to a file</tool>
-<tool name="listFiles" path="path/to/directory">List directory contents</tool>
-<tool name="execCommand" command="shell command here">Execute a shell command</tool>
-<tool name="getProjectTree" path="." maxDepth="3">Show project file tree</tool>
+  // All tiers with tools get read + list
+  if (tier === 'read' || tier === 'bash' || tier === 'full') {
+    tools.push(`<tool name="readFile" path="path/to/file">Read file contents</tool>`);
+    tools.push(`<tool name="listFiles" path="path/to/directory">List directory contents</tool>`);
+    tools.push(`<tool name="getProjectTree" path="." maxDepth="3">Show project file tree</tool>`);
+  }
+
+  // bash + full get execCommand
+  if (tier === 'bash' || tier === 'full') {
+    tools.push(`<tool name="execCommand" command="shell command here">Execute a shell command</tool>`);
+  }
+
+  // Only full gets writeFile
+  if (tier === 'full') {
+    tools.push(`<tool name="writeFile" path="path/to/file" content="file content here">Write content to a file</tool>`);
+  }
+
+  if (tools.length === 0) return '';
+
+  const header = `You have access to the following tools. Use them by writing XML tags in your response:
+
+${tools.join('\n')}
 
 Rules:
 - Use ONE tool per response. Write your reasoning first, then the tool tag.
@@ -27,9 +46,11 @@ Rules:
 - Be careful with execCommand — avoid destructive commands.
 - If a tool fails, explain why and try an alternative approach.
 `;
+  return header;
+}
 
-export function getToolDefinitions(): string {
-  return TOOL_DEFINITIONS;
+export function getToolDefinitions(permission?: AgentPermission): string {
+  return toolDefinitionsForPermission(permission);
 }
 
 export function parseToolCalls(text: string): ToolCall[] {
@@ -56,8 +77,23 @@ export function parseToolCalls(text: string): ToolCall[] {
   return calls;
 }
 
-export function executeToolCall(slug: string, call: ToolCall): ToolResult {
+function isToolAllowed(toolName: string, permission: AgentPermission | undefined): boolean {
+  const tier = permission || 'full';
+  switch (tier) {
+    case 'none': return false;
+    case 'read': return ['readFile', 'listFiles', 'getProjectTree'].includes(toolName);
+    case 'bash': return ['readFile', 'listFiles', 'getProjectTree', 'execCommand'].includes(toolName);
+    case 'full': return true;
+    default: return true;
+  }
+}
+
+export function executeToolCall(slug: string, call: ToolCall, permission?: AgentPermission): ToolResult {
   const { name, args } = call;
+
+  if (!isToolAllowed(name, permission)) {
+    return { name, args, output: `[Permission denied] Tool '${name}' is not allowed for this agent's permission level (${permission || 'full'})` };
+  }
 
   try {
     let output: string;

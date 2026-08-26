@@ -384,6 +384,8 @@ export const runStudioUpdate = () =>
     method: 'POST',
   });
 
+export type AgentPermission = 'none' | 'read' | 'bash' | 'full';
+
 export interface AgentDef {
   id: string;
   name: string;
@@ -394,6 +396,7 @@ export interface AgentDef {
   model?: string;
   enabled: boolean;
   toolsEnabled: boolean;
+  permission?: AgentPermission;
 }
 
 export interface AgentSession {

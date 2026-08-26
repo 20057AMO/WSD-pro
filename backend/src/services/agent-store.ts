@@ -9,6 +9,8 @@ const DELETED_DEFAULTS_FILE = path.join(DATA_DIR, 'agents-deleted-defaults.json'
 const MAX_AGENTS = 100;
 const MAX_SESSIONS_PER_AGENT = 200;
 
+export type AgentPermission = 'none' | 'read' | 'bash' | 'full';
+
 export interface Agent {
   id: string;
   name: string;
@@ -19,6 +21,7 @@ export interface Agent {
   model?: string;
   enabled: boolean;
   toolsEnabled: boolean;
+  permission?: AgentPermission;
 }
 
 export interface AgentSession {
@@ -59,6 +62,7 @@ const DEFAULT_AGENTS: Agent[] = [
 - If the user needs code review, suggest using the Reviewer agent`,
     enabled: true,
     toolsEnabled: false,
+    permission: 'none',
   },
   {
     id: 'planner',
@@ -103,6 +107,7 @@ Always structure your response as:
 - Do NOT write implementation code — describe what should be built and how`,
     enabled: true,
     toolsEnabled: true,
+    permission: 'read',
   },
   {
     id: 'coder',
@@ -143,6 +148,7 @@ cd backend && node node_modules/typescript/bin/tsc --noEmit
 - If you need architecture guidance → suggest Planner agent`,
     enabled: true,
     toolsEnabled: true,
+    permission: 'full',
   },
   {
     id: 'reviewer',
@@ -185,6 +191,7 @@ Structure each finding as:
 - If something is genuinely good, say so briefly`,
     enabled: true,
     toolsEnabled: true,
+    permission: 'read',
   },
   {
     id: 'devops',
@@ -223,6 +230,7 @@ curl -s http://localhost:3000/api/health
 - Log to stdout/stderr, not files (let Docker handle log rotation)`,
     enabled: true,
     toolsEnabled: true,
+    permission: 'full',
   },
   {
     id: 'debugger',
@@ -268,6 +276,7 @@ curl -s http://localhost:3000/api/health
 - If the fix involves UI/UX changes → suggest UX/UI Designer agent`,
     enabled: true,
     toolsEnabled: true,
+    permission: 'full',
   },
   {
     id: 'ux-designer',
@@ -313,6 +322,7 @@ For design reviews:
 For new designs: Provide actual JSX + CSS code, not just descriptions.`,
     enabled: true,
     toolsEnabled: true,
+    permission: 'read',
   },
   {
     id: 'security',
@@ -360,6 +370,7 @@ Every finding MUST follow this exact format:
 - When you fix code, add inline comments explaining the security rationale`,
     enabled: true,
     toolsEnabled: true,
+    permission: 'full',
   },
 ];
 

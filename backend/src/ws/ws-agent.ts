@@ -234,7 +234,7 @@ export function handleAgentSocket(ws: WebSocket, agentId: string, chatId: string
     }
 
     if (agent.toolsEnabled) {
-      systemText += `\n\n${getToolDefinitions()}`;
+      systemText += `\n\n${getToolDefinitions(agent.permission)}`;
     }
 
     const control: RunControl = { cancelled: false, abort: null };
@@ -293,7 +293,7 @@ export function handleAgentSocket(ws: WebSocket, agentId: string, chatId: string
                   );
                   broadcast(room, { type: 'event', event: toolCallEvent });
 
-                  const result = executeToolCall(slug, call);
+                  const result = executeToolCall(slug, call, agent.permission);
 
                   const toolResultEvent = appendAgentEvent(
                     agentId, chatId, 'tool_result',

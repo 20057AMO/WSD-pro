@@ -25,6 +25,7 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
   const [provider, setProvider] = useState(agent.provider || '');
   const [model, setModel] = useState(agent.model || '');
   const [toolsEnabled, setToolsEnabled] = useState(agent.toolsEnabled);
+  const [permission, setPermission] = useState<import('../api').AgentPermission>(agent.permission || (agent.toolsEnabled ? 'full' : 'none'));
 
   const [providers, setProviders] = useState<ProviderBrief[]>([]);
   const [globalProvider, setGlobalProvider] = useState('');
@@ -77,6 +78,7 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
         provider: provider || undefined,
         model: model || undefined,
         toolsEnabled,
+        permission: toolsEnabled ? permission : 'none',
       });
       onSave(updated);
     } catch (err: any) {
@@ -197,13 +199,32 @@ export function AgentSettingsModal({ agent, onSave, onDelete, onClose }: Props) 
               <input
                 type="checkbox"
                 checked={toolsEnabled}
-                onChange={(e: any) => setToolsEnabled(e.target.checked)}
+                onChange={(e: any) => {
+                  const on = e.target.checked;
+                  setToolsEnabled(on);
+                  if (!on) setPermission('none');
+                  else if (permission === 'none') setPermission('full');
+                }}
               />
               <div class="agent-settings-toggle-text">
                 <span class="agent-settings-toggle-label">Enable tool use</span>
                 <span class="agent-settings-toggle-desc">Allow this agent to read/write files and run commands</span>
               </div>
             </label>
+            {toolsEnabled && (
+              <div style="margin-top:8px">
+                <label class="agent-settings-field-label">Permission level</label>
+                <select
+                  class="modern-select"
+                  value={permission}
+                  onChange={(e: any) => setPermission(e.target.value)}
+                >
+                  <option value="read">Read only — read files, list dirs, view tree</option>
+                  <option value="bash">Bash — read files + run shell commands</option>
+                  <option value="full">Full — read, write, and execute</option>
+                </select>
+              </div>
+            )}
           </div>
 
           {error && <div class="login-error">{error}</div>}

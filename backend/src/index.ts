@@ -774,6 +774,7 @@ app.post('/api/agents', agentWriteLimiter, (req, res) => {
       provider: typeof body.provider === 'string' ? body.provider : undefined,
       model: typeof body.model === 'string' ? body.model : undefined,
       toolsEnabled: typeof body.toolsEnabled === 'boolean' ? body.toolsEnabled : undefined,
+      permission: ['none', 'read', 'bash', 'full'].includes(body.permission) ? body.permission : undefined,
     });
     res.json({ agent });
   } catch (err: any) {
@@ -792,6 +793,7 @@ app.put('/api/agents/:id', (req, res) => {
   if (typeof body.model === 'string') patch.model = body.model;
   if (typeof body.enabled === 'boolean') patch.enabled = body.enabled;
   if (typeof body.toolsEnabled === 'boolean') patch.toolsEnabled = body.toolsEnabled;
+  if (['none', 'read', 'bash', 'full'].includes(body.permission)) patch.permission = body.permission;
   const agent = updateAgent(req.params.id, patch);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
   res.json({ agent });
