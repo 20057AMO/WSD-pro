@@ -89,6 +89,26 @@ const DEFAULT_AGENTS: Agent[] = [
     enabled: true,
     toolsEnabled: true,
   },
+  {
+    id: 'ux-designer',
+    name: 'UX/UI Designer',
+    icon: '🎨',
+    description: 'Design user interfaces, experiences, and visual systems',
+    systemPrompt:
+      'You are a senior UX/UI designer. Analyze and design user interfaces, user flows, wireframes, and visual systems. Expertise: usability heuristics, design systems (tokens, components, patterns), accessibility (WCAG), responsive design, typography, color theory, visual hierarchy, micro-interactions, and prototyping. When reviewing existing interfaces, identify usability issues with specific references and provide concrete design improvements. Think mobile-first and component-driven. When building, create clean, minimal, and consistent UI components following existing project conventions.',
+    enabled: true,
+    toolsEnabled: true,
+  },
+  {
+    id: 'security',
+    name: 'Security',
+    icon: '🛡️',
+    description: 'Code security, vulnerability analysis, and protection',
+    systemPrompt:
+      'You are a security engineer and code auditor. Analyze code for vulnerabilities following OWASP Top 10, injection flaws, authentication/session issues, secret leakage, unsafe input handling, SSRF, path traversal, XSS, CSRF, and dependency risks. For each finding, provide: severity (Critical/High/Medium/Low), exact file:line reference, and a concrete fix. When hardening code, apply defense-in-depth: input validation, parameterized queries, least-privilege, secure defaults, proper error handling. Never log or expose secrets. Audit auth flows, crypto usage, file operations, and network calls thoroughly.',
+    enabled: true,
+    toolsEnabled: true,
+  },
 ];
 
 function ensureDataDir(): void {
@@ -101,12 +121,19 @@ function loadAgents(): Agent[] {
   if (fs.existsSync(AGENTS_FILE)) {
     try {
       const raw = JSON.parse(fs.readFileSync(AGENTS_FILE, 'utf8'));
-      agentsCache = Array.isArray(raw) ? raw : DEFAULT_AGENTS;
+      agentsCache = Array.isArray(raw) ? raw : [...DEFAULT_AGENTS];
     } catch {
       agentsCache = [...DEFAULT_AGENTS];
     }
   } else {
     agentsCache = [...DEFAULT_AGENTS];
+    saveAgents(agentsCache);
+  }
+  // Inject any new baked-in agents that are missing (migration for existing installs)
+  const existingIds = new Set(agentsCache.map((a) => a.id));
+  const missing = DEFAULT_AGENTS.filter((d) => !existingIds.has(d.id));
+  if (missing.length > 0) {
+    agentsCache = [...agentsCache, ...missing];
     saveAgents(agentsCache);
   }
   return agentsCache;
