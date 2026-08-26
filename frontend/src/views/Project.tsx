@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
+import { ExternalLink } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   getProject,
@@ -275,7 +276,7 @@ export function Project({ params }: { params: { slug: string } }) {
         <div class="detail-actions">
           <button class="btn-ghost sm" onClick={() => setTab('chat')}>Ask AI</button>
           <button class="btn-ghost sm" onClick={() => setLocation(`/terminals/${slug}`)}>Terminals</button>
-          <button class="btn-ghost sm" onClick={openIde}>Open IDE</button>
+          <button class="btn-ghost sm" onClick={openIde}><ExternalLink width={13} height={13} class="icon" /> Open IDE</button>
           <button
             class="btn-ghost sm"
             onClick={() => (project?.status === 'running' ? handleStop() : handleStart())}

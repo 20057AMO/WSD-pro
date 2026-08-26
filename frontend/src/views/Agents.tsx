@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { Paperclip, Wrench, FileOutput, Bot } from 'lucide-preact';
+import { Paperclip, Wrench, FileOutput, Bot, Languages } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   listAgents,
@@ -423,15 +423,18 @@ export function Agents() {
                     {activeAgent.model && <span class="chat-head-badge">{activeAgent.model}</span>}
                     {contextScope && <span class="chat-head-badge">{contextScope === 'all' ? 'All projects' : contextScope}</span>}
                   </span>
-                  <button class="dir-toggle-btn" type="button" onClick={() => setChatDir((d) => d === 'ltr' ? 'rtl' : 'ltr')} title="Toggle text direction">
-                    {chatDir === 'ltr' ? 'LTR →' : '← RTL'}
-                  </button>
-                  <span style="float:right;font-size:0.7rem;font-weight:400;color:var(--text-2);display:flex;align-items:center;gap:8px">
-                    {status === 'connected' ? 'connected' : status === 'connecting' ? 'connecting…' : status === 'disconnected' ? 'offline' : 'error'}
-                    {running && ' · typing…'}
-                    {(status === 'disconnected' || status === 'error') && (
-                      <button class="term-reconnect-btn" type="button" onClick={reconnect} title="Reconnect">↻</button>
-                    )}
+                  <span class="chat-head-tools">
+                    <button class="dir-toggle-btn" type="button" onClick={() => setChatDir((d) => d === 'ltr' ? 'rtl' : 'ltr')} title="Toggle text direction">
+                      <Languages width={13} height={13} class="icon" />
+                      {chatDir === 'ltr' ? 'عربي' : 'English'}
+                    </button>
+                    <span class="chat-head-status">
+                      {status === 'connected' ? 'connected' : status === 'connecting' ? 'connecting…' : status === 'disconnected' ? 'offline' : 'error'}
+                      {running && ' · typing…'}
+                      {(status === 'disconnected' || status === 'error') && (
+                        <button class="term-reconnect-btn" type="button" onClick={reconnect} title="Reconnect">↻</button>
+                      )}
+                    </span>
                   </span>
                 </div>
                 <div class="chat-body scrollbar" ref={bodyRef} style="flex:1;height:auto;min-height:0">

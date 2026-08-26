@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
-import { FolderSearch } from 'lucide-preact';
+import { FolderSearch, FolderOpen } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
 import {
@@ -39,7 +39,9 @@ export function Projects() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   // Styled destructive-confirm (replaces native window.confirm).
-  type ConfirmState = { kind: 'bulk-delete'; slugs: string[] } | { kind: 'delete'; slug: string };
+  // Per-card delete lives in the project page's Danger zone now — the cards
+  // expose an "Open" action instead.
+  type ConfirmState = { kind: 'bulk-delete'; slugs: string[] };
   const [confirmState, setConfirm] = useState<ConfirmState | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
 
@@ -187,14 +189,10 @@ export function Projects() {
     if (!confirmState || confirmBusy) return;
     setConfirmBusy(true);
     try {
-      if (confirmState.kind === 'bulk-delete') {
-        for (const slug of confirmState.slugs) {
-          try { await deleteProject(slug); } catch { /* continue */ }
-        }
-        setSelected(new Set());
-      } else {
-        await deleteProject(confirmState.slug);
+      for (const slug of confirmState.slugs) {
+        try { await deleteProject(slug); } catch { /* continue */ }
       }
+      setSelected(new Set());
       setConfirm(null);
       await refresh();
     } catch (err: any) {
@@ -208,13 +206,17 @@ export function Projects() {
   const handleCreate = async (e: Event) => {
     e.preventDefault();
     if (!name.trim()) return;
+    const parsedPorts = ports
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
+    if (parsedPorts.length === 0) {
+      setCreateError('At least one port is required (1–65535), comma separated.');
+      return;
+    }
     setCreating(true);
     setCreateError(null);
     try {
-      const parsedPorts = ports
-        .split(',')
-        .map((s) => Number(s.trim()))
-        .filter((n) => Number.isInteger(n) && n > 0);
       const { project } = await createProject({
         name: name.trim(),
         description: description.trim() || undefined,
@@ -233,20 +235,29 @@ export function Projects() {
     }
   };
 
-  const handleAction = async (e: MouseEvent, slug: string, action: 'start' | 'stop' | 'delete') => {
+  const handleAction = async (e: MouseEvent, slug: string, action: 'start' | 'stop') => {
     e.stopPropagation();
     try {
       if (action === 'start') await startProject(slug);
-      else if (action === 'stop') await stopProject(slug);
-      else if (action === 'delete') {
-        setConfirm({ kind: 'delete', slug });
-        return;
-      }
+      else await stopProject(slug);
       await refresh();
     } catch (err: any) {
       setLoadError(err.message);
     }
   };
+
+  const openProjectCard = (e: MouseEvent, slug: string) => {
+    e.stopPropagation();
+    setLocation(`/project/${slug}`);
+  };
+
+  // Ports field is mandatory: at least one integer in [1..65535].
+  const portsValid = ports
+    .split(',')
+    .some((s) => {
+      const n = Number(s.trim());
+      return Number.isInteger(n) && n > 0 && n <= 65535;
+    });
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
@@ -348,7 +359,9 @@ export function Projects() {
                 <button class="btn-ghost sm" onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>
                   {p.status === 'running' ? 'Stop' : 'Start'}
                 </button>
-                <button class="btn-ghost sm" onClick={(e) => handleAction(e, p.slug, 'delete')}>Delete</button>
+                <button class="btn-ghost sm" onClick={(e) => openProjectCard(e, p.slug)}>
+                  <FolderOpen width={13} height={13} class="icon" /> Open
+                </button>
               </div>
             </div>
           ))}
@@ -386,7 +399,9 @@ export function Projects() {
                     <button class="btn-ghost sm" onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>
                       {p.status === 'running' ? '⏹' : '▶'}
                     </button>
-                    <button class="btn-ghost sm" onClick={(e) => handleAction(e, p.slug, 'delete')}>✕</button>
+                    <button class="btn-ghost sm" title="Open project" onClick={(e) => openProjectCard(e, p.slug)}>
+                      <FolderOpen width={12} height={12} class="icon" />
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -417,14 +432,14 @@ export function Projects() {
               <input
                 class="modern-input"
                 style="margin-top:10px"
-                placeholder="Ports (optional, comma separated)"
+                placeholder="Ports (required, e.g. 3000, 8080)"
                 value={ports}
                 onInput={(e: any) => setPorts(e.target.value)}
               />
               {createError && <div class="login-error" style="margin-top:10px">{createError}</div>}
               <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end">
                 <button type="button" class="btn-ghost sm" onClick={() => setCreateOpen(false)}>Cancel</button>
-                <button type="submit" class="btn-primary" disabled={creating || !name.trim()}>
+                <button type="submit" class="btn-primary" disabled={creating || !name.trim() || !portsValid}>
                   {creating ? 'Creating…' : 'Create'}
                 </button>
               </div>
@@ -437,11 +452,7 @@ export function Projects() {
         open={!!confirmState}
         danger
         loading={confirmBusy}
-        title={
-          confirmState?.kind === 'bulk-delete'
-            ? `Delete ${confirmState.slugs.length} project(s)?`
-            : `Delete project '${confirmState?.kind === 'delete' ? confirmState.slug : ''}'?`
-        }
+        title={`Delete ${confirmState?.slugs.length ?? 0} project(s)?`}
         message="The container and its workspace files are permanently removed."
         confirmLabel="Delete"
         onConfirm={runConfirmed}
