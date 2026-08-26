@@ -13,7 +13,8 @@
  *    filesystem so the rename is instant, and dot-dirs are skipped by every
  *    registration loop, so archived projects vanish from both tools.
  *  - Archive entries older than WSD_ARCHIVE_DAYS (default 7) are purged.
- *  - Runs once at boot, then every WSD_JANITOR_INTERVAL_MS (default 6h).
+ *  - Runs once at boot, then every WSD_JANITOR_INTERVAL_MS (default 15min —
+ *    kept tight so code-server's explorer mirrors the Projects page fast).
  *    Both knobs exist for tests.
  */
 import { listMetaSlugs } from './projects-meta';
@@ -23,7 +24,7 @@ import { purgeOpencodeProjectRows } from './opencode-store';
 
 const WORKSPACES_ROOT = process.env.WSD_PROJECTS_DIR || '/workspaces';
 const ARCHIVE_DAYS = Math.max(0, Number(process.env.WSD_ARCHIVE_DAYS ?? '7') || 0);
-const INTERVAL_MS = Math.max(250, Number(process.env.WSD_JANITOR_INTERVAL_MS ?? '') || 6 * 60 * 60 * 1000);
+const INTERVAL_MS = Math.max(250, Number(process.env.WSD_JANITOR_INTERVAL_MS ?? '') || 15 * 60 * 1000);
 
 export function runSweep(): { archived: string[]; purged: string[] } {
   const r = sweepWorkspaces(WORKSPACES_ROOT, listMetaSlugs(), ARCHIVE_DAYS);

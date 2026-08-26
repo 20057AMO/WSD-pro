@@ -13,6 +13,7 @@ import crypto from 'crypto';
 import { execSync, spawn, execFileSync } from 'child_process';
 import { loadMeta, saveMeta, deleteMeta, touchActivity, listMetaSlugs, type ProjectMeta } from './projects-meta';
 import { purgeOpencodeProjectRows } from './opencode-store';
+import { runSweep } from './workspace-janitor';
 import {
   createOpencodeSession,
   ensureOpencodeSession as ensureOpencodeSessionApi,
@@ -313,6 +314,17 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     ].slice(-200),
   });
 
+  // Event-driven janitor pass: any orphan that accumulated while the app was
+  // running is archived immediately, so code-server's explorer (rooted at
+  // /workspaces) shows exactly the Projects-page set right now — not at the
+  // next periodic sweep. Meta exists by this point, so the new project is
+  // already "live" from the sweep's perspective.
+  try {
+    runSweep();
+  } catch {
+    /* never fail a create over cleanup */
+  }
+
   return info;
 }
 
@@ -448,6 +460,14 @@ export async function removeProject(slug: string): Promise<void> {
   removeWorkspaceDir(projectSlug);
   unregisterOpencodeProject(projectSlug);
   purgeOpencodeProjectRows([projectSlug]);
+  // If the workspace dir could not be fully removed (busy files, partial
+  // failure), archive the leftover NOW instead of letting it haunt
+  // code-server/opencode until the next periodic sweep.
+  try {
+    runSweep();
+  } catch {
+    /* non-fatal */
+  }
 }
 
 /**
