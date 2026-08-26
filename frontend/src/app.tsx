@@ -22,6 +22,8 @@ import {
   relockProviders,
   clearProvidersUnlock,
   UNLOCK_KEY,
+  getIdeStatus,
+  getOpencodeStatus,
 } from './api';
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -70,18 +72,26 @@ const NavButton = ({
   label,
   icon: Icon,
   onClick,
+  newTabUrl,
 }: {
   href?: string;
   label: string;
   icon: any;
   onClick?: () => void;
+  newTabUrl?: string;
 }) => {
   const [location] = useHashLocation();
   const active = href ? location === href || (href !== '/' && (location.startsWith(href) || (href === '/projects' && location.startsWith('/project/')))) : false;
   return (
     <button
       class={`nav-btn ${active ? 'active' : ''}`}
-      onClick={href ? () => navigate(href) : onClick}
+      onClick={
+        newTabUrl
+          ? () => window.open(newTabUrl, '_blank', 'noopener')
+          : href
+            ? () => navigate(href)
+            : onClick
+      }
     >
       <Icon width={16} height={16} class="icon" />
       <span>{label}</span>
@@ -159,6 +169,22 @@ function ProvidersUnlockBadge() {
 
 function Sidebar() {
   const { user } = useAuth();
+  const [toolPorts, setToolPorts] = useState({ ide: 8100, opencode: 4096 });
+
+  useEffect(() => {
+    getIdeStatus()
+      .then((s) => {
+        if (s?.ide?.port) setToolPorts((p) => ({ ...p, ide: s.ide.port }));
+      })
+      .catch(() => {});
+    getOpencodeStatus()
+      .then((s) => {
+        if (s?.port) setToolPorts((p) => ({ ...p, opencode: s.port }));
+      })
+      .catch(() => {});
+  }, []);
+
+  const toolBase = `${window.location.protocol === 'https:' ? 'https' : 'http'}://${window.location.hostname}`;
   return (
     <aside class="sidebar">
       <div class="sidebar-brand">
@@ -173,11 +199,11 @@ function Sidebar() {
         <NavButton href="/projects" label="Projects" icon={FolderOpen} />
         <NavButton href="/terminals" label="Terminals" icon={SquareTerminal} />
         <NavButton href="/agents" label="Agents" icon={Bot} />
-        <NavButton href="/opencode" label="opencode" icon={OpencodeIcon} />
+        <NavButton label="opencode" icon={OpencodeIcon} newTabUrl={`${toolBase}:${toolPorts.opencode}/`} />
         <NavButton href="/opencode-studio" label="OC Studio" icon={OpencodeIcon} />
         <NavButton href="/providers" label="Providers" icon={KeyRound} />
         <NavButton href="/settings" label="Settings" icon={SettingsIcon} />
-        <NavButton href="/ide" label="VS Code" icon={VSCodeIcon} />
+        <NavButton label="VS Code" icon={VSCodeIcon} newTabUrl={`${toolBase}:${toolPorts.ide}/?folder=/workspaces`} />
       </nav>
       <div class="sidebar-footer">
         <ProvidersUnlockBadge />

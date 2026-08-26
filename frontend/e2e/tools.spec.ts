@@ -3,9 +3,11 @@
  *
  * Auth: We forge a JWT locally (same secret as the server) and inject it into
  * localStorage via addInitScript, so the app treats the browser as logged in.
- * The server's /api/auth/status endpoint will call getUser() which returns
- * the real user — we don't care about the username, only that the session is
- * accepted.
+ *
+ * Tool entry policy: VS Code & opencode open the RAW tool URLs in their own
+ * tab (code-server on :8100, opencode web on :4096). The embedded /#/ide and
+ * /#/opencode pages remain available with their toolbars (pickers, status,
+ * "Open in new tab" anchors pointing at the raw URLs).
  */
 import { test, expect, type Page } from '@playwright/test';
 import jwt from 'jsonwebtoken';
@@ -59,101 +61,96 @@ async function injectAuth(page: Page): Promise<void> {
   }, { t: token });
 }
 
+/** Click a locator and capture the popup it opens, returning its URL. */
+async function popupUrl(page: Page, click: () => Promise<void>): Promise<string> {
+  const popupPromise = page.waitForEvent('popup');
+  await click();
+  const popup = await popupPromise;
+  await popup.waitForLoadState('domcontentloaded');
+  return popup.url();
+}
+
 /* ------------------------------------------------------------------ */
 /*  Tests                                                             */
 /* ------------------------------------------------------------------ */
 
-test.describe('Madar UI — recent changes verification', () => {
+test.describe('Madar UI — raw-tool entry points', () => {
 
-  /* -- a. /#/ide page ------------------------------------------------ */
-  test('a) /#/ide — no "Open in new tab", has <select> picker, iframe visible', async ({ page }) => {
+  /* -- a. Sidebar opens the raw tools in their own tabs -------------- */
+  test('a) sidebar VS Code & opencode buttons pop up :8100 / :4096', async ({ page }) => {
     await injectAuth(page);
-    // Navigate to root first to load the SPA and set the hash
     await page.goto(BASE);
-    await page.evaluate(() => { window.location.hash = '/ide'; });
+    await expect(page.locator('.sidebar-nav').locator('.nav-btn').first()).toBeVisible({ timeout: 20_000 });
 
-    // Wait for the iframe to appear (means the page loaded and IDE is up)
-    const iframe = page.locator('iframe.opencode-frame');
-    await expect(iframe).toBeVisible({ timeout: 20_000 });
+    const vsCodeUrl = await popupUrl(page, () =>
+      page.locator('.nav-btn', { hasText: 'VS Code' }).click()
+    );
+    expect(vsCodeUrl).toMatch(/:8100\/\?folder=/);
 
-    // The toolbar contains a <select> project picker
-    const select = page.locator('.opencode-toolbar select');
-    await expect(select).toBeVisible();
-
-    // "Open in new tab" must NOT appear anywhere
-    await expect(page.getByText('Open in new tab')).toHaveCount(0);
+    const ocUrl = await popupUrl(page, () =>
+      page.locator('.nav-btn', { hasText: 'opencode' }).first().click()
+    );
+    expect(ocUrl).toMatch(/:4096/);
   });
 
-  /* -- b. /#/opencode page ------------------------------------------- */
-  test('b) /#/opencode — no select, status line, iframe visible', async ({ page }) => {
+  /* -- b. Dashboard quick-action cards pop up the raw tools ---------- */
+  test('b) Dashboard cards VS Code & OpenCode pop up :8100 / :4096', async ({ page }) => {
     await injectAuth(page);
     await page.goto(BASE);
-    await page.evaluate(() => { window.location.hash = '/opencode'; });
-
-    const iframe = page.locator('iframe.opencode-frame');
-    await expect(iframe).toBeVisible({ timeout: 20_000 });
-
-    // Zero <select> elements in the toolbar
-    const selects = page.locator('.opencode-toolbar select');
-    await expect(selects).toHaveCount(0);
-
-    // Status line is present (contains "opencode:" text)
-    const statusLine = page.locator('.opencode-toolbar .term-title');
-    await expect(statusLine).toBeVisible();
-    const statusText = await statusLine.textContent();
-    expect(statusText).toMatch(/opencode:\s*(running|offline|…)/);
-
-    // "Open in new tab" must NOT appear
-    await expect(page.getByText('Open in new tab')).toHaveCount(0);
-  });
-
-  /* -- c. Dashboard quick-action navigation -------------------------- */
-  test('c) Dashboard quick-actions navigate in-tab (no popups)', async ({ page }) => {
-    await injectAuth(page);
-    await page.goto(BASE);
-
-    // Wait for the dashboard to finish loading (quick-action cards appear)
     await expect(page.locator('.dash-action-card').first()).toBeVisible({ timeout: 20_000 });
 
-    // -- Track popup events (none should fire) --
-    const popups: Page[] = [];
-    page.on('popup', (p) => popups.push(p));
+    const vsCodeUrl = await popupUrl(page, () =>
+      page.locator('.dash-action-card', { hasText: 'VS Code' }).click()
+    );
+    expect(vsCodeUrl).toMatch(/:8100/);
 
-    // Click "OpenCode" card
-    await page.locator('.dash-action-card', { hasText: 'OpenCode' }).click();
-    await expect(page.locator('iframe.opencode-frame')).toBeVisible({ timeout: 15_000 });
-    expect(page.url()).toContain('/opencode');
-
-    // Go back to dashboard via hash
     await page.evaluate(() => { window.location.hash = '/'; });
     await expect(page.locator('.dash-action-card').first()).toBeVisible({ timeout: 15_000 });
 
-    // Click "VS Code" card
-    await page.locator('.dash-action-card', { hasText: 'VS Code' }).click();
-    await expect(page.locator('iframe.opencode-frame')).toBeVisible({ timeout: 15_000 });
-    expect(page.url()).toContain('/ide');
-
-    // No popups opened during the entire flow
-    expect(popups).toHaveLength(0);
+    const ocUrl = await popupUrl(page, () =>
+      page.locator('.dash-action-card', { hasText: 'OpenCode' }).click()
+    );
+    expect(ocUrl).toMatch(/:4096/);
   });
 
-  /* -- d. Global: "Open in new tab" gone from all three pages -------- */
-  test('d) "Open in new tab" text is absent on Dashboard, /opencode, and /ide', async ({ page }) => {
+  /* -- c. /#/ide embedded page keeps its toolbar features ------------ */
+  test('c) /#/ide — "Open in new tab" anchor to :8100, picker, iframe', async ({ page }) => {
     await injectAuth(page);
     await page.goto(BASE);
-
-    // Dashboard
-    await expect(page.locator('.dash-action-card').first()).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText('Open in new tab')).toHaveCount(0);
-
-    // Navigate to /opencode
-    await page.evaluate(() => { window.location.hash = '/opencode'; });
-    await page.locator('.opencode-toolbar').waitFor({ timeout: 10_000 });
-    await expect(page.getByText('Open in new tab')).toHaveCount(0);
-
-    // Navigate to /ide
     await page.evaluate(() => { window.location.hash = '/ide'; });
-    await page.locator('.opencode-toolbar').waitFor({ timeout: 10_000 });
-    await expect(page.getByText('Open in new tab')).toHaveCount(0);
+
+    const iframe = page.locator('iframe.opencode-frame');
+    await expect(iframe).toBeVisible({ timeout: 20_000 });
+
+    // Project picker is present
+    await expect(page.locator('.opencode-toolbar select')).toBeVisible();
+
+    // Anchor points at the RAW code-server URL
+    const anchor = page.locator('.opencode-toolbar a', { hasText: 'Open in new tab' });
+    await expect(anchor).toBeVisible();
+    expect(await anchor.getAttribute('href')).toMatch(/:8100\/\?folder=/);
+  });
+
+  /* -- d. /#/opencode embedded page keeps picker + anchor ------------ */
+  test('d) /#/opencode — anchor to :4096, picker restored, status, iframe', async ({ page }) => {
+    await injectAuth(page);
+    await page.goto(BASE);
+    await page.evaluate(() => { window.location.hash = '/opencode'; });
+
+    const iframe = page.locator('iframe.opencode-frame');
+    await expect(iframe).toBeVisible({ timeout: 20_000 });
+
+    // Project picker is back
+    await expect(page.locator('.opencode-toolbar select')).toBeVisible();
+
+    // Status line
+    const statusLine = page.locator('.opencode-toolbar .term-title');
+    await expect(statusLine).toBeVisible();
+    expect(await statusLine.textContent()).toMatch(/opencode:\s*(running|offline|…)/);
+
+    // Anchor points at the RAW opencode URL
+    const anchor = page.locator('.opencode-toolbar a', { hasText: 'Open in new tab' });
+    await expect(anchor).toBeVisible();
+    expect(await anchor.getAttribute('href')).toMatch(/:4096/);
   });
 });

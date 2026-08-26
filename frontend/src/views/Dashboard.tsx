@@ -65,11 +65,16 @@ export function Dashboard() {
   const running = projects.filter((p) => p.status === 'running').length;
   const stopped = projects.filter((p) => p.status === 'stopped' || p.status === 'created').length;
 
-  const quickLinks = [
+  const toolBase = `${window.location.protocol === 'https:' ? 'https' : 'http'}://${window.location.hostname}`;
+  const vsCodeUrl = `${toolBase}:${ide?.port || 8100}/?folder=/workspaces`;
+  const opencodeUrl = `${toolBase}:${oc?.port || 4096}/`;
+
+  type QuickLink = { label: string; Icon: any; desc: string; route?: string; externalUrl?: string };
+  const quickLinks: QuickLink[] = [
     { label: 'Projects', Icon: FolderOpen, desc: `${projects.length} total`, route: '/projects' },
     { label: 'Agents', Icon: Bot, desc: `${agents.length} agents`, route: '/agents' },
-    { label: 'VS Code', Icon: VSCodeIcon, desc: ide?.running ? 'Running' : 'Stopped', route: '/ide' },
-    { label: 'OpenCode', Icon: OpencodeIcon, desc: oc?.running ? 'Running' : 'Stopped', route: '/opencode' },
+    { label: 'VS Code', Icon: VSCodeIcon, desc: ide?.running ? 'Running' : 'Stopped', externalUrl: vsCodeUrl },
+    { label: 'OpenCode', Icon: OpencodeIcon, desc: oc?.running ? 'Running' : 'Stopped', externalUrl: opencodeUrl },
   ];
 
   if (loading) {
@@ -115,7 +120,7 @@ export function Dashboard() {
             <span class="dash-stat-label">Stopped</span>
           </div>
         </div>
-        <div class="dash-stat-card" onClick={() => setLocation('/ide')}>
+        <div class="dash-stat-card" onClick={() => window.open(vsCodeUrl, '_blank', 'noopener')}>
           <div class="dash-stat-icon">{ide?.running ? <MonitorCheck width={18} height={18} class="icon" /> : <MonitorOff width={18} height={18} class="icon" />}</div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{ide?.running ? 'On' : 'Off'}</span>
@@ -129,7 +134,7 @@ export function Dashboard() {
       </div>
       <div class="dash-actions">
         {quickLinks.map((l) => (
-          <button class="dash-action-card" key={l.label} onClick={() => setLocation(l.route)}>
+          <button class="dash-action-card" key={l.label} onClick={() => (l.externalUrl ? window.open(l.externalUrl, '_blank', 'noopener') : setLocation(l.route || '/'))}>
             <span class="dash-action-icon"><l.Icon width={20} height={20} class="icon" /></span>
             <span class="dash-action-label">{l.label}</span>
             <span class="dash-action-desc">{l.desc}</span>

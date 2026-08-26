@@ -89,6 +89,7 @@ export function Project({ params }: { params: { slug: string } }) {
   const [tab, setTab] = useState<Tab>('overview');
   const [error, setError] = useState<string | null>(null);
   const [ideRunning, setIdeRunning] = useState<boolean | null>(null);
+  const [idePort, setIdePort] = useState<number>(8100);
   const [subdirInfo, setSubdirInfo] = useState<SubdirInfo | null>(null);
   const [liveStats, setLiveStats] = useState<ProjectStats | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
@@ -184,7 +185,10 @@ export function Project({ params }: { params: { slug: string } }) {
 
   useEffect(() => {
     getIdeStatus()
-      .then(({ ide }) => setIdeRunning(ide.running))
+      .then(({ ide }) => {
+        setIdeRunning(ide.running);
+        if (ide.port) setIdePort(ide.port);
+      })
       .catch(() => setIdeRunning(false));
   }, []);
 
@@ -227,7 +231,8 @@ export function Project({ params }: { params: { slug: string } }) {
       return;
     }
     const folder = subdirInfo?.hostPath || `/workspaces/${slug}`;
-    setLocation(`/ide?folder=${encodeURIComponent(folder)}`);
+    const proto = window.location.protocol === 'https:' ? 'https' : 'http';
+    window.open(`${proto}://${host}:${idePort}/?folder=${encodeURIComponent(folder)}`, '_blank', 'noopener');
   };
 
   const copy = async (text: string) => {

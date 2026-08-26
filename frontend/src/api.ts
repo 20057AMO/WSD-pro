@@ -319,6 +319,8 @@ export const getChatModels = (provider: ChatProvider) =>
 export const getChatContext = (project: string) =>
   api<ChatContext>(`/api/chat/context?project=${encodeURIComponent(project)}`);
 export const getOpencodeStatus = () => api<OpencodeStatus>('/api/opencode/status');
+export const openOpencodeProject = (slug: string) =>
+  api<{ ok: boolean }>('/api/opencode/open', { method: 'POST', body: JSON.stringify({ slug }) });
 
 // ── Opencode Studio ─────────────────────────────────────────────────────
 export interface StudioItem {
