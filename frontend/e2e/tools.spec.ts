@@ -6,8 +6,9 @@
  *
  * Tool entry policy:
  *  - VS Code opens IN-APP at /#/ide (embedded, keep-alive, watermark on top).
- *  - opencode opens as a raw tab on :4096; its embedded page keeps a picker
- *    and an "Open in new tab" anchor to the raw URL.
+ *  - opencode: sidebar/dashboard open a raw tab on :4096; the embedded page
+ *    at /#/opencode is ALSO keep-alive now (session persists between visits)
+ *    and keeps its picker + "Open in new tab" anchor.
  */
 import { test, expect, type Page } from '@playwright/test';
 import jwt from 'jsonwebtoken';
@@ -155,5 +156,13 @@ test.describe('Madar UI — raw-tool entry points', () => {
     const anchor = page.locator('.opencode-toolbar a', { hasText: 'Open in new tab' });
     await expect(anchor).toBeVisible();
     expect(await anchor.getAttribute('href')).toMatch(/:4096/);
+
+    // Keep-alive round-trip: leave and come back — the toolbar must reappear
+    // instantly from the persisted layer (no remount crash, no blank state).
+    await page.evaluate(() => { window.location.hash = '/'; });
+    await expect(page.locator('.dash-action-card').first()).toBeVisible({ timeout: 15_000 });
+    await page.evaluate(() => { window.location.hash = '/opencode'; });
+    await expect(page.locator('.opencode-toolbar select')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('iframe.opencode-frame')).toBeVisible();
   });
 });

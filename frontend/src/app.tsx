@@ -239,9 +239,6 @@ function Shell() {
   if (location.startsWith('/opencode-studio')) {
     return <Suspense fallback={<div class="app-view" style="display:flex;align-items:center;justify-content:center;height:100vh;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}><OpencodeStudio /></Suspense>;
   }
-  if (location.startsWith('/opencode')) {
-    return <Suspense fallback={<div class="app-view" style="display:flex;align-items:center;justify-content:center;height:100vh;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}><Opencode /></Suspense>;
-  }
 
   if (location.startsWith('/agents')) {
     return <Suspense fallback={<div class="app-view" style="display:flex;align-items:center;justify-content:center;height:100vh;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}><Agents /></Suspense>;
@@ -292,6 +289,32 @@ function IdeKeepAlive() {
   );
 }
 
+/**
+ * Keep-alive opencode layer — same pattern as IdeKeepAlive: once /#/opencode
+ * is opened the page stays mounted (hidden while navigating elsewhere), so
+ * the opencode web session never reloads between visits. Note: /opencode
+ * must NOT match /opencode-studio.
+ */
+function OpencodeKeepAlive() {
+  const [location] = useHashLocation();
+  const { user } = useAuth();
+  const wants = !!user && location.startsWith('/opencode') && !location.startsWith('/opencode-studio');
+  const [everOpened, setEverOpened] = useState(wants);
+
+  useEffect(() => {
+    if (wants) setEverOpened(true);
+  }, [wants]);
+
+  if (!everOpened || !user) return null;
+  return (
+    <Suspense fallback={null}>
+      <div style={wants ? undefined : 'display: none'}>
+        <Opencode />
+      </div>
+    </Suspense>
+  );
+}
+
 export function App() {
   return (
     <ErrorBoundary>
@@ -299,6 +322,7 @@ export function App() {
         <Router hook={useHashLocation}>
           <Shell />
           <IdeKeepAlive />
+          <OpencodeKeepAlive />
           <div class="watermark" aria-hidden="true">
             <img src="/logo.png" alt="" />
           </div>

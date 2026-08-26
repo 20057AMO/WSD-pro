@@ -1,17 +1,37 @@
-import { useState, useEffect } from 'preact/hooks';
-import { ArrowLeft, SquareTerminal, FolderOpen } from 'lucide-preact';
+import { useState, useEffect, useRef } from 'preact/hooks';
+import { ArrowLeft, SquareTerminal, FolderOpen, RefreshCw } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { getOpencodeStatus, openOpencodeProject, listProjects, type Project } from '../api';
 
+const PROJECT_KEY = 'wsd.opencode.project';
+
 export function Opencode() {
-  const [, setLocation] = useHashLocation();
+  const [loc, setLocation] = useHashLocation();
   const [running, setRunning] = useState<boolean | null>(null);
   const [port, setPort] = useState(4096);
   const [projects, setProjects] = useState<Project[]>([]);
   const [picked, setPicked] = useState('');
+  const pickedRef = useRef('');
   const [opening, setOpening] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
+  const [frameReady, setFrameReady] = useState(false);
   const [openErr, setOpenErr] = useState<string | null>(null);
+
+  // Warm the connection to the opencode web server before the iframe mounts
+  // (saves DNS + TCP round-trips on first paint).
+  useEffect(() => {
+    try {
+      const l = document.createElement('link');
+      l.rel = 'preconnect';
+      l.href = `${window.location.protocol}//${window.location.hostname}:4096`;
+      document.head.appendChild(l);
+      return () => {
+        l.remove();
+      };
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,8 +71,14 @@ export function Opencode() {
   }, []);
 
   const openProject = async (slug: string) => {
+    pickedRef.current = slug;
     setPicked(slug);
     setOpenErr(null);
+    try {
+      localStorage.setItem(PROJECT_KEY, slug);
+    } catch {
+      /* private mode */
+    }
     if (!slug) {
       setFrameKey((k) => k + 1);
       return;
@@ -68,15 +94,29 @@ export function Opencode() {
     }
   };
 
+  // Reactive deep-links (?project=slug) + last-project memory — both work
+  // while this component stays mounted via the keep-alive layer.
   useEffect(() => {
-    const hash = window.location.hash || '';
-    const qIdx = hash.indexOf('?');
-    if (qIdx < 0) return;
-    const project = new URLSearchParams(hash.slice(qIdx)).get('project');
-    if (!project) return;
-    const match = projects.find((p) => p.slug === project);
-    if (match) openProject(match.slug);
-  }, [projects]);
+    if (!projects.length) return;
+    let wanted = '';
+    const qIdx = loc.indexOf('?');
+    if (qIdx >= 0) {
+      wanted = new URLSearchParams(loc.slice(qIdx)).get('project') || '';
+    } else {
+      try {
+        wanted = localStorage.getItem(PROJECT_KEY) || '';
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!wanted || wanted === pickedRef.current) return;
+    if (projects.some((p) => p.slug === wanted)) openProject(wanted);
+  }, [loc, projects]);
+
+  // Reset the loading overlay whenever a new frame mounts.
+  useEffect(() => {
+    setFrameReady(false);
+  }, [frameKey]);
 
   return (
     <div class="opencode-page">
@@ -111,13 +151,22 @@ export function Opencode() {
           <code class="mono" style="display:block;margin-top:8px">docker compose logs app</code>
         </div>
       ) : (
-        <iframe
-          key={frameKey}
-          class="opencode-frame"
-          src={url}
-          title="Madar opencode"
-          allow="clipboard-read; clipboard-write"
-        />
+        <>
+          <iframe
+            key={frameKey}
+            class="opencode-frame"
+            src={url}
+            title="Madar opencode"
+            allow="clipboard-read; clipboard-write"
+            onLoad={() => setFrameReady(true)}
+          />
+          {!frameReady && (
+            <div class="ide-loading">
+              <RefreshCw width={16} height={16} class="icon spin" />
+              Loading opencode…
+            </div>
+          )}
+        </>
       )}
     </div>
   );
