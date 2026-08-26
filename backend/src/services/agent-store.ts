@@ -1,9 +1,12 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import { chatStore, type ChatEvent, type ChatAttachment } from './chat-store';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
+const MAX_AGENTS = 100;
+const MAX_SESSIONS_PER_AGENT = 200;
 
 export interface Agent {
   id: string;
@@ -394,7 +397,7 @@ function saveAgents(agents: Agent[]): void {
 }
 
 function genId(): string {
-  return `agent-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return `agent-${randomUUID().slice(0, 8)}`;
 }
 
 export function listAgents(): Agent[] {
@@ -411,6 +414,7 @@ export function getAgent(id: string): Agent | undefined {
 
 export function createAgent(patch: Partial<Omit<Agent, 'id'>>): Agent {
   const agents = loadAgents();
+  if (agents.length >= MAX_AGENTS) throw new Error(`Agent limit reached (max ${MAX_AGENTS})`);
   const agent: Agent = {
     id: genId(),
     name: patch.name || 'New Agent',
@@ -487,7 +491,11 @@ export function listAgentSessions(agentId: string): AgentSession[] {
 
 export function createAgentSession(agentId: string, name?: string): AgentSession {
   const sessions = loadSessions();
-  const chatId = `agent-${Date.now()}`;
+  const agentSessions = sessions.filter((s) => s.agentId === agentId);
+  if (agentSessions.length >= MAX_SESSIONS_PER_AGENT) {
+    throw new Error(`Session limit reached for this agent (max ${MAX_SESSIONS_PER_AGENT})`);
+  }
+  const chatId = `agent-${randomUUID().slice(0, 12)}`;
   const session: AgentSession = {
     chatId,
     agentId,

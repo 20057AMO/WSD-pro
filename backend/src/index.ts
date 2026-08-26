@@ -755,24 +755,30 @@ import {
   renameAgentSession,
 } from './services/agent-store';
 
+const agentWriteLimiter = rateLimit('agent-write', RATE_WINDOW, 60);
+
 app.get('/api/agents', (_req, res) => {
   res.json({ agents: listAllAgents() });
 });
 
-app.post('/api/agents', (req, res) => {
+app.post('/api/agents', agentWriteLimiter, (req, res) => {
   const body = req.body as any;
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   if (!name) return res.status(400).json({ error: 'Name is required' });
-  const agent = createAgent({
-    name: name.slice(0, 100),
-    icon: String(body.icon || '🤖').slice(0, 10),
-    description: String(body.description || '').trim().slice(0, 500),
-    systemPrompt: String(body.systemPrompt || '').trim().slice(0, 50000),
-    provider: typeof body.provider === 'string' ? body.provider : undefined,
-    model: typeof body.model === 'string' ? body.model : undefined,
-    toolsEnabled: typeof body.toolsEnabled === 'boolean' ? body.toolsEnabled : undefined,
-  });
-  res.json({ agent });
+  try {
+    const agent = createAgent({
+      name: name.slice(0, 100),
+      icon: String(body.icon || '🤖').slice(0, 10),
+      description: String(body.description || '').trim().slice(0, 500),
+      systemPrompt: String(body.systemPrompt || '').trim().slice(0, 50000),
+      provider: typeof body.provider === 'string' ? body.provider : undefined,
+      model: typeof body.model === 'string' ? body.model : undefined,
+      toolsEnabled: typeof body.toolsEnabled === 'boolean' ? body.toolsEnabled : undefined,
+    });
+    res.json({ agent });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to create agent' });
+  }
 });
 
 app.put('/api/agents/:id', (req, res) => {
@@ -802,11 +808,15 @@ app.get('/api/agents/:id/sessions', (req, res) => {
   res.json({ sessions: listAgentSessions(req.params.id) });
 });
 
-app.post('/api/agents/:id/sessions', (req, res) => {
+app.post('/api/agents/:id/sessions', agentWriteLimiter, (req, res) => {
   const agent = getAgent(req.params.id);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
-  const session = createAgentSession(req.params.id, (req.body as any)?.name);
-  res.json({ session });
+  try {
+    const session = createAgentSession(req.params.id, (req.body as any)?.name);
+    res.json({ session });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message || 'Failed to create session' });
+  }
 });
 
 app.delete('/api/agents/:id/sessions/:chatId', (req, res) => {
