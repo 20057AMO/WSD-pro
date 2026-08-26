@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'preact/hooks';
+import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { Paperclip, Wrench, FileOutput, Bot, Languages } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
@@ -63,6 +63,8 @@ export function Agents() {
   const [chatDir, setChatDir] = useState<'ltr' | 'rtl'>('ltr');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [creatingPreset, setCreatingPreset] = useState(false);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [agentModels, setAgentModels] = useState<string[]>([]);
   const activeAgent = agents.find((a) => a.id === activeAgentId);
@@ -134,7 +136,7 @@ export function Agents() {
       setSessions((cur) => cur.map((s) => (s.chatId === activeSession.chatId ? { ...s, name: sessionName } : s)));
       setActiveSession((cur) => (cur && cur.chatId === activeSession.chatId ? { ...cur, name: sessionName } : cur));
     }
-  }, [sessionName]);
+  }, [sessionName, activeSession]);
 
   useEffect(() => {
     if (!contextScope || !activeSession) {
@@ -155,7 +157,7 @@ export function Agents() {
         }
       });
     return () => { cancelled = true; };
-  }, [contextScope]);
+  }, [contextScope, activeSession]);
 
   useEffect(() => {
     const el = bodyRef.current;
@@ -211,12 +213,15 @@ export function Agents() {
     if (attachments && send(text, attachments, contextScope || undefined)) {
       setPrompt('');
       clearPending();
+      // Reset textarea height after send
+      if (promptRef.current) promptRef.current.style.height = 'auto';
     }
   };
 
   const handleSelectAgent = (id: string) => {
     setActiveAgentId(id);
     setActiveSession(null);
+    setSessionSearch('');
   };
 
   const handleAgentSaved = (agent: AgentDef) => {
@@ -234,12 +239,19 @@ export function Agents() {
   };
 
   const handleAgentDeleted = (agentId: string) => {
-    setAgents((cur) => cur.filter((a) => a.id !== agentId));
     setSettingsOpen(false);
     setEditingAgent(null);
+    setAgents((cur) => {
+      const next = cur.filter((a) => a.id !== agentId);
+      return next;
+    });
     if (activeAgentId === agentId) {
-      const remaining = agents.filter((a) => a.id !== agentId);
-      setActiveAgentId(remaining.length > 0 ? remaining[0].id : '');
+      setActiveAgentId((curActive) => {
+        if (curActive !== agentId) return curActive;
+        // Use functional updater to read latest agents
+        const remaining = agents.filter((a) => a.id !== agentId);
+        return remaining.length > 0 ? remaining[0].id : '';
+      });
       setActiveSession(null);
     }
   };
@@ -249,6 +261,8 @@ export function Agents() {
   };
 
   const handleCreateFromPreset = async (preset: typeof AGENT_PRESETS[0]) => {
+    if (creatingPreset) return;
+    setCreatingPreset(true);
     try {
       const { agent } = await createAgent({
         name: preset.name,
@@ -263,6 +277,7 @@ export function Agents() {
       setSettingsOpen(true);
       setPresetsOpen(false);
     } catch { /* ignore */ }
+    setCreatingPreset(false);
   };
 
   const handleProviderChange = async (provider: string) => {
@@ -285,9 +300,11 @@ export function Agents() {
     setContextScope(val);
   };
 
-  const filteredSessions = sessionSearch
-    ? sessions.filter((s) => s.name.toLowerCase().includes(sessionSearch.toLowerCase()))
-    : sessions;
+  const filteredSessions = useMemo(() => {
+    if (!sessionSearch) return sessions;
+    const q = sessionSearch.toLowerCase();
+    return sessions.filter((s) => s.name.toLowerCase().includes(q));
+  }, [sessions, sessionSearch]);
 
   const quickProviders = chatInfo?.providers || [];
   const activeProviderModels = agentModels;
@@ -511,6 +528,7 @@ export function Agents() {
                   <input ref={fileRef} type="file" multiple style="display:none"
                     onChange={(e: any) => { addFiles(e.target.files); e.target.value = ''; }} />
                   <textarea
+                    ref={promptRef}
                     class="modern-input agent-prompt-input" dir={chatDir} rows={1}
                     placeholder={`Ask ${activeAgent.name}...`}
                     value={prompt}

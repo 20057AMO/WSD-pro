@@ -761,19 +761,32 @@ app.get('/api/agents', (_req, res) => {
 
 app.post('/api/agents', (req, res) => {
   const body = req.body as any;
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  if (!name) return res.status(400).json({ error: 'Name is required' });
   const agent = createAgent({
-    name: body.name,
-    icon: body.icon,
-    description: body.description,
-    systemPrompt: body.systemPrompt,
-    provider: body.provider,
-    model: body.model,
+    name: name.slice(0, 100),
+    icon: String(body.icon || '🤖').slice(0, 10),
+    description: String(body.description || '').trim().slice(0, 500),
+    systemPrompt: String(body.systemPrompt || '').trim().slice(0, 50000),
+    provider: typeof body.provider === 'string' ? body.provider : undefined,
+    model: typeof body.model === 'string' ? body.model : undefined,
+    toolsEnabled: typeof body.toolsEnabled === 'boolean' ? body.toolsEnabled : undefined,
   });
   res.json({ agent });
 });
 
 app.put('/api/agents/:id', (req, res) => {
-  const agent = updateAgent(req.params.id, req.body as any);
+  const body = req.body as any;
+  const patch: any = {};
+  if (typeof body.name === 'string') patch.name = body.name.trim().slice(0, 100);
+  if (typeof body.icon === 'string') patch.icon = body.icon.slice(0, 10);
+  if (typeof body.description === 'string') patch.description = body.description.trim().slice(0, 500);
+  if (typeof body.systemPrompt === 'string') patch.systemPrompt = body.systemPrompt.trim().slice(0, 50000);
+  if (typeof body.provider === 'string') patch.provider = body.provider;
+  if (typeof body.model === 'string') patch.model = body.model;
+  if (typeof body.enabled === 'boolean') patch.enabled = body.enabled;
+  if (typeof body.toolsEnabled === 'boolean') patch.toolsEnabled = body.toolsEnabled;
+  const agent = updateAgent(req.params.id, patch);
   if (!agent) return res.status(404).json({ error: 'Agent not found' });
   res.json({ agent });
 });

@@ -160,6 +160,20 @@ export function handleAgentSocket(ws: WebSocket, agentId: string, chatId: string
     }
 
     const attachments: any[] = Array.isArray(msg.attachments) ? msg.attachments : [];
+    // Validate attachment count and size server-side
+    const MAX_ATTACHMENTS = 5;
+    const MAX_ATTACHMENT_CHARS = 500_000;
+    if (attachments.length > MAX_ATTACHMENTS) {
+      sendJson(ws, { type: 'error', message: `Too many attachments (max ${MAX_ATTACHMENTS})` });
+      return;
+    }
+    for (const a of attachments) {
+      const dataLen = ((a.data as string) || (a.text as string) || '').length;
+      if (dataLen > MAX_ATTACHMENT_CHARS) {
+        sendJson(ws, { type: 'error', message: `Attachment "${a.name}" exceeds size limit` });
+        return;
+      }
+    }
     const project = typeof msg.project === 'string' ? msg.project : undefined;
 
     active.set(room, true);

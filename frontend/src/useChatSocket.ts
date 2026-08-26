@@ -102,7 +102,7 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
 
   const openWs = useCallback(() => {
     cleanupReconnect();
-    if (disposedRef.current) return;
+    if (disposedRef.current || !path) return;
 
     const ws = new WebSocket(wsUrl(path));
     wsRef.current = ws;
@@ -183,7 +183,8 @@ export function useChatSocket(path: string, runType: 'run' | 'prompt'): ChatSock
     setError(null);
     setSessionName(null);
     attemptRef.current = 0;
-    openWs();
+    if (path) openWs();
+    else setStatus('disconnected');
 
     return () => {
       disposedRef.current = true;

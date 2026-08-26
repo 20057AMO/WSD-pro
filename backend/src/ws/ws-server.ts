@@ -25,7 +25,7 @@ function isSafeChatId(value: string): boolean {
 }
 
 export function attachWebSockets(server: http.Server): void {
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 5 * 1024 * 1024 });
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url || '/', 'http://localhost');

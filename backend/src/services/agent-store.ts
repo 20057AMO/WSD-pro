@@ -442,6 +442,15 @@ export function deleteAgent(id: string): boolean {
   if (idx === -1) return false;
   agents.splice(idx, 1);
   saveAgents(agents);
+  // Clean up associated sessions
+  const sessions = loadSessions();
+  const filtered = sessions.filter((s) => s.agentId !== id);
+  if (filtered.length < sessions.length) saveSessions(filtered);
+  // Clean up chat history files (best-effort)
+  try {
+    const chatDir = path.join(DATA_DIR, 'chats', `agent:${id}`);
+    if (fs.existsSync(chatDir)) fs.rmSync(chatDir, { recursive: true, force: true });
+  } catch { /* ignore */ }
   return true;
 }
 
