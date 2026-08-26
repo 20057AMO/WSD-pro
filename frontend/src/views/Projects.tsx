@@ -365,7 +365,7 @@ export function Projects() {
                   {p.status === 'running' ? 'Stop' : 'Start'}
                 </button>
                 <button class="btn-ghost sm" onClick={(e) => openProjectCard(e, p)}>
-                  <FolderOpen width={13} height={13} class="icon" /> Open
+                  <FolderOpen width={13} height={13} class="icon" /> Preview
                 </button>
               </div>
             </div>
@@ -404,7 +404,7 @@ export function Projects() {
                     <button class="btn-ghost sm" onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>
                       {p.status === 'running' ? '⏹' : '▶'}
                     </button>
-                    <button class="btn-ghost sm" title="Open project preview" onClick={(e) => openProjectCard(e, p)}>
+                    <button class="btn-ghost sm" title="Preview project" onClick={(e) => openProjectCard(e, p)}>
                       <FolderOpen width={12} height={12} class="icon" />
                     </button>
                   </td>
