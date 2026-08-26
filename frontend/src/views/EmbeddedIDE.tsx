@@ -40,10 +40,12 @@ export function EmbeddedIDE() {
 
   // Reactive deep-links: /ide?folder=/workspaces/<slug> preselects — including
   // while this component stays mounted via the keep-alive layer.
+  // NOTE: wouter's useHashLocation() strips the query string from `loc`,
+  // so we read the full hash directly to get ?folder=.
   useEffect(() => {
-    const qIdx = loc.indexOf('?');
-    const params = new URLSearchParams(qIdx >= 0 ? loc.slice(qIdx) : '');
-    const f = params.get('folder');
+    const hash = window.location.hash || '';
+    const qIdx = hash.indexOf('?');
+    const f = qIdx >= 0 ? new URLSearchParams(hash.slice(qIdx)).get('folder') : null;
     if (f && f.startsWith('/workspaces/') && f !== folderRef.current) applyFolder(f, true);
   }, [loc]);
 

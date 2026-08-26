@@ -96,12 +96,15 @@ export function Opencode() {
 
   // Reactive deep-links (?project=slug) + last-project memory — both work
   // while this component stays mounted via the keep-alive layer.
+  // NOTE: wouter's useHashLocation() strips the query string from `loc`,
+  // so we read the full hash directly to get ?project=.
   useEffect(() => {
     if (!projects.length) return;
     let wanted = '';
-    const qIdx = loc.indexOf('?');
+    const hash = window.location.hash || '';
+    const qIdx = hash.indexOf('?');
     if (qIdx >= 0) {
-      wanted = new URLSearchParams(loc.slice(qIdx)).get('project') || '';
+      wanted = new URLSearchParams(hash.slice(qIdx)).get('project') || '';
     } else {
       try {
         wanted = localStorage.getItem(PROJECT_KEY) || '';
