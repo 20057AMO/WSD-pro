@@ -22,7 +22,6 @@ import {
   relockProviders,
   clearProvidersUnlock,
   UNLOCK_KEY,
-  getIdeStatus,
   getOpencodeStatus,
 } from './api';
 
@@ -169,17 +168,12 @@ function ProvidersUnlockBadge() {
 
 function Sidebar() {
   const { user } = useAuth();
-  const [toolPorts, setToolPorts] = useState({ ide: 8100, opencode: 4096 });
+  const [ocPort, setOcPort] = useState(4096);
 
   useEffect(() => {
-    getIdeStatus()
-      .then((s) => {
-        if (s?.ide?.port) setToolPorts((p) => ({ ...p, ide: s.ide.port }));
-      })
-      .catch(() => {});
     getOpencodeStatus()
       .then((s) => {
-        if (s?.port) setToolPorts((p) => ({ ...p, opencode: s.port }));
+        if (s?.port) setOcPort(s.port);
       })
       .catch(() => {});
   }, []);
@@ -199,11 +193,11 @@ function Sidebar() {
         <NavButton href="/projects" label="Projects" icon={FolderOpen} />
         <NavButton href="/terminals" label="Terminals" icon={SquareTerminal} />
         <NavButton href="/agents" label="Agents" icon={Bot} />
-        <NavButton label="opencode" icon={OpencodeIcon} newTabUrl={`${toolBase}:${toolPorts.opencode}/`} />
+        <NavButton label="opencode" icon={OpencodeIcon} newTabUrl={`${toolBase}:${ocPort}/`} />
         <NavButton href="/opencode-studio" label="OC Studio" icon={OpencodeIcon} />
         <NavButton href="/providers" label="Providers" icon={KeyRound} />
         <NavButton href="/settings" label="Settings" icon={SettingsIcon} />
-        <NavButton label="VS Code" icon={VSCodeIcon} newTabUrl={`${toolBase}:${toolPorts.ide}/?folder=/workspaces`} />
+        <NavButton href="/ide" label="VS Code" icon={VSCodeIcon} />
       </nav>
       <div class="sidebar-footer">
         <ProvidersUnlockBadge />
@@ -253,10 +247,6 @@ function Shell() {
     return <Suspense fallback={<div class="app-view" style="display:flex;align-items:center;justify-content:center;height:100vh;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}><Agents /></Suspense>;
   }
 
-  if (location.startsWith('/ide')) {
-    return <Suspense fallback={<div class="app-view" style="display:flex;align-items:center;justify-content:center;height:100vh;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}><EmbeddedIDE /></Suspense>;
-  }
-
   return (
     <div class="app-view">
       <Sidebar />
@@ -275,12 +265,40 @@ function Shell() {
   );
 }
 
+/**
+ * Keep-alive VS Code layer: once the user opens /#/ide the EmbeddedIDE stays
+ * mounted for the whole session (hidden via display:none when navigating
+ * away), so code-server never reloads between visits. Rendered as a sibling
+ * of Shell — outside its early-return branches — and sits under the global
+ * watermark (z-index 50 < 90).
+ */
+function IdeKeepAlive() {
+  const [location] = useHashLocation();
+  const { user } = useAuth();
+  const wants = !!user && location.startsWith('/ide');
+  const [everOpened, setEverOpened] = useState(wants);
+
+  useEffect(() => {
+    if (wants) setEverOpened(true);
+  }, [wants]);
+
+  if (!everOpened || !user) return null;
+  return (
+    <Suspense fallback={null}>
+      <div style={wants ? undefined : 'display: none'}>
+        <EmbeddedIDE />
+      </div>
+    </Suspense>
+  );
+}
+
 export function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
         <Router hook={useHashLocation}>
           <Shell />
+          <IdeKeepAlive />
           <div class="watermark" aria-hidden="true">
             <img src="/logo.png" alt="" />
           </div>

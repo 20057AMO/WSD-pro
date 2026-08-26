@@ -66,14 +66,13 @@ export function Dashboard() {
   const stopped = projects.filter((p) => p.status === 'stopped' || p.status === 'created').length;
 
   const toolBase = `${window.location.protocol === 'https:' ? 'https' : 'http'}://${window.location.hostname}`;
-  const vsCodeUrl = `${toolBase}:${ide?.port || 8100}/?folder=/workspaces`;
   const opencodeUrl = `${toolBase}:${oc?.port || 4096}/`;
 
   type QuickLink = { label: string; Icon: any; desc: string; route?: string; externalUrl?: string };
   const quickLinks: QuickLink[] = [
     { label: 'Projects', Icon: FolderOpen, desc: `${projects.length} total`, route: '/projects' },
     { label: 'Agents', Icon: Bot, desc: `${agents.length} agents`, route: '/agents' },
-    { label: 'VS Code', Icon: VSCodeIcon, desc: ide?.running ? 'Running' : 'Stopped', externalUrl: vsCodeUrl },
+    { label: 'VS Code', Icon: VSCodeIcon, desc: ide?.running ? 'Running' : 'Stopped', route: '/ide' },
     { label: 'OpenCode', Icon: OpencodeIcon, desc: oc?.running ? 'Running' : 'Stopped', externalUrl: opencodeUrl },
   ];
 
@@ -120,7 +119,7 @@ export function Dashboard() {
             <span class="dash-stat-label">Stopped</span>
           </div>
         </div>
-        <div class="dash-stat-card" onClick={() => window.open(vsCodeUrl, '_blank', 'noopener')}>
+        <div class="dash-stat-card" onClick={() => setLocation('/ide')}>
           <div class="dash-stat-icon">{ide?.running ? <MonitorCheck width={18} height={18} class="icon" /> : <MonitorOff width={18} height={18} class="icon" />}</div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{ide?.running ? 'On' : 'Off'}</span>

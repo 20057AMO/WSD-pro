@@ -4,10 +4,10 @@
  * Auth: We forge a JWT locally (same secret as the server) and inject it into
  * localStorage via addInitScript, so the app treats the browser as logged in.
  *
- * Tool entry policy: VS Code & opencode open the RAW tool URLs in their own
- * tab (code-server on :8100, opencode web on :4096). The embedded /#/ide and
- * /#/opencode pages remain available with their toolbars (pickers, status,
- * "Open in new tab" anchors pointing at the raw URLs).
+ * Tool entry policy:
+ *  - VS Code opens IN-APP at /#/ide (embedded, keep-alive, watermark on top).
+ *  - opencode opens as a raw tab on :4096; its embedded page keeps a picker
+ *    and an "Open in new tab" anchor to the raw URL.
  */
 import { test, expect, type Page } from '@playwright/test';
 import jwt from 'jsonwebtoken';
@@ -76,16 +76,20 @@ async function popupUrl(page: Page, click: () => Promise<void>): Promise<string>
 
 test.describe('Madar UI — raw-tool entry points', () => {
 
-  /* -- a. Sidebar opens the raw tools in their own tabs -------------- */
-  test('a) sidebar VS Code & opencode buttons pop up :8100 / :4096', async ({ page }) => {
+  /* -- a. Sidebar: VS Code navigates in-app; opencode pops up -------- */
+  test('a) sidebar VS Code goes in-app to #/ide; opencode pops up :4096', async ({ page }) => {
     await injectAuth(page);
     await page.goto(BASE);
     await expect(page.locator('.sidebar-nav').locator('.nav-btn').first()).toBeVisible({ timeout: 20_000 });
 
-    const vsCodeUrl = await popupUrl(page, () =>
-      page.locator('.nav-btn', { hasText: 'VS Code' }).click()
-    );
-    expect(vsCodeUrl).toMatch(/:8100\/\?folder=/);
+    await page.locator('.nav-btn', { hasText: 'VS Code' }).click();
+    await expect(page).toHaveURL(/#\/ide/);
+    await expect(page.locator('iframe.opencode-frame')).toBeVisible({ timeout: 20_000 });
+
+    // The fullscreen IDE layer covers the sidebar — go back to the
+    // dashboard first so the opencode button is clickable again.
+    await page.evaluate(() => { window.location.hash = '/'; });
+    await expect(page.locator('.nav-btn', { hasText: 'opencode' })).toBeVisible({ timeout: 15_000 });
 
     const ocUrl = await popupUrl(page, () =>
       page.locator('.nav-btn', { hasText: 'opencode' }).first().click()
@@ -93,16 +97,15 @@ test.describe('Madar UI — raw-tool entry points', () => {
     expect(ocUrl).toMatch(/:4096/);
   });
 
-  /* -- b. Dashboard quick-action cards pop up the raw tools ---------- */
-  test('b) Dashboard cards VS Code & OpenCode pop up :8100 / :4096', async ({ page }) => {
+  /* -- b. Dashboard: VS Code card in-app; OpenCode card popup -------- */
+  test('b) Dashboard VS Code card goes in-app; OpenCode card pops up :4096', async ({ page }) => {
     await injectAuth(page);
     await page.goto(BASE);
     await expect(page.locator('.dash-action-card').first()).toBeVisible({ timeout: 20_000 });
 
-    const vsCodeUrl = await popupUrl(page, () =>
-      page.locator('.dash-action-card', { hasText: 'VS Code' }).click()
-    );
-    expect(vsCodeUrl).toMatch(/:8100/);
+    await page.locator('.dash-action-card', { hasText: 'VS Code' }).click();
+    await expect(page).toHaveURL(/#\/ide/);
+    await expect(page.locator('iframe.opencode-frame')).toBeVisible({ timeout: 20_000 });
 
     await page.evaluate(() => { window.location.hash = '/'; });
     await expect(page.locator('.dash-action-card').first()).toBeVisible({ timeout: 15_000 });

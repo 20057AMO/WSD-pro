@@ -1,26 +1,51 @@
-import { useState, useEffect } from 'preact/hooks';
-import { ArrowLeft, FolderOpen } from 'lucide-preact';
+import { useState, useEffect, useRef } from 'preact/hooks';
+import { ArrowLeft, FolderOpen, RefreshCw } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { getIdeStatus, listProjects, type Project } from '../api';
 import { VSCodeIcon } from '../components/brand-icons';
 
+const FOLDER_KEY = 'wsd.ide.folder';
+
+function readSavedFolder(): string {
+  try {
+    const f = localStorage.getItem(FOLDER_KEY);
+    return f && f.startsWith('/workspaces') ? f : '/workspaces';
+  } catch {
+    return '/workspaces';
+  }
+}
+
 export function EmbeddedIDE() {
-  const [, setLocation] = useHashLocation();
+  const [loc, setLocation] = useHashLocation();
   const [running, setRunning] = useState<boolean | null>(null);
   const [port, setPort] = useState(8100);
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [folder, setFolder] = useState('/workspaces');
+  const [folder, setFolder] = useState(readSavedFolder);
+  const folderRef = useRef(folder);
   const [frameKey, setFrameKey] = useState(0);
+  const [frameReady, setFrameReady] = useState(false);
 
-  // Deep-link support: /ide?folder=/workspaces/<slug> still preselects.
+  // Apply a folder change: persist it and (optionally) reload the iframe.
+  const applyFolder = (f: string, reload: boolean) => {
+    folderRef.current = f;
+    setFolder(f);
+    try {
+      localStorage.setItem(FOLDER_KEY, f);
+    } catch {
+      /* private mode */
+    }
+    if (reload) setFrameKey((k) => k + 1);
+  };
+
+  // Reactive deep-links: /ide?folder=/workspaces/<slug> preselects — including
+  // while this component stays mounted via the keep-alive layer.
   useEffect(() => {
-    const hash = window.location.hash || '';
-    const qIdx = hash.indexOf('?');
-    const params = new URLSearchParams(qIdx >= 0 ? hash.slice(qIdx) : '');
+    const qIdx = loc.indexOf('?');
+    const params = new URLSearchParams(qIdx >= 0 ? loc.slice(qIdx) : '');
     const f = params.get('folder');
-    if (f && f.startsWith('/workspaces/')) setFolder(f);
-  }, []);
+    if (f && f.startsWith('/workspaces/') && f !== folderRef.current) applyFolder(f, true);
+  }, [loc]);
 
   useEffect(() => {
     let cancelled = false;
@@ -32,6 +57,22 @@ export function EmbeddedIDE() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Warm the connection to code-server before the iframe even mounts
+  // (saves DNS + TCP round-trips on first paint).
+  useEffect(() => {
+    try {
+      const l = document.createElement('link');
+      l.rel = 'preconnect';
+      l.href = `${window.location.protocol}//${window.location.hostname}:8100`;
+      document.head.appendChild(l);
+      return () => {
+        l.remove();
+      };
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   useEffect(() => {
@@ -58,6 +99,11 @@ export function EmbeddedIDE() {
     };
   }, []);
 
+  // Reset the loading overlay whenever a new frame mounts.
+  useEffect(() => {
+    setFrameReady(false);
+  }, [frameKey]);
+
   const host = window.location.hostname;
   // Match the page protocol so the iframe is not blocked as mixed content
   // when the dashboard itself is served over HTTPS.
@@ -66,8 +112,7 @@ export function EmbeddedIDE() {
   const pickedSlug = folder.replace('/workspaces/', '');
 
   const pickProject = (slug: string) => {
-    setFolder(slug ? `/workspaces/${slug}` : '/workspaces');
-    setFrameKey((k) => k + 1);
+    applyFolder(slug ? `/workspaces/${slug}` : '/workspaces', true);
   };
 
   return (
@@ -109,13 +154,22 @@ export function EmbeddedIDE() {
           <code class="mono" style="display:block;margin-top:8px">docker compose logs app</code>
         </div>
       ) : (
-        <iframe
-          key={frameKey}
-          class="opencode-frame"
-          src={ideUrl}
-          title="Madar VS Code"
-          allow="clipboard-read; clipboard-write"
-        />
+        <>
+          <iframe
+            key={frameKey}
+            class="opencode-frame"
+            src={ideUrl}
+            title="Madar VS Code"
+            allow="clipboard-read; clipboard-write"
+            onLoad={() => setFrameReady(true)}
+          />
+          {!frameReady && (
+            <div class="ide-loading">
+              <RefreshCw width={16} height={16} class="icon spin" />
+              Loading VS Code…
+            </div>
+          )}
+        </>
       )}
     </div>
   );
