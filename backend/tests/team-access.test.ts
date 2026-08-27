@@ -148,6 +148,11 @@ describe('Project team & access control (real Docker container)', () => {
     assert.strictEqual(res.status, 403);
   });
 
+  test('viewer CANNOT duplicate the project (403 — read-only cannot forge a writable copy)', async () => {
+    const res = await req('POST', `/projects/${slug}/duplicate`, { name: 'viewer-dup' }, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 403, `viewer duplicate should be denied: ${res.status}`);
+  });
+
   // ── Editor: read + write ────────────────────────────────────
   test('editor can read the project (200)', async () => {
     const res = await req('GET', `/projects/${slug}`, undefined, runAs(editorToken).headers);

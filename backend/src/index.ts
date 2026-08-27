@@ -929,13 +929,29 @@ app.post('/api/projects', async (req: any, res) => {
 });
 
 // Duplicate an existing project: new project inheriting image/env/ports,
-// plus a copy of the source workspace files and developer notes.
-app.post('/api/projects/:slug/duplicate', requireProjectAccess('viewer'), async (req: any, res) => {
+// plus a copy of the source workspace files and developer notes. Requires
+// editor+ access (a viewer remains read-only and cannot forge a writable copy).
+app.post('/api/projects/:slug/duplicate', requireProjectAccess('editor'), async (req: any, res) => {
   try {
     const { name, slug, description, ports } = req.body || {};
-    const cleanPorts = Array.isArray(ports)
-      ? ports.map(Number).filter((n: number) => Number.isInteger(n) && n > 0 && n <= 65535)
-      : undefined;
+    // Defense-in-depth: mirror validateProjectSpec's port rules (privileged +
+    // reserved + dedup) so the route never relies solely on downstream checks.
+    const PORT = Number(process.env.PORT) || 3000;
+    const IDE_PORT = Number(process.env.WSD_IDE_PORT) || 8100;
+    const OPENCODE_PORT = Number(process.env.WSD_OPENCODE_PORT) || 4096;
+    const seen = new Set<number>();
+    const cleanPorts =
+      Array.isArray(ports)
+        ? ports
+            .map(Number)
+            .filter((n: number) => {
+              if (!Number.isInteger(n) || n < 1024 || n > 65535) return false;
+              if (n === PORT || n === IDE_PORT || n === OPENCODE_PORT) return false;
+              if (seen.has(n)) return false;
+              seen.add(n);
+              return true;
+            })
+        : undefined;
     const project = await duplicateProject(req.params.slug, {
       name,
       slug,
