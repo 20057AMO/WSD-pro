@@ -25,6 +25,23 @@ function runAs(token: string) {
   };
 }
 
+/**
+ * Delete with retry/backoff so cleanup survives transient rate-limit (429)
+ * responses during busy full-suite runs — otherwise temp users/projects leak.
+ */
+async function deleteRobust(path: string, attempts = 20): Promise<boolean> {
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const res = await reqAuth('DELETE', path);
+      if (res.status === 200 || res.status === 404) return true;
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return false;
+}
+
 describe('Project team & access control (real Docker container)', () => {
   before(async () => { await initTestAuth(); });
 
@@ -41,11 +58,11 @@ describe('Project team & access control (real Docker container)', () => {
 
   after(async () => {
     if (created) {
-      try { await reqAuth('DELETE', `/projects/${slug}`); } catch { /* best effort */ }
+      await deleteRobust(`/projects/${slug}`);
     }
     // Remove the temporary users so the environment stays clean.
-    try { await reqAuth('DELETE', `/users/${viewerId}`); } catch { /* best effort */ }
-    try { await reqAuth('DELETE', `/users/${editorId}`); } catch { /* best effort */ }
+    await deleteRobust(`/users/${viewerId}`);
+    await deleteRobust(`/users/${editorId}`);
   });
 
   test('create the project (owner = admin)', async () => {

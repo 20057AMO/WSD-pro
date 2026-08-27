@@ -113,3 +113,96 @@ describe('Project lifecycle (real Docker container)', () => {
   });
 
 });
+
+describe('Project duplicate (real Docker container)', () => {
+  before(async () => { await initTestAuth(); });
+
+  const srcSlug = uniqueId('dup-src');
+  const copySlug = uniqueId('dup-copy');
+  let srcCreated = false;
+  let copyCreated = false;
+
+  after(async () => {
+    if (copyCreated) { try { await reqAuth('DELETE', `/projects/${copySlug}`); } catch { /* best effort */ } }
+    if (srcCreated) { try { await reqAuth('DELETE', `/projects/${srcSlug}`); } catch { /* best effort */ } }
+  });
+
+  test('create the source project (201)', async () => {
+    const res = await reqAuth('POST', '/projects', {
+      name: 'Duplicate Source',
+      slug: srcSlug,
+      description: 'source for duplicate tests',
+      ports: [8091],
+    });
+    assert.strictEqual(res.status, 201, `create source failed: ${res.status}`);
+    srcCreated = true;
+  });
+
+  test('seed a workspace file and a developer note on the source', async () => {
+    const wf = await reqAuth('PUT', `/projects/${srcSlug}/file?path=marker.txt`, { content: 'duplicate-me' });
+    assert.strictEqual(wf.status, 200, `write file: ${wf.status}`);
+    const notes = await reqAuth('PUT', `/projects/${srcSlug}/notes`, {
+      items: [{ id: 'd1', text: 'carry this goal', kind: 'goal', done: false, createdAt: new Date().toISOString() }],
+    });
+    assert.strictEqual(notes.status, 200, `save notes: ${notes.status}`);
+  });
+
+  test('duplicate creates a new project (201)', async () => {
+    const res = await reqAuth('POST', `/projects/${srcSlug}/duplicate`, {
+      name: 'Copied Project',
+      slug: copySlug,
+      description: 'a copy',
+      ports: [8092],
+    });
+    const data = await res.json();
+    assert.strictEqual(res.status, 201, `duplicate failed: ${res.status} -> ${JSON.stringify(data)}`);
+    assert.strictEqual(data.project.slug, copySlug);
+    assert.strictEqual(data.project.status, 'running');
+    copyCreated = true;
+  });
+
+  test('duplicate applies the provided fresh ports', async () => {
+    const res = await reqAuth('GET', `/projects/${copySlug}`);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.ok(data.project.ports.includes(8092), 'the provided ports should be applied');
+  });
+
+  test('duplicate copies the workspace file', async () => {
+    const res = await reqAuth('GET', `/projects/${copySlug}/file?path=marker.txt`);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(String(data.content ?? data.text ?? data).trim(), 'duplicate-me');
+  });
+
+  test('duplicate copies the developer note', async () => {
+    const res = await reqAuth('GET', `/projects/${copySlug}/notes`);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    const texts = data.items.map((n: any) => n.text);
+    assert.ok(texts.includes('carry this goal'), 'note should be copied to the duplicate');
+  });
+
+  test('the source project is left untouched', async () => {
+    const src = await reqAuth('GET', `/projects/${srcSlug}`);
+    const srcData = await src.json();
+    assert.strictEqual(srcData.project.slug, srcSlug);
+    const files = await reqAuth('GET', `/projects/${srcSlug}/file?path=marker.txt`);
+    const fd = await files.json();
+    assert.strictEqual(String(fd.content ?? fd.text ?? fd).trim(), 'duplicate-me');
+  });
+
+  test('duplicating a nonexistent project returns 404', async () => {
+    const res = await reqAuth('POST', `/projects/nope-missing-project/duplicate`, { name: 'x', ports: [8099] });
+    assert.strictEqual(res.status, 404);
+  });
+
+  test('delete removes both projects', async () => {
+    const c = await reqAuth('DELETE', `/projects/${copySlug}`);
+    assert.strictEqual(c.status, 200);
+    copyCreated = false;
+    const s = await reqAuth('DELETE', `/projects/${srcSlug}`);
+    assert.strictEqual(s.status, 200);
+    srcCreated = false;
+  });
+});

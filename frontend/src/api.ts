@@ -289,6 +289,12 @@ export const createProject = (body: { name: string; description?: string; ports?
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+export const duplicateProject = (slug: string, body: { name: string; description?: string; ports?: number[] }) =>
+  api<{ project: Project }>(`/api/projects/${encodeURIComponent(slug)}/duplicate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 export const startProject = (slug: string) =>
   api<{ project: Project }>(`/api/projects/${slug}/start`, { method: 'POST' });
 export const stopProject = (slug: string) =>

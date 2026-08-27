@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'preact/hooks';
-import { FolderSearch, FolderOpen } from 'lucide-preact';
+import { FolderSearch, FolderOpen, Copy } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
 import {
   listProjects,
   createProject,
+  duplicateProject,
   startProject,
   stopProject,
   deleteProject,
@@ -37,6 +38,14 @@ export function Projects() {
   const [ports, setPorts] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  // Duplicate-project modal state.
+  const [dupSrc, setDupSrc] = useState<Project | null>(null);
+  const [dupName, setDupName] = useState('');
+  const [dupDesc, setDupDesc] = useState('');
+  const [dupPorts, setDupPorts] = useState('');
+  const [duplicating, setDuplicating] = useState(false);
+  const [dupError, setDupError] = useState<string | null>(null);
 
   // Styled destructive-confirm (replaces native window.confirm).
   // Per-card delete lives in the project page's Danger zone now — the cards
@@ -235,6 +244,44 @@ export function Projects() {
     }
   };
 
+  const openDuplicate = (e: Event, p: Project) => {
+    e.stopPropagation();
+    setDupSrc(p);
+    setDupName(`${p.name} Copy`);
+    setDupDesc(p.description || '');
+    setDupPorts((p.ports && p.ports.length > 0 ? p.ports : []).join(', '));
+    setDupError(null);
+  };
+
+  const handleDuplicate = async (e: Event) => {
+    e.preventDefault();
+    if (!dupSrc || !dupName.trim()) return;
+    const parsedPorts = dupPorts
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
+    if (parsedPorts.length === 0) {
+      setDupError('At least one port is required (1–65535), comma separated.');
+      return;
+    }
+    setDuplicating(true);
+    setDupError(null);
+    try {
+      const { project } = await duplicateProject(dupSrc.slug, {
+        name: dupName.trim(),
+        description: dupDesc.trim() || undefined,
+        ports: parsedPorts,
+      });
+      setDupSrc(null);
+      await refresh();
+      setLocation(`/project/${project.slug}`);
+    } catch (err: any) {
+      setDupError(err.message);
+    } finally {
+      setDuplicating(false);
+    }
+  };
+
   const handleAction = async (e: MouseEvent, slug: string, action: 'start' | 'stop') => {
     e.stopPropagation();
     try {
@@ -367,6 +414,9 @@ export function Projects() {
                 <button class="btn-ghost sm" onClick={(e) => openProjectCard(e, p)}>
                   <FolderOpen width={13} height={13} class="icon" /> Preview
                 </button>
+                <button class="btn-ghost sm" title="Duplicate this project (copy files + notes)" onClick={(e) => openDuplicate(e, p)}>
+                  <Copy width={13} height={13} class="icon" /> Duplicate
+                </button>
               </div>
             </div>
           ))}
@@ -406,6 +456,9 @@ export function Projects() {
                     </button>
                     <button class="btn-ghost sm" title="Preview project" onClick={(e) => openProjectCard(e, p)}>
                       <FolderOpen width={12} height={12} class="icon" />
+                    </button>
+                    <button class="btn-ghost sm" title="Duplicate project (copy files + notes)" onClick={(e) => openDuplicate(e, p)}>
+                      <Copy width={12} height={12} class="icon" />
                     </button>
                   </td>
                 </tr>
@@ -453,12 +506,52 @@ export function Projects() {
         </div>
       )}
 
+      {dupSrc && (
+        <div class="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget && !duplicating) setDupSrc(null); }}>
+          <div class="create-card modal-dialog" style="max-width:500px;width:100%">
+            <div class="create-title">Duplicate “{dupSrc.name}”</div>
+            <p class="hero-sub" style="margin:0 0 12px">
+              Creates a new project with a copy of the workspace files and developer notes.
+            </p>
+            <form onSubmit={handleDuplicate}>
+              <input
+                class="modern-input"
+                placeholder="New project name"
+                value={dupName}
+                onInput={(e: any) => setDupName(e.target.value)}
+                autoFocus
+              />
+              <input
+                class="modern-input"
+                style="margin-top:10px"
+                placeholder="Description (optional)"
+                value={dupDesc}
+                onInput={(e: any) => setDupDesc(e.target.value)}
+              />
+              <input
+                class="modern-input"
+                style="margin-top:10px"
+                placeholder="Ports (required, from the source project)"
+                value={dupPorts}
+                onInput={(e: any) => setDupPorts(e.target.value)}
+              />
+              {dupError && <div class="login-error" style="margin-top:10px">{dupError}</div>}
+              <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end">
+                <button type="button" class="btn-ghost sm" onClick={() => setDupSrc(null)} disabled={duplicating}>Cancel</button>
+                <button type="submit" class="btn-primary" disabled={duplicating || !dupName.trim() || !dupPorts.split(',').some((s) => { const n = Number(s.trim()); return Number.isInteger(n) && n > 0 && n <= 65535; })}>
+                  {duplicating ? 'Duplicating…' : 'Duplicate'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <ConfirmModal
         open={!!confirmState}
         danger
         loading={confirmBusy}
-        title={`Delete ${confirmState?.slugs.length ?? 0} project(s)?`}
-        message="The container and its workspace files are permanently removed."
+        title={`Delete ${confirmState?.slugs.length ?? 0} project(s)?`}        message="The container and its workspace files are permanently removed."
         confirmLabel="Delete"
         onConfirm={runConfirmed}
         onCancel={() => { if (!confirmBusy) setConfirm(null); }}

@@ -27,6 +27,7 @@ import {
   recreateProject,
   runProjectScript,
   cloneIntoWorkspace,
+  duplicateProject,
   ensureOpencodeSession,
   HttpError,
   WORKSPACES_ROOT,
@@ -914,6 +915,34 @@ app.post('/api/projects', async (req: any, res) => {
     }
     const project = await createProject({ name, slug, description, image, ports });
     // Set owner to the creating user
+    const userId = req.user?.id;
+    if (userId) {
+      const meta = loadMeta(project.slug) || { activity: [] };
+      meta.ownerId = userId;
+      meta.members = [{ userId, role: 'admin', addedAt: new Date().toISOString() }];
+      saveMeta(project.slug, meta);
+    }
+    res.status(201).json({ project });
+  } catch (err: any) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Duplicate an existing project: new project inheriting image/env/ports,
+// plus a copy of the source workspace files and developer notes.
+app.post('/api/projects/:slug/duplicate', requireProjectAccess('viewer'), async (req: any, res) => {
+  try {
+    const { name, slug, description, ports } = req.body || {};
+    const cleanPorts = Array.isArray(ports)
+      ? ports.map(Number).filter((n: number) => Number.isInteger(n) && n > 0 && n <= 65535)
+      : undefined;
+    const project = await duplicateProject(req.params.slug, {
+      name,
+      slug,
+      description: description !== undefined ? String(description) : undefined,
+      ports: cleanPorts,
+    });
+    // The duplicating user becomes the owner of the copy.
     const userId = req.user?.id;
     if (userId) {
       const meta = loadMeta(project.slug) || { activity: [] };

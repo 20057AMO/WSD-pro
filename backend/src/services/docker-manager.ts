@@ -12,6 +12,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { execSync, spawn, execFileSync } from 'child_process';
 import { loadMeta, saveMeta, deleteMeta, touchActivity, listMetaSlugs, type ProjectMeta } from './projects-meta';
+import { loadNotes, saveNotes } from './project-notes';
 import { purgeOpencodeProjectRows } from './opencode-store';
 import { runSweep } from './workspace-janitor';
 import {
@@ -736,4 +737,97 @@ function repoName(url: string): string {
   const cleaned = url.replace(/\/+$/, '').replace(/\.git$/i, '');
   const name = cleaned.split('/').pop() || cleaned.split(':').pop() || 'repo';
   return name.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 80) || 'repo';
+}
+
+/** Recursively copy one workspace dir into another (all files, incl. dotfiles). */
+function copyWorkspaceTree(srcDir: string, dstDir: string): void {
+  if (!fs.existsSync(srcDir)) return;
+  fs.mkdirSync(dstDir, { recursive: true });
+  for (const entry of fs.readdirSync(srcDir)) {
+    try {
+      const s = path.join(srcDir, entry);
+      const d = path.join(dstDir, entry);
+      const st = fs.statSync(s);
+      if (st.isDirectory()) {
+        copyWorkspaceTree(s, d);
+      } else if (st.isFile()) {
+        fs.copyFileSync(s, d);
+      }
+    } catch {
+      /* skip unreadable/broken entries — never fail the duplicate over one file */
+    }
+  }
+}
+
+export interface DuplicateSpec {
+  name?: string;
+  slug?: string;
+  description?: string;
+  ports?: number[];
+}
+
+/**
+ * Duplicate a project: create a brand-new project that inherits the source's
+ * image and env, carries over its workspace files and its developer notes,
+ * and gets a fresh meta store with the copying user as owner. Host ports are
+ * intentionally NOT inherited (the caller supplies fresh ones) so both
+ * containers can run side by side. The new container is provisioned and
+ * started just like a normal create.
+ */
+export async function duplicateProject(
+  sourceSlug: string,
+  spec: DuplicateSpec = {}
+): Promise<ProjectInfo> {
+  const srcSlug = validateProjectSlug(sourceSlug);
+  const srcMeta = loadMeta(srcSlug);
+  if (!srcMeta) throw new HttpError(404, `Project '${sourceSlug}' not found`);
+
+  const srcDir = path.join(WORKSPACES_ROOT, srcSlug);
+  if (!fs.existsSync(srcDir)) {
+    throw new HttpError(404, `Project workspace '${sourceSlug}' not found`);
+  }
+
+  // Determine the new project's identity (name + slug).
+  const name = (spec.name ? String(spec.name).trim() : srcMeta.name || sourceSlug) || sourceSlug;
+  const providedSlug = spec.slug ? String(spec.slug).trim().toLowerCase() : '';
+  const baseSlug = providedSlug || sanitizeSlug(name);
+
+  // Make sure the derived slug is unique before provisioning anything.
+  let newSlug = baseSlug;
+  let n = 1;
+  while (await getProject(newSlug)) {
+    newSlug = `${baseSlug}-${n}`;
+    n += 1;
+  }
+
+  // Provision the new project (container + empty workspace + fresh meta).
+  // It inherits the source's runtime image/env (no host-port conflict —
+  // ports are NOT carried over; the caller supplies fresh ones so the two
+  // containers can run side by side).
+  const created = await createProject({
+    name,
+    slug: newSlug,
+    description: spec.description !== undefined ? String(spec.description).trim() || undefined : srcMeta.description,
+    image: srcMeta.image,
+    ports: (spec.ports && spec.ports.length > 0) ? spec.ports : undefined,
+    env: srcMeta.env,
+  });
+
+  // Carry the source workspace files into the new project.
+  const dstDir = path.join(WORKSPACES_ROOT, created.slug);
+  copyWorkspaceTree(srcDir, dstDir);
+
+  // Carry over the developer notes (ideas/bugs/goals).
+  const srcNotes = loadNotes(srcSlug);
+  if (srcNotes.items.length > 0) {
+    try {
+      saveNotes(created.slug, srcNotes);
+    } catch {
+      /* notes are best-effort — never fail the duplicate over them */
+    }
+  }
+
+  touchActivity(created.slug, 'duplicated');
+
+  return created;
 }
