@@ -39,6 +39,7 @@ import { NotesPanel } from '../components/NotesPanel';
 import { ProjectChat } from '../components/ProjectChat';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { TeamPanel } from '../components/TeamPanel';
+import { usePresence } from '../usePresence';
 
 type Tab = 'overview' | 'chat' | 'files' | 'logs' | 'notes' | 'scripts' | 'team';
 
@@ -96,6 +97,7 @@ export function Project({ params }: { params: { slug: string } }) {
   const [wsConnected, setWsConnected] = useState(false);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [ideNotice, setIdeNotice] = useState<string | null>(null);
+  const onlineUsers = usePresence(slug);
 
   // Transient notices fade out on their own.
   useEffect(() => {
@@ -271,6 +273,17 @@ export function Project({ params }: { params: { slug: string } }) {
               <button class="btn-ghost sm" style="padding: 1px 8px" onClick={() => copy(slug)}>copy</button>
               <span class={`status-badge ${project?.status || 'missing'}`}>{project?.status || '…'}</span>
               {wsConnected && <span class="ws-live-dot" title="Live updates active" />}
+              {onlineUsers.length > 0 && (
+                <span class="presence-indicator" title={onlineUsers.map(u => u.username).join(', ')}>
+                  {onlineUsers.map(u => (
+                    <span class="presence-dot" key={u.id}>
+                      <span class="presence-avatar">{u.username.charAt(0).toUpperCase()}</span>
+                      <span class="presence-online-dot" />
+                    </span>
+                  ))}
+                  <span class="presence-count">{onlineUsers.length} online</span>
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -311,7 +324,7 @@ export function Project({ params }: { params: { slug: string } }) {
       {tab === 'logs' && <LogsPanel slug={slug} />}
       {tab === 'notes' && <NotesPanel slug={slug} />}
       {tab === 'scripts' && <ScriptsPanel slug={slug} />}
-      {tab === 'team' && <TeamPanel slug={slug} project={project} />}
+      {tab === 'team' && <TeamPanel slug={slug} project={project} onlineUsers={onlineUsers} />}
 
       <ConfirmModal
         open={confirmRestart}

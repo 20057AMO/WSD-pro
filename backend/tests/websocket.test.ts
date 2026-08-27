@@ -50,6 +50,7 @@ describe('WebSocket authentication matrix', () => {
       ['terminal', '/ws/projects/probe-slug/terminal?mode=project'],
       ['chat room', `/ws/chat/global/${CHAT_ID}`],
       ['agent room', `/ws/agent/probe-agent/${CHAT_ID}`],
+      ['presence', '/ws/presence/probe-slug'],
     ];
 
     for (const [name, path] of endpoints) {
@@ -67,4 +68,29 @@ describe('WebSocket authentication matrix', () => {
     }
   });
 
+  test('presence: connects and receives the user roster', async () => {
+    const token = signTestToken();
+    const t = `pres-${Date.now().toString(36)}`;
+    const url = `${WS_BASE}/ws/presence/${t}?token=${encodeURIComponent(token)}`;
+
+    const messages: any[] = [];
+    const ws = new WebSocket(url);
+    await new Promise<void>((resolve, reject) => {
+      const to = setTimeout(() => reject(new Error('timeout waiting for presence')), 5000);
+      ws.on('message', (d) => {
+        messages.push(JSON.parse(d.toString()));
+        clearTimeout(to);
+        resolve();
+      });
+      ws.on('error', (e) => { clearTimeout(to); reject(e); });
+    });
+    ws.terminate();
+
+    assert.ok(messages.length >= 1, 'expected at least one presence message');
+    const first = messages[0];
+    assert.strictEqual(first.type, 'presence');
+    assert.ok(Array.isArray(first.users));
+    assert.ok(first.users.length >= 1, 'expected the connecting user in the roster');
+    assert.ok(first.users.every((u: any) => typeof u.username === 'string'));
+  });
 });

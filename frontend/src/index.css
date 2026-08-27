@@ -1892,6 +1892,53 @@ input[type="file"].modern-file::file-selector-button {
 
 .icon-sm { width: 14px; height: 14px; }
 
+/* Presence indicators */
+.presence-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.presence-dot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.presence-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #2a2c33;
+  color: #8b8d94;
+  font-size: 0.7rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #1a1b20;
+}
+
+.presence-online-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+  border: 1.5px solid #0f1014;
+}
+
+.presence-count {
+  font-size: 0.75rem;
+  color: #6b6d74;
+  margin-left: 2px;
+}
+
 /* Respect users who prefer stillness */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

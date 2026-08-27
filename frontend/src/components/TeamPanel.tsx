@@ -11,19 +11,22 @@ import {
   type UserRole,
 } from '../api';
 import { ConfirmModal } from './ConfirmModal';
+import type { PresenceUser } from '../usePresence';
 
 interface Props {
   slug: string;
   project: any;
+  onlineUsers?: PresenceUser[];
 }
 
 const ROLE_HIERARCHY: Record<string, number> = { admin: 3, editor: 2, viewer: 1 };
 
-export function TeamPanel({ slug, project }: Props) {
+export function TeamPanel({ slug, project, onlineUsers = [] }: Props) {
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [allUsers, setAllUsers] = useState<TeamUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const onlineIds = new Set(onlineUsers.map(u => u.id));
 
   // Add form
   const [showAdd, setShowAdd] = useState(false);
@@ -178,7 +181,10 @@ export function TeamPanel({ slug, project }: Props) {
               return (
                 <div class="member-row" key={m.userId}>
                   <div class="member-info">
-                    <div class="member-avatar">{m.username.charAt(0).toUpperCase()}</div>
+                    <div class="member-avatar" style="position:relative">
+                      {m.username.charAt(0).toUpperCase()}
+                      {onlineIds.has(m.userId) && <span class="presence-online-dot" />}
+                    </div>
                     <div class="member-details">
                       <span class="member-name">
                         {m.username}

@@ -94,6 +94,7 @@ import { buildBackup, restoreFromBackup } from './services/settings-export';
 import { recordAudit, listAudit } from './services/audit-store';
 import { authMiddleware, requireAdmin, requireRole, requireProjectAccess } from './middleware/auth';
 import { attachWebSockets } from './ws/ws-server';
+import { getPresence } from './ws/ws-presence';
 
 dotenv.config();
 
@@ -1078,6 +1079,12 @@ app.post('/api/projects/:slug/transfer-owner', (req: any, res) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Project presence (who's online)
+app.get('/api/projects/:slug/presence', requireProjectAccess('viewer'), (req, res) => {
+  const users = getPresence(req.params.slug);
+  res.json({ users });
 });
 
 // Start project

@@ -14,6 +14,7 @@ import { handleProjectLogsSocket } from './ws-project-logs';
 import { handleAgentSocket } from './ws-agent';
 import { handleProjectStatusSocket } from './ws-project-status';
 import { handleProjectsStatusSocket } from './ws-projects-status';
+import { handlePresenceSocket } from './ws-presence';
 import { verifyToken } from '../services/user-store';
 
 const MAX_CONNECTIONS_PER_ROOM = 8;
@@ -49,6 +50,7 @@ export function attachWebSockets(server: http.Server): void {
     ws.on('pong', () => { (ws as any)._isAlive = true; });
 
     const url = new URL(req.url || '/', 'http://localhost');
+    const token = url.searchParams.get('token') || '';
 
     const chatMatch = url.pathname.match(/^\/ws\/chat\/([^/]+)\/([^/]+)$/);
     if (chatMatch) {
@@ -157,6 +159,22 @@ export function attachWebSockets(server: http.Server): void {
         return;
       }
       handleAgentSocket(ws, agentId, chatId, releaseRoom(room));
+      return;
+    }
+
+    const presenceMatch = url.pathname.match(/^\/ws\/presence\/([^/]+)$/);
+    if (presenceMatch) {
+      const slug = decodeURIComponent(presenceMatch[1]);
+      if (!isSafeChatId(slug)) {
+        ws.close(1008, 'invalid slug');
+        return;
+      }
+      const room = `presence:${slug}`;
+      if (!acquireRoom(room)) {
+        ws.close(1013, 'too many connections for presence');
+        return;
+      }
+      handlePresenceSocket(ws, slug, token, releaseRoom(room));
       return;
     }
 
