@@ -11,6 +11,8 @@ export interface Project {
   ports?: number[];
   env?: Record<string, string>;
   activity?: { action: string; at: string }[];
+  ownerId?: string;
+  members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string }[];
 }
 
 export interface ProjectStats {
@@ -697,3 +699,32 @@ export const updateUserRole = (userId: string, role: UserRole) =>
 
 export const deleteUser = (userId: string) =>
   api<{ ok: boolean }>(`/api/users/${userId}`, { method: 'DELETE' });
+
+// ── Project membership ──────────────────────────────────────
+
+export interface ProjectMember {
+  userId: string;
+  username: string;
+  role: 'admin' | 'editor' | 'viewer';
+  addedAt: string;
+}
+
+export const listProjectMembers = (slug: string) =>
+  api<{ members: ProjectMember[] }>(`/api/projects/${slug}/members`);
+
+export const addProjectMember = (slug: string, userId: string, role: 'admin' | 'editor' | 'viewer' = 'viewer') =>
+  api<{ member: ProjectMember }>(`/api/projects/${slug}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, role }),
+  });
+
+export const removeProjectMember = (slug: string, userId: string) =>
+  api<{ ok: boolean }>(`/api/projects/${slug}/members/${userId}`, { method: 'DELETE' });
+
+export const transferOwner = (slug: string, userId: string) =>
+  api<{ ok: boolean; ownerId: string }>(`/api/projects/${slug}/transfer-owner`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  });

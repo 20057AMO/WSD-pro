@@ -17,6 +17,12 @@ export interface ActivityEntry {
   at: string;
 }
 
+export interface ProjectMember {
+  userId: string;
+  role: 'admin' | 'editor' | 'viewer';
+  addedAt: string;
+}
+
 export interface ProjectMeta {
   name?: string;
   description?: string;
@@ -25,6 +31,8 @@ export interface ProjectMeta {
   createdAt?: string;
   env?: Record<string, string>;
   activity: ActivityEntry[];
+  ownerId?: string;
+  members?: ProjectMember[];
 }
 
 function metaFile(slug: string): string {

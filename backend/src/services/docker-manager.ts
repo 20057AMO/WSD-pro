@@ -55,6 +55,8 @@ export interface ProjectInfo {
   ports?: number[];
   env?: Record<string, string>;
   activity?: { action: string; at: string }[];
+  ownerId?: string;
+  members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string }[];
 }
 
 function validateProjectSlug(slug: string): string {
@@ -363,6 +365,8 @@ export async function listProjects(): Promise<ProjectInfo[]> {
       project.ports = meta.ports;
       project.env = meta.env;
       project.activity = meta.activity;
+      project.ownerId = meta.ownerId;
+      project.members = meta.members;
     }
 
     projects.push(project);
@@ -409,6 +413,8 @@ export async function getProject(slug: string): Promise<ProjectInfo | null> {
       project.ports = meta.ports;
       project.env = meta.env;
       project.activity = meta.activity;
+      project.ownerId = meta.ownerId;
+      project.members = meta.members;
     }
 
     return project;

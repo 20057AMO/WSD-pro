@@ -92,7 +92,7 @@ import {
 import { otpauthUri } from './services/totp';
 import { buildBackup, restoreFromBackup } from './services/settings-export';
 import { recordAudit, listAudit } from './services/audit-store';
-import { authMiddleware, requireAdmin, requireRole } from './middleware/auth';
+import { authMiddleware, requireAdmin, requireRole, requireProjectAccess } from './middleware/auth';
 import { attachWebSockets } from './ws/ws-server';
 
 dotenv.config();
@@ -180,6 +180,16 @@ setInterval(() => {
   }
 }, 120_000);
 
+// ── Health check (exempt from rate limiting) ─────────────────
+app.get('/api/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'Madar',
+    version: '2.0.0-beta',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Global rate limit
 app.use(rateLimit('global', RATE_WINDOW, RATE_MAX));
 
@@ -203,16 +213,6 @@ const upload = multer({
     filename: (_req, file, cb) => cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}-${file.originalname}`),
   }),
   limits: { fileSize: 200 * 1024 * 1024, files: 50 },
-});
-
-// ── Health check ─────────────────────────────────────────────
-app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'Madar',
-    version: '2.0.0-beta',
-    timestamp: new Date().toISOString(),
-  });
 });
 
 // ── Auth: setup / login / status / change-password ───────────
@@ -905,13 +905,21 @@ app.get('/api/projects', async (_req, res) => {
 });
 
 // Create a new project (provisions container + workspace)
-app.post('/api/projects', async (req, res) => {
+app.post('/api/projects', async (req: any, res) => {
   try {
     const { name, slug, description, image, ports } = req.body || {};
     if (!name || !String(name).trim()) {
       return res.status(400).json({ error: 'Project name is required' });
     }
     const project = await createProject({ name, slug, description, image, ports });
+    // Set owner to the creating user
+    const userId = req.user?.id;
+    if (userId) {
+      const meta = loadMeta(project.slug) || { activity: [] };
+      meta.ownerId = userId;
+      meta.members = [{ userId, role: 'admin', addedAt: new Date().toISOString() }];
+      saveMeta(project.slug, meta);
+    }
     res.status(201).json({ project });
   } catch (err: any) {
     res.status(err.statusCode || 500).json({ error: err.message });
@@ -919,7 +927,7 @@ app.post('/api/projects', async (req, res) => {
 });
 
 // Get single project
-app.get('/api/projects/:slug', async (req, res) => {
+app.get('/api/projects/:slug', requireProjectAccess('viewer'), async (req, res) => {
   try {
     const project = await getProject(req.params.slug);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -930,14 +938,14 @@ app.get('/api/projects/:slug', async (req, res) => {
 });
 
 // Project notes (ideas / bugs / goals) — read + full-document save
-app.get('/api/projects/:slug/notes', (req, res) => {
+app.get('/api/projects/:slug/notes', requireProjectAccess('viewer'), (req, res) => {
   try {
     res.json(notes.loadNotes(req.params.slug));
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
 });
-app.put('/api/projects/:slug/notes', (req, res) => {
+app.put('/api/projects/:slug/notes', requireProjectAccess('editor'), (req, res) => {
   try {
     res.json(notes.saveNotes(req.params.slug, req.body));
   } catch (err: any) {
@@ -945,8 +953,135 @@ app.put('/api/projects/:slug/notes', (req, res) => {
   }
 });
 
+// ── Project membership ────────────────────────────────────────
+
+// List members
+app.get('/api/projects/:slug/members', async (req: any, res) => {
+  try {
+    const meta = loadMeta(req.params.slug);
+    if (!meta) return res.status(404).json({ error: 'Project not found' });
+    const members = meta.members || [];
+    // Enrich with usernames
+    const enriched = members.map((m) => {
+      const info = getUserInfo(m.userId);
+      return { ...m, username: info?.username || 'unknown' };
+    });
+    res.json({ members: enriched });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add member
+app.post('/api/projects/:slug/members', (req: any, res) => {
+  try {
+    const meta = loadMeta(req.params.slug);
+    if (!meta) return res.status(404).json({ error: 'Project not found' });
+
+    const { userId, role } = req.body || {};
+    if (!userId || !String(userId).trim()) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+    const memberRole = ['admin', 'editor', 'viewer'].includes(role) ? role : 'viewer';
+
+    // Only project admins and system admins can add members
+    const callerId = req.user?.id;
+    const callerRole = req.user?.role;
+    const isProjectAdmin = meta.ownerId === callerId || meta.members?.some((m) => m.userId === callerId && m.role === 'admin');
+    if (callerRole !== 'admin' && !isProjectAdmin) {
+      return res.status(403).json({ error: 'Only project or system admins can add members' });
+    }
+
+    // Validate user exists
+    const targetUser = getUserInfo(userId);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    if (!meta.members) meta.members = [];
+    const existing = meta.members.find((m) => m.userId === userId);
+    if (existing) {
+      existing.role = memberRole;
+    } else {
+      meta.members.push({ userId, role: memberRole, addedAt: new Date().toISOString() });
+    }
+    saveMeta(req.params.slug, meta);
+    res.json({ member: { userId, role: memberRole } });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Remove member
+app.delete('/api/projects/:slug/members/:userId', (req: any, res) => {
+  try {
+    const meta = loadMeta(req.params.slug);
+    if (!meta) return res.status(404).json({ error: 'Project not found' });
+
+    const targetUserId = req.params.userId;
+    const callerId = req.user?.id;
+    const callerRole = req.user?.role;
+    const isProjectAdmin = meta.ownerId === callerId || meta.members?.some((m) => m.userId === callerId && m.role === 'admin');
+
+    // Users can remove themselves; otherwise must be admin
+    if (callerId !== targetUserId && callerRole !== 'admin' && !isProjectAdmin) {
+      return res.status(403).json({ error: 'Not authorized to remove this member' });
+    }
+
+    // Can't remove the owner
+    if (targetUserId === meta.ownerId) {
+      return res.status(400).json({ error: 'Cannot remove the project owner' });
+    }
+
+    if (!meta.members) meta.members = false as any;
+    const before = meta.members?.length || 0;
+    meta.members = (meta.members || []).filter((m) => m.userId !== targetUserId);
+    if (meta.members.length === before) {
+      return res.status(404).json({ error: 'Member not found' });
+    }
+    saveMeta(req.params.slug, meta);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Transfer ownership
+app.post('/api/projects/:slug/transfer-owner', (req: any, res) => {
+  try {
+    const meta = loadMeta(req.params.slug);
+    if (!meta) return res.status(404).json({ error: 'Project not found' });
+
+    const { userId } = req.body || {};
+    const callerId = req.user?.id;
+    if (callerId !== meta.ownerId && req.user?.role !== 'admin') {
+      return res.status(403).json({ error: 'Only the owner or a system admin can transfer ownership' });
+    }
+
+    const targetUser = getUserInfo(userId);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Ensure target is a member with admin role
+    if (!meta.members) meta.members = [];
+    let targetMember = meta.members.find((m) => m.userId === userId);
+    if (!targetMember) {
+      meta.members.push({ userId, role: 'admin', addedAt: new Date().toISOString() });
+    } else {
+      targetMember.role = 'admin';
+    }
+
+    meta.ownerId = userId;
+    saveMeta(req.params.slug, meta);
+    res.json({ ok: true, ownerId: userId });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Start project
-app.post('/api/projects/:slug/start', async (req, res) => {
+app.post('/api/projects/:slug/start', requireProjectAccess('editor'), async (req, res) => {
   try {
     const project = await startProject(req.params.slug);
     res.json({ project });
@@ -956,7 +1091,7 @@ app.post('/api/projects/:slug/start', async (req, res) => {
 });
 
 // Stop project
-app.post('/api/projects/:slug/stop', async (req, res) => {
+app.post('/api/projects/:slug/stop', requireProjectAccess('editor'), async (req, res) => {
   try {
     const project = await stopProject(req.params.slug);
     res.json({ project });
@@ -966,7 +1101,7 @@ app.post('/api/projects/:slug/stop', async (req, res) => {
 });
 
 // Remove project — container, meta store AND workspace files from disk.
-app.delete('/api/projects/:slug', rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
+app.delete('/api/projects/:slug', requireProjectAccess('admin'), rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
   try {
     await removeProject(req.params.slug);
     recordAudit('project-files-deleted', true, req.ip);
@@ -1119,7 +1254,7 @@ app.post('/api/opencode-studio/update', async (_req, res) => {
 });
 
 // Project container logs
-app.get('/api/projects/:slug/logs', async (req, res) => {
+app.get('/api/projects/:slug/logs', requireProjectAccess('viewer'), async (req, res) => {
   try {
     const tail = Number(req.query.tail) || 200;
     const logs = await projectLogs(req.params.slug, tail);
@@ -1130,7 +1265,7 @@ app.get('/api/projects/:slug/logs', async (req, res) => {
 });
 
 // Upload files into an existing project workspace (files only, no archives)
-app.post('/api/projects/:slug/upload', (req, res) => {
+app.post('/api/projects/:slug/upload', requireProjectAccess('editor'), (req, res) => {
   const slug = String(req.params.slug || '').trim();
   const base = path.resolve(path.join(WORKSPACES_ROOT, slug));
   if (!fs.existsSync(base)) {
@@ -1181,7 +1316,7 @@ app.patch('/api/projects/:slug', async (req, res) => {
 });
 
 // Recreate the container from stored meta (image / ports / env)
-app.post('/api/projects/:slug/recreate', async (req, res) => {
+app.post('/api/projects/:slug/recreate', requireProjectAccess('editor'), async (req, res) => {
   try {
     const project = await getProject(req.params.slug);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -1193,7 +1328,7 @@ app.post('/api/projects/:slug/recreate', async (req, res) => {
 });
 
 // Set project environment variables (applied on recreate)
-app.put('/api/projects/:slug/env', async (req, res) => {
+app.put('/api/projects/:slug/env', requireProjectAccess('editor'), async (req, res) => {
   try {
     const project = await getProject(req.params.slug);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -1219,7 +1354,7 @@ app.put('/api/projects/:slug/env', async (req, res) => {
 });
 
 // git clone into the workspace
-app.post('/api/projects/:slug/clone', async (req, res) => {
+app.post('/api/projects/:slug/clone', requireProjectAccess('editor'), async (req, res) => {
   try {
     const { url } = req.body || {};
     if (!url || !String(url).trim()) {
@@ -1233,7 +1368,7 @@ app.post('/api/projects/:slug/clone', async (req, res) => {
 });
 
 // Runtime stats (CPU / memory / uptime)
-app.get('/api/projects/:slug/stats', async (req, res) => {
+app.get('/api/projects/:slug/stats', requireProjectAccess('viewer'), async (req, res) => {
   try {
     res.json({ stats: await getProjectStats(req.params.slug) });
   } catch (err: any) {
@@ -1242,7 +1377,7 @@ app.get('/api/projects/:slug/stats', async (req, res) => {
 });
 
 // HTTP health check for each published port
-app.get('/api/projects/:slug/ports/check', async (req, res) => {
+app.get('/api/projects/:slug/ports/check', requireProjectAccess('viewer'), async (req, res) => {
   try {
     res.json({ checks: await checkProjectPorts(req.params.slug) });
   } catch (err: any) {
@@ -1251,7 +1386,7 @@ app.get('/api/projects/:slug/ports/check', async (req, res) => {
 });
 
 // ── Project workspace files ───────────────────────────────────
-app.get('/api/projects/:slug/files', (req, res) => {
+app.get('/api/projects/:slug/files', requireProjectAccess('viewer'), (req, res) => {
   try {
     const listing = listWorkspaceFiles(req.params.slug, String(req.query.path || '').trim() || undefined);
     res.json(listing);
@@ -1260,7 +1395,7 @@ app.get('/api/projects/:slug/files', (req, res) => {
   }
 });
 
-app.get('/api/projects/:slug/file', (req, res) => {
+app.get('/api/projects/:slug/file', requireProjectAccess('viewer'), (req, res) => {
   try {
     const rel = String(req.query.path || '').trim();
     if (!rel) return res.status(400).json({ error: 'Missing path query' });
@@ -1270,7 +1405,7 @@ app.get('/api/projects/:slug/file', (req, res) => {
   }
 });
 
-app.delete('/api/projects/:slug/file', (req, res) => {
+app.delete('/api/projects/:slug/file', requireProjectAccess('editor'), (req, res) => {
   try {
     const rel = String(req.query.path || '').trim();
     if (!rel) return res.status(400).json({ error: 'Missing path query' });
@@ -1281,7 +1416,7 @@ app.delete('/api/projects/:slug/file', (req, res) => {
 });
 
 // Create or overwrite a text file in the workspace
-app.put('/api/projects/:slug/file', (req, res) => {
+app.put('/api/projects/:slug/file', requireProjectAccess('editor'), (req, res) => {
   try {
     const rel = String(req.query.path || '').trim();
     if (!rel) return res.status(400).json({ error: 'Missing path query' });
@@ -1293,7 +1428,7 @@ app.put('/api/projects/:slug/file', (req, res) => {
 });
 
 // Rename/move a file or directory within the workspace
-app.post('/api/projects/:slug/file/rename', (req, res) => {
+app.post('/api/projects/:slug/file/rename', requireProjectAccess('editor'), (req, res) => {
   try {
     const from = String((req.body || {}).from || '').trim();
     const to = String((req.body || {}).to || '').trim();
@@ -1322,7 +1457,7 @@ app.get('/api/projects/:slug/scripts', (req, res) => {
   }
 });
 
-app.post('/api/projects/:slug/scripts/run', rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
+app.post('/api/projects/:slug/scripts/run', requireProjectAccess('editor'), rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
   try {
     const name = String((req.body || {}).script || '').trim();
     if (!/^[A-Za-z0-9:_-]{1,64}$/.test(name)) {

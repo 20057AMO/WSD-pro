@@ -1816,6 +1816,82 @@ input[type="file"].modern-file::file-selector-button {
   50%      { opacity: 0.13; }
 }
 
+/* ── Team Panel ────────────────────────────────────────────── */
+.team-panel { display: flex; flex-direction: column; gap: 12px; }
+.team-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.team-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.95rem; color: var(--text); }
+.team-title .badge {
+  background: var(--surface-2);
+  border-radius: 9999px;
+  padding: 0 8px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.add-member-form {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: var(--surface-1);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.member-list { display: flex; flex-direction: column; gap: 2px; }
+
+.member-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-1);
+  transition: background 0.15s;
+}
+.member-row:hover { background: var(--surface-2); }
+
+.member-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
+.member-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.member-details { display: flex; flex-direction: column; min-width: 0; }
+.member-name { font-weight: 500; font-size: 0.9rem; color: var(--text); display: flex; align-items: center; }
+.member-meta { font-size: 0.75rem; color: var(--text-dim); }
+
+.member-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.select-sm {
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  border-radius: 6px;
+}
+
+.btn-xs {
+  padding: 4px 6px;
+  font-size: 0.75rem;
+}
+
+.icon-sm { width: 14px; height: 14px; }
+
 /* Respect users who prefer stillness */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
