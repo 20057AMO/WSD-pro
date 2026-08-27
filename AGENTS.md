@@ -39,6 +39,7 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 | Auth & access control | `tests/auth.test.ts` | 401s, forged/tampered/expired tokens, setup guard |
 | Session revocation | `tests/auth-revoke.test.ts` | logout-everywhere + token rotation (needs `WSD_TEST_ACCOUNT_PASSWORD`; self-skips) |
 | Project lifecycle | `tests/projects.lifecycle.test.ts` | Real Docker: create → env → files → logs/stats/ports → stop/start → delete → 404 |
+| Project team & access | `tests/team-access.test.ts` | Real Docker: owner creates project → creates editor+viewer users → adds members → permission matrix (viewer read-only/403s, editor read+write+stop/start, member add denied), remove rules, outsider 403, ownership transfer → deletes project + temp users |
 | Providers/Agents/Chat CRUD | `tests/providers-agents-chat.test.ts` | Full CRUD + sessions + templates |
 | Providers lock & backup | `tests/providers-lock.test.ts` | Lock flow E2E (needs `WSD_TEST_ACCOUNT_PASSWORD`; self-skips without it) |
 | Providers page journey | `tests/providers-page-journey.test.ts` | Live-audit gaps: detection_required shape, duplicate guards, masked-key echo (POST+PUT), chat open while locked, cross-session replay via REAL logins, cooldown bans even the correct password (isolated server only; canary self-skips lock sections while the 15-min ban from a previous run is active) |

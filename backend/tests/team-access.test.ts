@@ -1,0 +1,204 @@
+import { test, describe, before, after } from 'node:test';
+import assert from 'node:assert';
+import jwt from 'jsonwebtoken';
+import { uniqueId, req, reqAuth, initTestAuth, JWT_SECRET, authHeaders } from './helpers.ts';
+
+/**
+ * Project ownership + membership + access control (the "Team" scenario).
+ * Mirrors a real-life collaboration flow:
+ *   admin creates a project → creates an editor & a viewer → adds them as
+ *   members → asserts the granular permission matrix (read/write/stop/start)
+ *   → tests member listing, removal rules and ownership transfer → cleans up.
+ *
+ * Requires a live container (Docker) — like projects.lifecycle.test.ts.
+ */
+
+// Sign a session-looking JWT for a user (must match the store for real users:
+// role is loaded from the store and tv must equal the user's tokenVersion (0)).
+function signUser(id: string, username: string, role: string): string {
+  return jwt.sign({ id, username, role, tv: 0 }, JWT_SECRET, { expiresIn: '24h' });
+}
+
+function runAs(token: string) {
+  return {
+    headers: { ...authHeaders(), Authorization: `Bearer ${token}` },
+  };
+}
+
+describe('Project team & access control (real Docker container)', () => {
+  before(async () => { await initTestAuth(); });
+
+  const slug = uniqueId('team');
+  const editorName = `te_${Date.now().toString(36)}`;
+  const viewerName = `tv_${Date.now().toString(36)}`;
+  const pw = 'team-pass-123';
+
+  let editorId = '';
+  let viewerId = '';
+  let editorToken = '';
+  let viewerToken = '';
+  let created = false;
+
+  after(async () => {
+    if (created) {
+      try { await reqAuth('DELETE', `/projects/${slug}`); } catch { /* best effort */ }
+    }
+    // Remove the temporary users so the environment stays clean.
+    try { await reqAuth('DELETE', `/users/${viewerId}`); } catch { /* best effort */ }
+    try { await reqAuth('DELETE', `/users/${editorId}`); } catch { /* best effort */ }
+  });
+
+  test('create the project (owner = admin)', async () => {
+    const res = await reqAuth('POST', '/projects', {
+      name: 'Team Access Test',
+      slug,
+      description: 'Temporary project for team/access testing',
+    });
+    assert.strictEqual(res.status, 201, `create failed: ${res.status}`);
+    const data = await res.json();
+    assert.strictEqual(data.project.slug, slug);
+    created = true;
+  });
+
+  test('create an editor and a viewer user', async () => {
+    const e = await reqAuth('POST', '/users', { username: editorName, password: pw, role: 'editor' });
+    assert.strictEqual(e.status, 201, `create editor failed: ${e.status}`);
+    const ed = await e.json();
+    editorId = ed.id;
+
+    const v = await reqAuth('POST', '/users', { username: viewerName, password: pw, role: 'viewer' });
+    assert.strictEqual(v.status, 201, `create viewer failed: ${v.status}`);
+    const vd = await v.json();
+    viewerId = vd.id;
+
+    editorToken = signUser(editorId, editorName, 'editor');
+    viewerToken = signUser(viewerId, viewerName, 'viewer');
+  });
+
+  test('add both users as project members', async () => {
+    const r1 = await reqAuth('POST', `/projects/${slug}/members`, { userId: editorId, role: 'editor' });
+    assert.strictEqual(r1.status, 200, `add editor: ${r1.status} -> ${JSON.stringify(await r1.json())}`);
+
+    const r2 = await reqAuth('POST', `/projects/${slug}/members`, { userId: viewerId, role: 'viewer' });
+    assert.strictEqual(r2.status, 200, `add viewer: ${r2.status} -> ${JSON.stringify(await r2.json())}`);
+  });
+
+  test('member list is enriched with usernames', async () => {
+    const res = await reqAuth('GET', `/projects/${slug}/members`);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.ok(Array.isArray(data.members));
+    const usernames = data.members.map((m: any) => m.username);
+    assert.ok(usernames.includes(editorName), 'editor should be listed');
+    assert.ok(usernames.includes(viewerName), 'viewer should be listed');
+    const viewerRec = data.members.find((m: any) => m.userId === viewerId);
+    assert.strictEqual(viewerRec.role, 'viewer');
+  });
+
+  // ── Viewer: read-only by design ─────────────────────────────
+  test('viewer can read the project (200)', async () => {
+    const res = await req('GET', `/projects/${slug}`, undefined, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 200);
+  });
+
+  test('viewer can read file listing (200)', async () => {
+    const res = await req('GET', `/projects/${slug}/files`, undefined, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 200);
+  });
+
+  test('viewer can read presence (200)', async () => {
+    const res = await req('GET', `/projects/${slug}/presence`, undefined, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 200);
+  });
+
+  test('viewer CANNOT write files (403)', async () => {
+    const res = await req('PUT', `/projects/${slug}/file?path=forbidden.txt`, { content: 'nope' }, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 403);
+  });
+
+  test('viewer CANNOT stop the project (403)', async () => {
+    const res = await req('POST', `/projects/${slug}/stop`, undefined, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 403);
+  });
+
+  test('viewer CANNOT start the project (403)', async () => {
+    const res = await req('POST', `/projects/${slug}/start`, undefined, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 403);
+  });
+
+  test('viewer CANNOT add members (403)', async () => {
+    const res = await req('POST', `/projects/${slug}/members`, { userId: viewerId, role: 'viewer' }, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 403);
+  });
+
+  // ── Editor: read + write ────────────────────────────────────
+  test('editor can read the project (200)', async () => {
+    const res = await req('GET', `/projects/${slug}`, undefined, runAs(editorToken).headers);
+    assert.strictEqual(res.status, 200);
+  });
+
+  test('editor can write a file (200)', async () => {
+    const res = await req('PUT', `/projects/${slug}/file?path=todo.txt`, { content: 'team test' }, runAs(editorToken).headers);
+    assert.strictEqual(res.status, 200, `editor write: ${res.status}`);
+  });
+
+  test('editor can stop the project (200 -> stopped)', async () => {
+    const res = await req('POST', `/projects/${slug}/stop`, undefined, runAs(editorToken).headers);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.project.status, 'stopped');
+  });
+
+  test('editor can start the project (200 -> running)', async () => {
+    const res = await req('POST', `/projects/${slug}/start`, undefined, runAs(editorToken).headers);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.project.status, 'running');
+  });
+
+  test('editor CANNOT add members (403 — not a project admin)', async () => {
+    const res = await req('POST', `/projects/${slug}/members`, { userId: viewerId, role: 'viewer' }, runAs(editorToken).headers);
+    assert.strictEqual(res.status, 403);
+  });
+
+  // ── Membership rules ────────────────────────────────────────
+  test('viewer CANNOT remove another member (403)', async () => {
+    const res = await req('DELETE', `/projects/${slug}/members/${editorId}`, undefined, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 403);
+  });
+
+  test('non-member is denied read access (403)', async () => {
+    // Forge a token for an unknown user who is not a member and not admin.
+    const outsider = jwt.sign({ id: 'outsider-user', username: 'outsider', role: 'viewer', tv: 0 }, JWT_SECRET, { expiresIn: '24h' });
+    const res = await req('GET', `/projects/${slug}`, undefined, runAs(outsider).headers);
+    assert.strictEqual(res.status, 403);
+  });
+
+  test('owner can remove the editor member (200)', async () => {
+    const res = await reqAuth('DELETE', `/projects/${slug}/members/${editorId}`);
+    assert.strictEqual(res.status, 200);
+  });
+
+  // ── Ownership transfer ──────────────────────────────────────
+  test('owner transfers ownership to the editor', async () => {
+    const res = await reqAuth('POST', `/projects/${slug}/transfer-owner`, { userId: editorId });
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.ok, true);
+    assert.strictEqual(data.ownerId, editorId);
+  });
+
+  test('new owner has admin rights on the project', async () => {
+    // Re-add editor as a member so we can confirm project-admin powers.
+    await reqAuth('POST', `/projects/${slug}/members`, { userId: editorId, role: 'admin' });
+    const res = await req('POST', `/projects/${slug}/members`, { userId: viewerId, role: 'viewer' }, runAs(editorToken).headers);
+    // As owner the editor is a project admin now → can add members.
+    assert.strictEqual(res.status, 200);
+  });
+
+  test('delete removes the project (cleanup marker)', async () => {
+    const res = await reqAuth('DELETE', `/projects/${slug}`);
+    assert.strictEqual(res.status, 200);
+    created = false;
+  });
+});
