@@ -36,6 +36,7 @@ import { startJanitor } from './services/workspace-janitor';
 import * as studio from './services/opencode-studio';
 import { listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, renameWorkspacePath, deleteWorkspacePath, resolveProjectSubdir } from './services/workspace-files';
 import { loadMeta, saveMeta } from './services/projects-meta';
+import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTemplate } from './services/project-templates';
 import { getIdeStatus } from './services/ide-service';
 import { detectIp } from './services/server-info';
 import { getChatConfig, updateChatConfig, listModels, type ChatConfig } from './services/chat-config';
@@ -906,14 +907,37 @@ app.get('/api/projects', async (_req, res) => {
   }
 });
 
-// Create a new project (provisions container + workspace)
+// Create a new project (provisions container + workspace). Optionally start
+// from a saved project template: templateId resolves image/ports/env, with the
+// request body able to override any of them.
 app.post('/api/projects', async (req: any, res) => {
   try {
-    const { name, slug, description, image, ports } = req.body || {};
+    const { name, slug, description, image, ports, env, templateId } = req.body || {};
     if (!name || !String(name).trim()) {
       return res.status(400).json({ error: 'Project name is required' });
     }
-    const project = await createProject({ name, slug, description, image, ports });
+    let specImage = image;
+    let specPorts = ports;
+    let specEnv = env;
+    if (templateId) {
+      const tpl = getTemplate(String(templateId));
+      if (!tpl) {
+        return res.status(404).json({ error: 'Project template not found' });
+      }
+      // Explicit request fields win; the template fills the rest. Ports merge
+      // is "request first, else template" — never union (host collisions).
+      specImage = image !== undefined ? image : tpl.image;
+      specPorts = Array.isArray(ports) && ports.length > 0 ? ports : tpl.ports;
+      specEnv = { ...(tpl.env || {}), ...(env && typeof env === 'object' ? env : {}) };
+    }
+    const project = await createProject({
+      name: String(name).trim(),
+      slug,
+      description,
+      image: specImage,
+      ports: specPorts,
+      env: specEnv,
+    });
     // Set owner to the creating user
     const userId = req.user?.id;
     if (userId) {
@@ -997,6 +1021,38 @@ app.put('/api/projects/:slug/notes', requireProjectAccess('editor'), (req, res) 
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// ── Project Templates (reusable runtime recipes) ───────────────
+// Readable by any authenticated user (the create-project flow picks a
+// template); write operations are admin-only — they're server-wide config.
+
+app.get('/api/templates', (_req, res) => {
+  res.json({ templates: listTemplates() });
+});
+
+app.post('/api/templates', requireAdmin, (req, res) => {
+  try {
+    const template = createTemplate((req.body as any) || {});
+    res.status(201).json({ template });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/templates/:id', requireAdmin, (req, res) => {
+  try {
+    const template = updateTemplate(req.params.id, (req.body as any) || {});
+    if (!template) return res.status(404).json({ error: 'Template not found' });
+    res.json({ template });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/templates/:id', requireAdmin, (req, res) => {
+  if (!deleteTemplate(req.params.id)) return res.status(404).json({ error: 'Template not found' });
+  res.json({ ok: true });
 });
 
 // ── Project membership ────────────────────────────────────────

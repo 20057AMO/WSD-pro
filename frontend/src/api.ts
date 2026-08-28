@@ -15,6 +15,46 @@ export interface Project {
   members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string }[];
 }
 
+export interface ProjectTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  defaultName?: string;
+  image?: string;
+  ports: number[];
+  env: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ProjectTemplateInput = {
+  name: string;
+  description?: string;
+  defaultName?: string;
+  image?: string;
+  ports?: number[];
+  env?: Record<string, string>;
+};
+
+export const listProjectTemplates = () => api<{ templates: ProjectTemplate[] }>('/api/templates');
+
+export const createProjectTemplate = (body: ProjectTemplateInput) =>
+  api<{ template: ProjectTemplate }>('/api/templates', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+export const updateProjectTemplate = (id: string, body: ProjectTemplateInput) =>
+  api<{ template: ProjectTemplate }>(`/api/templates/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+export const deleteProjectTemplate = (id: string) =>
+  api<{ ok: boolean }>(`/api/templates/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
 export interface ProjectStats {
   running: boolean;
   cpuPct: number;
@@ -283,7 +323,7 @@ async function api<T>(path: string, init?: ApiInit): Promise<T> {
 
 export const listProjects = () => api<{ projects: Project[] }>('/api/projects');
 export const getProject = (slug: string) => api<{ project: Project }>(`/api/projects/${slug}`);
-export const createProject = (body: { name: string; description?: string; ports?: number[] }) =>
+export const createProject = (body: { name: string; description?: string; ports?: number[]; templateId?: string; env?: Record<string, string> }) =>
   api<{ project: Project }>('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -9,8 +9,10 @@ import {
   startProject,
   stopProject,
   deleteProject,
+  listProjectTemplates,
   wsUrl,
   type Project,
+  type ProjectTemplate,
 } from '../api';
 
 type SortKey = 'name' | 'status' | 'created';
@@ -36,8 +38,17 @@ export function Projects() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [ports, setPorts] = useState('');
+  const [templateId, setTemplateId] = useState('');
+  const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  // Load the saved runtime recipes once, so the create modal can offer them.
+  useEffect(() => {
+    listProjectTemplates()
+      .then((res) => setTemplates(res.templates || []))
+      .catch(() => setTemplates([]));
+  }, []);
 
   // Duplicate-project modal state.
   const [dupSrc, setDupSrc] = useState<Project | null>(null);
@@ -219,8 +230,9 @@ export function Projects() {
       .split(',')
       .map((s) => Number(s.trim()))
       .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
-    if (parsedPorts.length === 0) {
-      setCreateError('At least one port is required (1–65535), comma separated.');
+    const hasTemplate = templateId !== '';
+    if (parsedPorts.length === 0 && !hasTemplate) {
+      setCreateError('At least one port is required (1–65535), comma separated — or start from a template.');
       return;
     }
     setCreating(true);
@@ -230,10 +242,12 @@ export function Projects() {
         name: name.trim(),
         description: description.trim() || undefined,
         ports: parsedPorts,
+        templateId: hasTemplate ? templateId : undefined,
       });
       setName('');
       setDescription('');
       setPorts('');
+      setTemplateId('');
       setCreateOpen(false);
       await refresh();
       setLocation(`/project/${project.slug}`);
@@ -242,6 +256,18 @@ export function Projects() {
     } finally {
       setCreating(false);
     }
+  };
+
+  // Choosing a template pre-fills the recipe (name/desc/ports) and lets the
+  // server inherit its image + env when the project is created.
+  const handleTemplatePick = (id: string) => {
+    setTemplateId(id);
+    if (!id) return;
+    const tpl = templates.find((t) => t.id === id);
+    if (!tpl) return;
+    if (!name) setName(tpl.defaultName || tpl.name);
+    if (!description) setDescription(tpl.description || '');
+    if (!ports) setPorts((tpl.ports || []).join(', '));
   };
 
   const openDuplicate = (e: Event, p: Project) => {
@@ -473,8 +499,21 @@ export function Projects() {
           <div class="create-card modal-dialog" style="max-width:500px;width:100%">
             <div class="create-title">New Project</div>
             <form onSubmit={handleCreate}>
+              <label class="settings-hint" style="display:block;margin-bottom:6px;font-size:0.72rem">Start from a saved template (optional)</label>
+              <select
+                class="modern-input"
+                style="width:100%"
+                value={templateId}
+                onChange={(e: any) => handleTemplatePick(e.target.value)}
+              >
+                <option value="">— Blank project —</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
               <input
                 class="modern-input"
+                style="margin-top:10px"
                 placeholder="Project name"
                 value={name}
                 onInput={(e: any) => setName(e.target.value)}
@@ -490,14 +529,14 @@ export function Projects() {
               <input
                 class="modern-input"
                 style="margin-top:10px"
-                placeholder="Ports (required, e.g. 3000, 8080)"
+                placeholder="Ports (e.g. 3000, 8080 — from template if left empty)"
                 value={ports}
                 onInput={(e: any) => setPorts(e.target.value)}
               />
               {createError && <div class="login-error" style="margin-top:10px">{createError}</div>}
               <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end">
                 <button type="button" class="btn-ghost sm" onClick={() => setCreateOpen(false)}>Cancel</button>
-                <button type="submit" class="btn-primary" disabled={creating || !name.trim() || !portsValid}>
+                <button type="submit" class="btn-primary" disabled={creating || !name.trim() || (!portsValid && !templateId)}>
                   {creating ? 'Creating…' : 'Create'}
                 </button>
               </div>
