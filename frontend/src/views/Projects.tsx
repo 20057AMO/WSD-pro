@@ -50,6 +50,19 @@ export function Projects() {
       .catch(() => setTemplates([]));
   }, []);
 
+  // Deep-link from the dashboard: its empty-state "New Project" button sets
+  // ws.openCreate in sessionStorage, then navigates here — we open the modal
+  // once and consume the intent. (A ?create=1 query in the hash would defeat
+  // wouter's route matching, so the intent is passed out-of-band instead.)
+  useEffect(() => {
+    let open = false;
+    try { open = sessionStorage.getItem('wsd.openCreate') === '1'; } catch { /* ignored */ }
+    if (open) {
+      setCreateOpen(true);
+      try { sessionStorage.removeItem('wsd.openCreate'); } catch { /* ignored */ }
+    }
+  }, []);
+
   // Duplicate-project modal state.
   const [dupSrc, setDupSrc] = useState<Project | null>(null);
   const [dupName, setDupName] = useState('');

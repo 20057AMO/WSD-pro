@@ -289,6 +289,18 @@ select.modern-input { appearance: none; cursor: pointer; }
 .dash-action-label { font-size: 0.85rem; font-weight: 600; color: var(--text); }
 .dash-action-desc { font-size: 0.68rem; color: var(--text-3); }
 
+.dash-view-all {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--accent);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.dash-view-all:hover { border-color: var(--accent); background: var(--panel-2); }
+
 .dash-system {
   display: flex; gap: 20px; flex-wrap: wrap;
   background: var(--panel);
