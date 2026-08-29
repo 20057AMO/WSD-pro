@@ -138,13 +138,23 @@ describe('Project duplicate (real Docker container)', () => {
     srcCreated = true;
   });
 
-  test('seed a workspace file and a developer note on the source', async () => {
+  test('seed a workspace file, a developer note and a canvas on the source', async () => {
     const wf = await reqAuth('PUT', `/projects/${srcSlug}/file?path=marker.txt`, { content: 'duplicate-me' });
     assert.strictEqual(wf.status, 200, `write file: ${wf.status}`);
     const notes = await reqAuth('PUT', `/projects/${srcSlug}/notes`, {
       items: [{ id: 'd1', text: 'carry this goal', kind: 'goal', done: false, createdAt: new Date().toISOString() }],
     });
     assert.strictEqual(notes.status, 200, `save notes: ${notes.status}`);
+    const canvas = await reqAuth('PUT', `/projects/${srcSlug}/canvas`, {
+      version: 1,
+      nodes: [
+        { id: 'dc1', type: 'note', text: 'Copy this idea', x: 10, y: 20, w: 220, h: 100, color: 'blue', done: false },
+        { id: 'dc2', type: 'card', text: 'And this task', x: 300, y: 40, w: 240, h: 120, color: 'green', done: false },
+      ],
+      edges: [{ id: 'de1', from: 'dc1', to: 'dc2' }],
+      updatedAt: null,
+    });
+    assert.strictEqual(canvas.status, 200, `save canvas: ${canvas.status}`);
   });
 
   test('duplicate creates a new project (201)', async () => {
@@ -181,6 +191,15 @@ describe('Project duplicate (real Docker container)', () => {
     const data = await res.json();
     const texts = data.items.map((n: any) => n.text);
     assert.ok(texts.includes('carry this goal'), 'note should be copied to the duplicate');
+  });
+
+  test('duplicate copies the planning canvas', async () => {
+    const res = await reqAuth('GET', `/projects/${copySlug}/canvas`);
+    assert.strictEqual(res.status, 200);
+    const data = await res.json();
+    assert.strictEqual(data.nodes.length, 2, 'canvas nodes should be copied to the duplicate');
+    assert.strictEqual(data.edges.length, 1);
+    assert.ok(data.nodes.find((n: any) => n.id === 'dc1' && n.text === 'Copy this idea'), 'canvas node carried over');
   });
 
   test('the source project is left untouched', async () => {

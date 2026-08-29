@@ -13,6 +13,7 @@ import crypto from 'crypto';
 import { execSync, spawn, execFileSync } from 'child_process';
 import { loadMeta, saveMeta, deleteMeta, touchActivity, listMetaSlugs, type ProjectMeta } from './projects-meta';
 import { loadNotes, saveNotes } from './project-notes';
+import { loadCanvas, saveCanvas } from './project-canvas';
 import { purgeOpencodeProjectRows } from './opencode-store';
 import { runSweep } from './workspace-janitor';
 import {
@@ -768,8 +769,8 @@ export interface DuplicateSpec {
 
 /**
  * Duplicate a project: create a brand-new project that inherits the source's
- * image and env, carries over its workspace files and its developer notes,
- * and gets a fresh meta store with the copying user as owner. Host ports are
+ * image and env, carries over its workspace files, its developer notes and its
+ * planning canvas, and gets a fresh meta store with the copying user as owner. Host ports are
  * intentionally NOT inherited (the caller supplies fresh ones) so both
  * containers can run side by side. The new container is provisioned and
  * started just like a normal create.
@@ -824,6 +825,16 @@ export async function duplicateProject(
       saveNotes(created.slug, srcNotes);
     } catch {
       /* notes are best-effort — never fail the duplicate over them */
+    }
+  }
+
+  // Carry over the visual planning canvas (only when the board is non-empty).
+  const srcCanvas = loadCanvas(srcSlug);
+  if (srcCanvas.nodes.length > 0 || srcCanvas.edges.length > 0) {
+    try {
+      saveCanvas(created.slug, srcCanvas);
+    } catch {
+      /* canvas is best-effort — never fail the duplicate over it */
     }
   }
 
