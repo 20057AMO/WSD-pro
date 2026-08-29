@@ -157,10 +157,10 @@ const rateBuckets = new Map<string, { count: number; resetAt: number }>();
 const RATE_WINDOW = 60_000; // 1 minute
 
 // Ceilings are env-tunable. Under WSD_TESTING=1 (the compose default for the
-// automated-suite container) the global/strict/agent-write budgets are relaxed
-// so multi-suite teardown never trips them — while the auth/unlock/totp
-// brute-force scopes stay at their real values (that's what security suites
-// actually assert). Production should keep WSD_TESTING=0/absent.
+// automated-suite container) the global/strict/agent-write/user-admin budgets
+// are relaxed so multi-suite teardown never trips them — while the
+// auth/unlock/totp brute-force scopes stay at their real values (that's what
+// security suites actually assert). Production should keep WSD_TESTING=0/absent.
 function rateCeil(envKey: string, dflt: number, testValue: number): number {
   const raw = process.env[envKey];
   const n = raw ? Number(raw) : NaN;
@@ -170,6 +170,7 @@ function rateCeil(envKey: string, dflt: number, testValue: number): number {
 const RATE_MAX = rateCeil('WSD_RATE_MAX', 240, 4000); // req/min global
 const RATE_STRICT_MAX = rateCeil('WSD_RATE_STRICT_MAX', 10, 400); // dangerous endpoints
 const RATE_AUTH_MAX = 10; // password-verification endpoints (brute-force guard)
+const RATE_USER_ADMIN_MAX = rateCeil('WSD_RATE_USER_ADMIN_MAX', 20, 2000); // admin user provisioning
 
 function rateLimit(scope: string, windowMs: number, max: number) {
   return (req: any, res: any, next: any) => {
@@ -220,6 +221,11 @@ const authLimiter = rateLimit('auth', RATE_WINDOW, RATE_AUTH_MAX);
 // starve legit logins nor have their counting poisoned by them. The
 // progressive cooldown below adds the real teeth on top of this.
 const unlockLimiter = rateLimit('unlock', RATE_WINDOW, 15);
+
+// User provisioning (admin-gated, so NOT a public brute-force surface — only
+// an authenticated admin can spend this budget). Separate from `auth` so the
+// suite's user creation never drains the real login-attack budget.
+const userAdminLimiter = rateLimit('user-admin', RATE_WINDOW, RATE_USER_ADMIN_MAX);
 
 // ── Uploads (files into an existing project workspace) ────────
 const UPLOADS_TMP = '/tmp/wsd-uploads';
@@ -512,7 +518,7 @@ app.get('/api/users', (req: any, res) => {
   res.json(listUsers());
 });
 
-app.post('/api/users', requireAdmin, authLimiter, (req: any, res) => {
+app.post('/api/users', requireAdmin, userAdminLimiter, (req: any, res) => {
   try {
     const { username, password, role } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
@@ -535,7 +541,7 @@ app.patch('/api/users/:userId/role', requireAdmin, (req: any, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/users/:userId', requireAdmin, authLimiter, (req: any, res) => {
+app.delete('/api/users/:userId', requireAdmin, userAdminLimiter, (req: any, res) => {
   // Prevent admin from deleting themselves
   if (req.params.userId === req.user?.id) {
     return res.status(400).json({ error: 'Cannot delete your own account.' });

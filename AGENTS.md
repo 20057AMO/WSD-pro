@@ -219,7 +219,8 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Dedicated `auth` rate-limit scope: **10 password verifications/min per IP** on login, setup, logout-all, providers-password set/remove, settings export/import
 - Separate from the global 240/min budget — login attempts never starve normal API usage
 - Exceeding returns `429` with `Retry-After`; verified via isolated-server hammer test
-- Ceilings are env-tunable (`WSD_RATE_MAX`, `WSD_RATE_STRICT_MAX`, `WSD_RATE_AGENT_WRITE_MAX`); under `WSD_TESTING=1` (the compose default for the suite container) the global/strict/agent-write budgets relax so multi-suite teardown never trips them — the auth/unlock/totp brute-force scopes stay at their **real** values (those are what the security suites actually assert). Production: `WSD_TESTING=0`
+- Ceilings are env-tunable (`WSD_RATE_MAX`, `WSD_RATE_STRICT_MAX`, `WSD_RATE_AGENT_WRITE_MAX`, `WSD_RATE_USER_ADMIN_MAX`); under `WSD_TESTING=1` (the compose default for the suite container) the global/strict/agent-write budgets + the **admin user-provisioning scope** (own `user-admin` limiter, admin-gated so not a brute-force surface — 20/min prod → relaxed under testing) relax so multi-suite teardown never trips them — the auth/unlock/totp brute-force scopes stay at their **real** values (those are what the security suites actually assert). Production: `WSD_TESTING=0`
+- Full suite is green end-to-end (`node --test --test-concurrency=1 "tests/**/*.test.ts"` → 224 pass / 0 fail / 80 self-skip on missing creds)
 
 ### Session revocation (logout everywhere)
 - Every login token carries a `tv` claim matching `users.json → tokenVersion`; `verifyToken` rejects stale versions
