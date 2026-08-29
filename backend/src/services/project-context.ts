@@ -428,7 +428,7 @@ async function buildFullContext(
   // 3) Small source files (fully), excluding key/goals already shown.
   const smallParts: string[] = [];
   for (const f of files) {
-    if (keySet.has(f.rel) || f.rel === 'WSD_PROJECT.md') continue;
+    if (keySet.has(f.rel) || f.rel === 'WSD_PROJECT.md' || f.rel === 'WSD_CANVAS.md') continue;
     if (f.size > SMALL_FILE_BYTES) continue;
     try {
       const content = fs.readFileSync(f.abs, 'utf8');

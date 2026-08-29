@@ -52,7 +52,7 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 | Security | `tests/security.test.ts` | Path traversal, upload sanitization, malformed auth headers |
 | Smoke | `tests/smoke.test.ts` | Health, core endpoints, project roundtrip |
 | Project notes | `tests/project-notes.test.ts` | Notes CRUD + validation (junk body 400, cap 300, truncation, kind normalization) + AI-context injection (`[Developer notes]` section ordering, done-items omitted) + 'all'-brief per-project counts |
-| Project canvas | `tests/project-canvas.test.ts` | Visual-planning whiteboard: GET default-empty vs seeded roundtrip, viewer/editor/outsider 403 matrix, junk body 400 + node/edge caps + bounds normalization, node id churn on alternating writes (fresh ids each save — canvases never merge garbage from stale clients), `PUT` audits `canvas-save`, **`canvasEditedAt` appears on the project list after a save**, the `[Planning canvas]` AI-context block renders sticky notes + task cards flat text (empty canvas → absent section), and the 'all' brief appends `— board: N nodes` once a project has a board |
+| Project canvas | `tests/project-canvas.test.ts` | Visual-planning whiteboard: GET default-empty vs seeded roundtrip, viewer/editor/outsider 403 matrix, junk body 400 + node/edge caps + bounds normalization, node id churn on alternating writes (fresh ids each save — canvases never merge garbage from stale clients), `PUT` audits `canvas-save`, **`canvasEditedAt` appears on the project list after a save**, the `[Planning canvas]` AI-context block renders sticky notes + task cards flat text (empty canvas → absent section), and the 'all' brief appends `— board: N nodes` once a project has a board. Saving a board also mirrors a flat **`WSD_CANVAS.md`** into the project workspace (removed when the board empties) so the IDE + opencode agents can read the plan alongside `WSD_PROJECT.md`; the mirror is excluded from the file-context scan (`project-context.ts`) since it is already rendered as the `[Planning canvas]` block |
 | WebSocket matrix | `tests/websocket.test.ts` | 6 endpoints × {no token→401, valid→open, invalid→401} |
 
 **Test notes:**
@@ -219,6 +219,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Dedicated `auth` rate-limit scope: **10 password verifications/min per IP** on login, setup, logout-all, providers-password set/remove, settings export/import
 - Separate from the global 240/min budget — login attempts never starve normal API usage
 - Exceeding returns `429` with `Retry-After`; verified via isolated-server hammer test
+- Ceilings are env-tunable (`WSD_RATE_MAX`, `WSD_RATE_STRICT_MAX`, `WSD_RATE_AGENT_WRITE_MAX`); under `WSD_TESTING=1` (the compose default for the suite container) the global/strict/agent-write budgets relax so multi-suite teardown never trips them — the auth/unlock/totp brute-force scopes stay at their **real** values (those are what the security suites actually assert). Production: `WSD_TESTING=0`
 
 ### Session revocation (logout everywhere)
 - Every login token carries a `tv` claim matching `users.json → tokenVersion`; `verifyToken` rejects stale versions

@@ -273,3 +273,25 @@ test('all-brief reports the canvas board size once a board exists', async () => 
   const line = (after.json.text as string).split('\n').find((l) => l.includes(`[${slug}]`)) || '';
   assert.match(line, /board: 2 nodes/);
 });
+
+test('saving a board mirrors a flat WSD_CANVAS.md into the workspace (removed when it empties)', async () => {
+  const slug = await createTestProject('canvas-mirror');
+
+  const empty = await api('GET', `/projects/${slug}/file?path=WSD_CANVAS.md`);
+  assert.strictEqual(empty.status, 404, 'no mirror before the board has content');
+
+  await api('PUT', `/projects/${slug}/canvas`, canvasDoc([
+    node('m1', 'Mirror this idea'),
+    node('m2', 'And this card', { type: 'card' }),
+  ]));
+
+  const mirror = await api('GET', `/projects/${slug}/file?path=WSD_CANVAS.md`);
+  assert.strictEqual(mirror.status, 200, 'mirror written after board save');
+  assert.match(mirror.json.content, /WSD Project Canvas/);
+  assert.match(mirror.json.content, /- \[note\] Mirror this idea/);
+  assert.match(mirror.json.content, /- \[task\] And this card/);
+
+  await api('PUT', `/projects/${slug}/canvas`, canvasDoc([]));
+  const gone = await api('GET', `/projects/${slug}/file?path=WSD_CANVAS.md`);
+  assert.strictEqual(gone.status, 404, 'empty board removes the stale mirror');
+});

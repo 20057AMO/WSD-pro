@@ -14,6 +14,11 @@ import path from 'path';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const META_DIR = path.join(DATA_DIR, 'projects');
+const WORKSPACES_ROOT = process.env.WSD_PROJECTS_DIR || '/workspaces';
+
+/** Derived flat-text board kept in the project workspace so IDE + opencode
+ *  agents can read the planning canvas (like WSD_PROJECT.md). */
+const CANVAS_MIRROR_FILE = 'WSD_CANVAS.md';
 
 export type CanvasNodeType = 'note' | 'card';
 export type CanvasColor = 'yellow' | 'blue' | 'red' | 'green';
@@ -161,7 +166,35 @@ export function saveCanvas(slug: unknown, input: unknown): ProjectCanvas {
   const doc: ProjectCanvas = { version: 1, nodes, edges, updatedAt: new Date().toISOString() };
   fs.mkdirSync(path.dirname(canvasFile(clean)), { recursive: true });
   fs.writeFileSync(canvasFile(clean), JSON.stringify(doc, null, 2), 'utf8');
+  refreshCanvasMirror(clean);
   return doc;
+}
+
+/**
+ * Keep a flat-text copy of the planning board in the project workspace
+ * (WSD_CANVAS.md, next to WSD_PROJECT.md) so the IDE and opencode agents
+ * see the canvas. Best-effort: an empty board removes the stale mirror, a
+ * missing workspace leaves nothing behind, and failures never break a save.
+ */
+export function refreshCanvasMirror(slug: unknown): void {
+  try {
+    const clean = cleanSlug(slug);
+    const target = path.join(WORKSPACES_ROOT, clean, CANVAS_MIRROR_FILE);
+    const dir = path.dirname(target);
+    if (!fs.existsSync(dir)) return;
+    const text = formatCanvasForContext(clean);
+    if (!text) {
+      if (fs.existsSync(target)) fs.unlinkSync(target);
+      return;
+    }
+    const header =
+      `# WSD Project Canvas\n\n` +
+      `> Planning-board snapshot (canvas.json). Auto-overwritten by Madar on every board save.\n\n` +
+      text;
+    fs.writeFileSync(target, header, 'utf8');
+  } catch {
+    /* mirror is best-effort — never fail a board save over it */
+  }
 }
 
 /** Cheap change-detector for the context cache: mtime+size of canvas.json. */
