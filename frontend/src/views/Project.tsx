@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { ExternalLink } from 'lucide-preact';
+import { ExternalLink, Download } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   getProject,
@@ -25,6 +25,7 @@ import {
   getProjectSubdir,
   getLogs,
   wsUrl,
+  exportProjectSnapshot,
 } from '../api';
 import type {
   Project,
@@ -214,6 +215,28 @@ export function Project({ params }: { params: { slug: string } }) {
     setConfirmRestart(true);
   };
 
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const { blob, filename } = await exportProjectSnapshot(slug);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const runRestart = async () => {
     setConfirmRestart(false);
     try {
@@ -289,6 +312,9 @@ export function Project({ params }: { params: { slug: string } }) {
         </div>
         <div class="detail-actions">
           <button class="btn-ghost sm" onClick={() => setTab('chat')}>Ask AI</button>
+          <button class="btn-ghost sm" onClick={handleExport} disabled={exporting}>
+            <Download width={13} height={13} class="icon" /> {exporting ? 'Exporting…' : 'Export'}
+          </button>
           <button class="btn-ghost sm" onClick={() => setLocation(`/terminals/${slug}`)}>Terminals</button>
           <button class="btn-ghost sm" onClick={openIde}><ExternalLink width={13} height={13} class="icon" /> Open IDE</button>
           <button

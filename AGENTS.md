@@ -40,6 +40,7 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 | Session revocation | `tests/auth-revoke.test.ts` | logout-everywhere + token rotation (needs `WSD_TEST_ACCOUNT_PASSWORD`; self-skips) |
 | Project lifecycle | `tests/projects.lifecycle.test.ts` | Real Docker: create → env → files → logs/stats/ports → stop/start → delete → 404; **duplicate** feature (copy source project: workspaces files + developer notes carried over, fresh ports applied, owner = duplicator) via `POST /api/projects/:slug/duplicate` |
 | Project templates | `tests/project-templates.test.ts` | Runtime recipes CRUD (trim, dup-port collapse, invalid env-key drop, 400s for missing name / privileged / reserved ports), partial-update contract (explicit fields replace, omitted survive), editor-403 writes, real-Docker bootstrap from a template (env+ports inherited, request-level fields win, missing template 404) |
+| Project snapshots | `tests/project-snapshots.test.ts` | Real Docker roundtrip: create source (file+notes+env+meta) → `GET /projects/:slug/export` (gzip magic + attachment filename) → `POST /projects/import` multipart → restored copy: files/notes/env/description preserved, ports fresh while source holds them, **manifest ports reused once the source is gone**, 404 unknown, non-member editor-export 403 + viewer-import 403, garbage/empty uploads 400, hand-crafted `../`-traversal tar 400 |
 | Project team & access | `tests/team-access.test.ts` | Real Docker: owner creates project → creates editor+viewer users → adds members → permission matrix (viewer read-only/403s, editor read+write+stop/start, member add denied, **viewer duplicate 403**), remove rules, outsider 403, ownership transfer → deletes project + temp users |
 | Providers/Agents/Chat CRUD | `tests/providers-agents-chat.test.ts` | Full CRUD + sessions + templates |
 | Providers lock & backup | `tests/providers-lock.test.ts` | Lock flow E2E (needs `WSD_TEST_ACCOUNT_PASSWORD`; self-skips without it) |
@@ -169,6 +170,13 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - `POST /api/settings/export` (JSON body with `accountPassword`) → JSON backup; **provider API keys are stripped by design**
 - `POST /api/settings/import` merges by id — existing items always win, secrets are never imported
 - Both operations require account-password re-auth
+
+### Project snapshots (export / restore)
+- `services/project-snapshots.ts` — hand-rolled POSIX-ustar tar writer (no `tar`/`archiver` dep, streaming via `Readable.from(async generator)` → `zlib.createGzip`) + hardened parser (ustar magic, `../`-traversal rejection, `<root>`-escape proof, cap 200k entries, 1 GiB gunzip bomb guard)
+- `GET /api/projects/:slug/export` (editor+ on that project) streams `madar-<slug>-<stamp>.tar.gz` = `manifest.json` (format `madar:1` + name/description/image/ports/env) + `notes.json` + `workspace/**`; audited `snapshot-export`
+- **Heavy regenerable dirs excluded** (`EXCLUDE_DIRS`: `.git`, `node_modules`, `__pycache__`, `.venv`, `.next`, `dist`, `build`, `target`, `vendor`, …) — a snapshot is source + notes + config, keep it lean
+- `POST /api/projects/import` (editor+, multer single `file`, ≤200 MB) restores into a **brand-new** project — never overwrites: unique slug (`base-1 …`), manifest ports reused when free else fresh (seeks from 8000), owner = restorer; audited `snapshot-import`; temp upload + staging dir always cleaned
+- UI: Project page header "Export" (blob download), Projects toolbar "Restore" (file picker → navigates to the new project); frontend helpers `exportProjectSnapshot`/`importProjectSnapshot` in `api.ts`
 
 ### Workspace janitor & IDE/opencode hygiene
 - Deleting a project now removes EVERYTHING: container + meta store **and its workspace files from disk** (`removeProject`); opencode sessions for that directory are deleted best-effort (`unregisterOpencodeProject`)

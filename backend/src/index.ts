@@ -37,6 +37,7 @@ import * as studio from './services/opencode-studio';
 import { listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, renameWorkspacePath, deleteWorkspacePath, resolveProjectSubdir } from './services/workspace-files';
 import { loadMeta, saveMeta } from './services/projects-meta';
 import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTemplate } from './services/project-templates';
+import { exportProjectSnapshot, importProjectSnapshot } from './services/project-snapshots';
 import { getIdeStatus } from './services/ide-service';
 import { detectIp } from './services/server-info';
 import { getChatConfig, updateChatConfig, listModels, type ChatConfig } from './services/chat-config';
@@ -993,6 +994,56 @@ app.post('/api/projects/:slug/duplicate', requireProjectAccess('editor'), async 
     res.status(201).json({ project });
   } catch (err: any) {
     res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Export a project as a downloadable snapshot: tar.gz of workspace + notes +
+// meta (name / description / image / ports / env). Editor+ access — a viewer
+// is read-only and cannot strip data out of the server.
+app.get('/api/projects/:slug/export', requireProjectAccess('editor'), (req: any, res) => {
+  let snapshot;
+  try {
+    snapshot = exportProjectSnapshot(req.params.slug);
+  } catch (err: any) {
+    return res.status(err.statusCode || 500).json({ error: err.message });
+  }
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="${snapshot.filename}"`);
+  snapshot.stream.on('error', (err: any) => {
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+    else res.destroy(err);
+  });
+  snapshot.stream.pipe(res);
+  recordAudit('snapshot-export', true, req.ip);
+});
+
+// Restore a snapshot upload as a NEW project (never overwrites an existing one).
+// Editor+ since it creates a project from arbitrary binary input.
+app.post('/api/projects/import', requireRole('editor'), upload.single('file'), async (req: any, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Please attach a snapshot file (.tar.gz)' });
+  try {
+    const project = await importProjectSnapshot(req.file.path);
+    // The restoring user becomes the owner of the recreated copy.
+    const userId = req.user?.id;
+    if (userId) {
+      const meta = loadMeta(project.slug) || { activity: [] };
+      meta.ownerId = userId;
+      meta.members = [{ userId, role: 'admin', addedAt: new Date().toISOString() }];
+      saveMeta(project.slug, meta);
+    }
+    recordAudit('snapshot-import', true, req.ip);
+    res.status(201).json({ project });
+  } catch (err: any) {
+    recordAudit('snapshot-import', false, req.ip);
+    res.status(err.statusCode || 400).json({ error: err.message });
+  } finally {
+    if (req.file?.path) {
+      try {
+        fs.rmSync(req.file.path, { force: true });
+      } catch {
+        /* temp upload cleanup is best-effort */
+      }
+    }
   }
 });
 

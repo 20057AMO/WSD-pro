@@ -32,6 +32,8 @@ export type AuditEvent =
   | 'login-2fa-failed'
   | 'backup-export'
   | 'backup-import'
+  | 'snapshot-export'
+  | 'snapshot-import'
   | 'workspace-janitor'
   | 'project-files-deleted'
   | 'opencode-studio'

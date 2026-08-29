@@ -1,11 +1,12 @@
-import { useState, useEffect, useMemo } from 'preact/hooks';
-import { FolderSearch, FolderOpen, Copy } from 'lucide-preact';
+import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
+import { FolderSearch, FolderOpen, Copy, Upload } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
 import {
   listProjects,
   createProject,
   duplicateProject,
+  importProjectSnapshot,
   startProject,
   stopProject,
   deleteProject,
@@ -35,6 +36,8 @@ export function Projects() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [ports, setPorts] = useState('');
@@ -357,6 +360,23 @@ export function Projects() {
 
   const sortIcon = (key: SortKey) => sortKey === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
+  // Restore a snapshot upload as a brand-new project, then jump to it.
+  const handleRestoreFile = async (e: any) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setLoadError(null);
+    try {
+      const { project } = await importProjectSnapshot(file);
+      setLocation(`/project/${project.slug}`);
+    } catch (err: any) {
+      setLoadError(err?.message || 'Restore failed');
+    } finally {
+      if (e.target) e.target.value = '';
+      setImporting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div class="view">
@@ -372,7 +392,13 @@ export function Projects() {
           <h1 class="hero-title" style="font-size:1.5rem">Projects</h1>
           <p class="hero-sub" style="margin:0">{projects.length} projects · {running} running · {stopped} stopped</p>
         </div>
-        <button class="btn-primary" onClick={() => setCreateOpen(true)}>+ New Project</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input ref={restoreInputRef} type="file" accept=".tar.gz,application/gzip" style="display:none" onChange={handleRestoreFile} />
+          <button class="btn-ghost" onClick={() => restoreInputRef.current?.click()} disabled={importing}>
+            <Upload class="icon" /> {importing ? 'Restoring…' : 'Restore'}
+          </button>
+          <button class="btn-primary" onClick={() => setCreateOpen(true)}>+ New Project</button>
+        </div>
       </div>
 
       {loadError && <div class="login-error" style="margin-bottom:12px">{loadError}</div>}
