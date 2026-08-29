@@ -74,6 +74,7 @@ export function ProjectCanvas({ slug, readOnly }: { slug: string; readOnly?: boo
 
   const docRef = useRef<ProjectCanvas | null>(null);
   const viewRef = useRef<ViewState>(view);
+  const slugRef = useRef<string>(slug);
   const saveTimer = useRef<number | null>(null);
   const dirtyRef = useRef(false);
   const dragRef = useRef<null | {
@@ -87,6 +88,7 @@ export function ProjectCanvas({ slug, readOnly }: { slug: string; readOnly?: boo
 
   // ── load ─────────────────────────────────────────────────────
   useEffect(() => {
+    slugRef.current = slug;
     let cancelled = false;
     (async () => {
       try {
@@ -113,7 +115,7 @@ export function ProjectCanvas({ slug, readOnly }: { slug: string; readOnly?: boo
     if (!d || !dirtyRef.current) return;
     dirtyRef.current = false;
     setSaveState('saving');
-    saveProjectCanvas(slug, d)
+    saveProjectCanvas(slugRef.current, d)
       .then(() => {
         if (docRef.current === d) {
           setSaveState('saved');
@@ -135,15 +137,17 @@ export function ProjectCanvas({ slug, readOnly }: { slug: string; readOnly?: boo
     if (saveTimer.current === null) saveTimer.current = window.setTimeout(flushSave, 900);
   };
 
-  // Flush a pending save on unmount (tab switches).
+  // Flush a pending save on unmount (tab switches) — re-registered on slug
+  // changes so a switch between projects always writes to the right store.
   useEffect(() => {
     return () => {
       if (saveTimer.current !== null) {
         clearTimeout(saveTimer.current);
+        saveTimer.current = null;
         flushSave();
       }
     };
-  }, []);
+  }, [slug]);
 
   // ── notices auto-dismiss ─────────────────────────────────────
   useEffect(() => {
@@ -267,7 +271,12 @@ export function ProjectCanvas({ slug, readOnly }: { slug: string; readOnly?: boo
   const seedFromNotes = async () => {
     try {
       const { items } = await getProjectNotes(slug);
-      const open = items.filter((n) => !n.done).slice(0, 12);
+      const budget = MAX_NODES - (docRef.current?.nodes.length || 0);
+      if (budget <= 0) {
+        setNotice(`Canvas limit reached (${MAX_NODES} nodes)`);
+        return;
+      }
+      const open = items.filter((n) => !n.done).slice(0, Math.min(12, budget));
       if (!open.length) {
         setNotice('No open notes to import');
         return;
@@ -706,6 +715,7 @@ export function ProjectCanvas({ slug, readOnly }: { slug: string; readOnly?: boo
                   <span
                     class={`cn-check ${n.done ? 'done' : ''}`}
                     title={n.done ? 'Mark not done' : 'Mark done'}
+                    onPointerDown={(e: any) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
                       if (!readOnly) toggleDone(n.id, !n.done);
@@ -736,6 +746,7 @@ export function ProjectCanvas({ slug, readOnly }: { slug: string; readOnly?: boo
                       <span
                         key={c}
                         class={`cn-dot s c-${c} ${n.color === c ? 'cn-dot-active' : ''}`}
+                        onPointerDown={(e: any) => e.stopPropagation()}
                         onClick={(e) => {
                           e.stopPropagation();
                           setColor(n.id, c);
