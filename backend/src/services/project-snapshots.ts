@@ -28,6 +28,8 @@ import {
   createProject,
   getProject,
   listProjects,
+  currentUsedPorts,
+  resolvePorts,
   type ProjectInfo,
 } from './docker-manager';
 import { loadMeta } from './projects-meta';
@@ -350,36 +352,7 @@ async function uniqueProjectSlug(base: string): Promise<string> {
   return slug;
 }
 
-/** All host ports currently claimed (other projects + reserved system ports). */
-async function currentUsedPorts(): Promise<Set<number>> {
-  const used = new Set<number>();
-  const reserved = [Number(process.env.PORT) || 3000, Number(process.env.WSD_IDE_PORT) || 8100, Number(process.env.WSD_OPENCODE_PORT) || 4096];
-  for (const p of reserved) used.add(p);
-  for (const proj of await listProjects()) for (const p of proj.ports || []) used.add(p);
-  return used;
-}
-
-/** Reuse requested ports when free; otherwise hand out fresh free ports. */
-function resolvePorts(requested: number[] | undefined, used: Set<number>): number[] {
-  const out: number[] = [];
-  let probe = 8000;
-  for (const raw of Array.isArray(requested) ? requested : []) {
-    const p = Number(raw);
-    if (!Number.isInteger(p) || p < 1024 || p > 65535) continue;
-    if (!used.has(p)) {
-      used.add(p);
-      out.push(p);
-    } else {
-      while (used.has(probe)) probe++;
-      used.add(probe);
-      out.push(probe);
-    }
-  }
-  return out;
-}
-
-/**
- * Import a snapshot upload (path to the multer-saved tar.gz) as a NEW project.
+/** Import a snapshot upload (path to the multer-saved tar.gz) as a NEW project.
  * Returns the created ProjectInfo (owner is attributed by the route, mirroring
  * the create-project flow).
  */

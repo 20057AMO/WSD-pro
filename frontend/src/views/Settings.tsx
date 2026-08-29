@@ -56,6 +56,7 @@ const AUDIT_LABELS: Record<string, string> = {
   'login-2fa-failed': 'Sign in blocked — wrong authenticator code',
   'backup-export': 'Backup exported',
   'backup-import': 'Backup imported',
+  'project-ports': 'Project ports updated',
 };
 
 type Msg = { type: 'ok' | 'err'; text: string } | null;

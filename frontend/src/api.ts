@@ -792,6 +792,12 @@ export const setProjectEnv = (slug: string, env: Record<string, string>) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ env }),
   });
+export const setProjectPorts = (slug: string, ports: number[]) =>
+  api<{ ports: number[]; needsRecreate: boolean }>(`/api/projects/${slug}/ports`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ports }),
+  });
 export const cloneProject = (slug: string, url: string) =>
   api<{ target: string; output: string }>(`/api/projects/${slug}/clone`, {
     method: 'POST',

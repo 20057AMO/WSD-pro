@@ -28,6 +28,8 @@ import {
   runProjectScript,
   cloneIntoWorkspace,
   duplicateProject,
+  validatePortSet,
+  updateProjectPorts,
   ensureOpencodeSession,
   HttpError,
   WORKSPACES_ROOT,
@@ -1647,6 +1649,22 @@ app.put('/api/projects/:slug/env', requireProjectAccess('editor'), async (req, r
     res.json({ env: clean, needsRecreate: project.status === 'running' });
   } catch (err: any) {
     res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Set project published ports (validated + conflict-checked, applied on recreate)
+app.put('/api/projects/:slug/ports', requireProjectAccess('editor'), async (req, res) => {
+  try {
+    if (!Array.isArray((req.body || {}).ports)) {
+      throw new HttpError(400, 'ports must be an array of integers');
+    }
+    const clean = validatePortSet(req.body.ports, { max: 50 });
+    const result = await updateProjectPorts(req.params.slug, clean);
+    recordAudit('project-ports', true, req.ip);
+    res.json({ ports: result.project.ports, needsRecreate: result.needsRecreate });
+  } catch (err: any) {
+    recordAudit('project-ports', false, req.ip);
+    res.status(err.statusCode || 500).json({ error: err.message, ...(err.taken ? { taken: err.taken } : {}) });
   }
 });
 

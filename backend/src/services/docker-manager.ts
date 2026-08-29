@@ -90,11 +90,41 @@ function validateProjectSpec(spec: ProjectSpec): { name: string; slug: string; d
   const slugInput = spec.slug ? String(spec.slug).trim() : sanitizeSlug(name);
   const slug = validateProjectSlug(slugInput);
 
-  const ports = Array.isArray(spec.ports) ? [...spec.ports] : [];
+  const cleanPorts = validatePortSet(spec.ports);
+
+  return {
+    name,
+    slug,
+    description: spec.description ? String(spec.description).trim() : undefined,
+    image: spec.image ? String(spec.image).trim() : undefined,
+    ports: cleanPorts,
+    env: normalizeEnv(spec.env),
+  };
+}
+
+function normalizeEnv(env?: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!env || typeof env !== 'object') return out;
+  for (const [k, v] of Object.entries(env)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) continue;
+    if (typeof v === 'string' && v.length <= 4000) out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Validate + dedupe a raw port array using the exact rules as project
+ * creation: integers 1-65535, no privileged system ports (<1024), no Madar
+ * reserved service ports. Sharing this with the create path keeps edit,
+ * duplicate and import on one contract. When `max` is given, exceeding it
+ * rejects the whole set (create stays uncapped).
+ */
+export function validatePortSet(ports: unknown, opts?: { max?: number }): number[] {
+  const rawPorts = Array.isArray(ports) ? [...ports] : [];
   const seen = new Set<number>();
   const cleanPorts: number[] = [];
 
-  for (const raw of ports) {
+  for (const raw of rawPorts) {
     const port = Number(raw);
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
       throw new HttpError(400, `Invalid port: ${raw} (must be 1-65535)`);
@@ -118,24 +148,57 @@ function validateProjectSpec(spec: ProjectSpec): { name: string; slug: string; d
     if (seen.has(port)) continue;
     seen.add(port);
     cleanPorts.push(port);
+    if (opts?.max && cleanPorts.length > opts.max) {
+      throw new HttpError(400, `Too many ports (max ${opts.max})`);
+    }
   }
 
-  return {
-    name,
-    slug,
-    description: spec.description ? String(spec.description).trim() : undefined,
-    image: spec.image ? String(spec.image).trim() : undefined,
-    ports: cleanPorts,
-    env: normalizeEnv(spec.env),
-  };
+  return cleanPorts;
 }
 
-function normalizeEnv(env?: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!env || typeof env !== 'object') return out;
-  for (const [k, v] of Object.entries(env)) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) continue;
-    if (typeof v === 'string' && v.length <= 4000) out[k] = v;
+/** All host ports currently claimed: reserved system ports, every project's
+ *  declared meta ports, AND their container bindings — including STALE
+ *  bindings of edited-but-not-recreated projects and fully stopped containers.
+ *  Those bindings live in HostConfig.PortBindings (persist across stop/start),
+ *  which the cheap docker list call does not expose, so stopped containers are
+ *  inspected individually. Claiming such a port would destroy or brick a
+ *  sibling container the moment it starts/recreates.
+ */
+export async function currentUsedPorts(): Promise<Set<number>> {
+  const used = new Set<number>();
+  const reserved = [Number(process.env.PORT) || 3000, Number(process.env.WSD_IDE_PORT) || 8100, Number(process.env.WSD_OPENCODE_PORT) || 4096];
+  for (const p of reserved) used.add(p);
+  for (const proj of await listProjects()) {
+    for (const p of proj.ports || []) used.add(p);
+    let live: number[] = [];
+    if (proj.status === 'running') {
+      live = Object.values(proj.hostPorts || {}).map(Number);
+    } else {
+      const info = await getProject(proj.slug);
+      live = Object.values(info?.hostPorts || {}).map(Number);
+    }
+    for (const p of live) {
+      if (Number.isInteger(p) && p >= 1024 && p <= 65535) used.add(p);
+    }
+  }
+  return used;
+}
+
+/** Reuse requested ports when free; otherwise hand out fresh free ports. */
+export function resolvePorts(requested: number[] | undefined, used: Set<number>): number[] {
+  const out: number[] = [];
+  let probe = 8000;
+  for (const raw of Array.isArray(requested) ? requested : []) {
+    const p = Number(raw);
+    if (!Number.isInteger(p) || p < 1024 || p > 65535) continue;
+    if (!used.has(p)) {
+      used.add(p);
+      out.push(p);
+    } else {
+      while (used.has(probe)) probe++;
+      used.add(probe);
+      out.push(probe);
+    }
   }
   return out;
 }
@@ -305,7 +368,12 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   };
 
   const prev = loadMeta(slug);
+  // Merge with any existing meta instead of overwriting: a recreate (or any
+  // later call with the same slug) must preserve membership, owner and the
+  // snapshot schedule rather than silently demoting a team project to the
+  // "legacy, allow all" state. A fresh slug sees prev = null → current behavior.
   saveMeta(slug, {
+    ...prev,
     name: clean.name,
     description: clean.description,
     image,
@@ -613,6 +681,51 @@ export async function recreateProject(slug: string): Promise<ProjectInfo> {
     ports: meta.ports,
     env: meta.env,
   });
+}
+
+export interface UpdatePortsResult {
+  project: ProjectInfo;
+  needsRecreate: boolean;
+}
+
+/**
+ * Persist a new published-port set for an existing project. The set is
+ * validated, conflict-checked against every other project's claimed ports and
+ * Madar's reserved ports (own current set excluded), then written to meta
+ * immediately. The live container catches up only on the next explicit
+ * "Recreate container" — Docker cannot rebind published ports on a running
+ * or stopped container, so `needsRecreate` reports honestly whether the
+ * current binding already matches the requested set.
+ */
+export async function updateProjectPorts(slug: string, requested: number[]): Promise<UpdatePortsResult> {
+  const projectSlug = validateProjectSlug(slug);
+  const proj = await requireContainer(projectSlug);
+
+  const used = await currentUsedPorts();
+  for (const p of proj.ports || []) used.delete(p);
+  for (const p of Object.values(proj.hostPorts ?? {}).map(Number)) used.delete(p);
+  const taken = requested.filter((p) => used.has(p));
+  if (taken.length > 0) {
+    const err = new HttpError(409, `Ports already in use: ${taken.join(', ')}`);
+    (err as any).taken = taken;
+    throw err;
+  }
+
+  const meta: ProjectMeta = loadMeta(projectSlug) || { activity: [] };
+  meta.ports = requested;
+  meta.activity = [
+    ...(meta.activity || []),
+    { action: 'ports_updated', at: new Date().toISOString() },
+  ].slice(-200);
+  saveMeta(projectSlug, meta);
+
+  const live = Object.values(proj.hostPorts ?? {})
+    .map(Number)
+    .sort((a, b) => a - b);
+  const want = [...requested].sort((a, b) => a - b);
+  const needsRecreate = live.length !== want.length || live.some((p, i) => p !== want[i]);
+
+  return { project: { ...proj, ports: requested }, needsRecreate };
 }
 
 export interface ScriptRunResult {

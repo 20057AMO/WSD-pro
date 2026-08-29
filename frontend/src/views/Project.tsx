@@ -9,6 +9,7 @@ import {
   updateProject,
   recreateProject,
   setProjectEnv,
+  setProjectPorts,
   cloneProject,
   getProjectStats,
   checkProjectPorts,
@@ -86,6 +87,7 @@ function fmtAction(action: string): string {
     case 'recreated': return 'Recreated';
     case 'cloned': return 'Git cloned';
     case 'env_updated': return 'Env updated';
+    case 'ports_updated': return 'Ports updated';
     case 'deleted': return 'Deleted';
     default: return action.charAt(0).toUpperCase() + action.slice(1);
   }
@@ -417,6 +419,11 @@ function OverviewPanel({
   const [envText, setEnvText] = useState('');
   const [envMsg, setEnvMsg] = useState<string | null>(null);
 
+  const [portsText, setPortsText] = useState('');
+  const [portsMsg, setPortsMsg] = useState<string | null>(null);
+  const [savingPorts, setSavingPorts] = useState(false);
+  const portsInputRef = useRef<HTMLInputElement | null>(null);
+
   const [recreating, setRecreating] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -481,6 +488,11 @@ function OverviewPanel({
     setEnvText(Object.entries(project?.env || {}).map(([k, v]) => `${k}=${v}`).join('\n'));
   }, [project?.env]);
 
+  useEffect(() => {
+    if (document.activeElement === portsInputRef.current) return;
+    setPortsText((project?.ports || []).join(', '));
+  }, [project?.ports]);
+
   const saveDescription = async () => {
     try {
       await updateProject(slug, { description: descText });
@@ -522,6 +534,29 @@ function OverviewPanel({
       onChanged();
     } catch (err: any) {
       setEnvMsg(`Failed: ${err.message}`);
+    }
+  };
+
+  const savePorts = async () => {
+    if (savingPorts) return;
+    const parsed = portsText
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s !== '')
+      .map(Number);
+    if (parsed.length > 0 && parsed.some((p) => !Number.isInteger(p) || p < 1 || p > 65535)) {
+      setPortsMsg('Invalid ports — use comma-separated integers 1–65535.');
+      return;
+    }
+    setSavingPorts(true);
+    try {
+      const r = await setProjectPorts(slug, parsed);
+      setPortsMsg(r.needsRecreate ? 'Saved. Recreate the container to apply.' : 'Saved.');
+      onChanged();
+    } catch (err: any) {
+      setPortsMsg(`Failed: ${err.message}`);
+    } finally {
+      setSavingPorts(false);
     }
   };
 
@@ -710,6 +745,22 @@ function OverviewPanel({
             value={envText}
             onInput={(e: any) => setEnvText(e.target.value)}
           />
+          <div class="panel-title" style="margin-top:22px">Published ports</div>
+          <input
+            class="modern-input mono"
+            style="width:100%"
+            placeholder="e.g. 8000, 8080 — blank unpublishes all"
+            value={portsText}
+            ref={portsInputRef}
+            onInput={(e: any) => setPortsText(e.target.value)}
+            onKeyDown={(e: any) => e.key === 'Enter' && savePorts()}
+          />
+          <div style="display:flex; gap:8px; margin-top:10px; align-items:center">
+            <button class="btn-ghost sm" onClick={savePorts} disabled={savingPorts}>
+              {savingPorts ? 'Saving…' : 'Save ports'}
+            </button>
+            {portsMsg && <span class="dim" style="color: var(--text-3); font-size:0.74rem">{portsMsg}</span>}
+          </div>
           <div style="display:flex; gap:8px; margin-top:10px; align-items:center">
             <button class="btn-primary sm" onClick={saveEnv}>Save env</button>
             <button class="btn-ghost sm" onClick={requestRecreate} disabled={recreating}>

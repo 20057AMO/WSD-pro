@@ -40,6 +40,7 @@ export type AuditEvent =
   | 'snapshot-restore'
   | 'snapshot-config-change'
   | 'canvas-save'
+  | 'project-ports'
   | 'workspace-janitor'
   | 'project-files-deleted'
   | 'opencode-studio'
