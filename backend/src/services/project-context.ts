@@ -15,7 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { listProjects, getProject, projectLogs, WORKSPACES_ROOT, type ProjectInfo } from './docker-manager';
 import { formatNotesForContext, noteCounts, notesSignature } from './project-notes';
-import { formatCanvasForContext, canvasSignature as canvasSig } from './project-canvas';
+import { formatCanvasForContext, canvasSignature as canvasSig, canvasNodeCount } from './project-canvas';
 
 export const DEFAULT_MAX_CHARS = 24000;
 const BRIEF_MAX_CHARS = 4000;
@@ -277,7 +277,10 @@ export async function listProjectsBrief(maxChars: number = BRIEF_MAX_CHARS): Pro
       counts && (counts.bugs > 0 || counts.goals > 0)
         ? ` — notes: ${counts.bugs} open bug(s), ${counts.goals} active goal(s)`
         : '';
-    return `- ${p.name} [${p.slug}] — ${p.status}${desc}${ports}${notes}`;
+    const boardNodes = canvasNodeCount(p.slug);
+    const board =
+      boardNodes > 0 ? ` — board: ${boardNodes} node${boardNodes === 1 ? '' : 's'}` : '';
+    return `- ${p.name} [${p.slug}] — ${p.status}${desc}${ports}${notes}${board}`;
   });
   const text = lines.length
     ? `[Project context — all projects]\n${lines.join('\n')}`

@@ -175,6 +175,15 @@ export function canvasSignature(slug: unknown): string {
   }
 }
 
+/** Node-count for the 'all' project brief (no canvas / empty board → 0). */
+export function canvasNodeCount(slug: unknown): number {
+  try {
+    return loadCanvas(slug).nodes.length;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Compact planning-canvas summary for the AI context block — flat text of
  * every sticky note + task card, done cards counted. Empty canvases return ''.

@@ -258,3 +258,18 @@ test('canvas summary is injected into the AI chat context (server-side)', async 
   assert.match(ctx.json.text, /1 completed card\(s\)/);
   assert.ok(!/\[note\]\s*$/.test(ctx.json.text.split('\n').find((l: string) => l.startsWith('- [note]')) || ''), 'empty placeholder omitted');
 });
+
+test('all-brief reports the canvas board size once a board exists', async () => {
+  const slug = await createTestProject('canvas-allbrief');
+  const before = await api('GET', '/chat/context?project=all');
+  assert.strictEqual(before.status, 200);
+  const freshLine = (before.json.text as string).split('\n').find((l) => l.includes(`[${slug}]`)) || '';
+  assert.ok(!freshLine.includes('board:'), 'fresh project has no board marker');
+
+  await api('PUT', `/projects/${slug}/canvas`, canvasDoc([node('a', 'One idea'), node('b', 'Two ideas')]));
+
+  const after = await api('GET', '/chat/context?project=all');
+  assert.strictEqual(after.status, 200);
+  const line = (after.json.text as string).split('\n').find((l) => l.includes(`[${slug}]`)) || '';
+  assert.match(line, /board: 2 nodes/);
+});
