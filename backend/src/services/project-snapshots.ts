@@ -8,6 +8,7 @@
  *
  *   manifest.json   — snapshot format version + project meta (env, ports…)
  *   notes.json      — the raw developer notes document
+ *   canvas.json     — the raw visual planning canvas (only when non-empty)
  *   workspace/      — the project working directory (heavy regenerable dirs
  *                     excluded: .git, node_modules, build artifacts, …)
  *
@@ -31,6 +32,7 @@ import {
 } from './docker-manager';
 import { loadMeta } from './projects-meta';
 import { loadNotes, saveNotes } from './project-notes';
+import { loadCanvas, saveCanvas } from './project-canvas';
 
 const BLOCK = 512;
 const MAX_ENTRIES = 200_000;
@@ -216,6 +218,20 @@ export function exportProjectSnapshot(slug: string): ProjectSnapshot {
       if (notesBytes.length % BLOCK !== 0) yield Buffer.alloc(BLOCK - (notesBytes.length % BLOCK));
     } catch {
       /* notes unavailable → skip (still a valid snapshot) */
+    }
+
+    // Visual planning canvas: authored content like notes, so it ships in the
+    // backup too. Only materialized when the board has anything on it.
+    try {
+      const canvasDoc = loadCanvas(slug);
+      if (canvasDoc.nodes.length || canvasDoc.edges.length) {
+        const canvasBytes = Buffer.from(JSON.stringify(canvasDoc, null, 2), 'utf8');
+        yield* entryHeaders('canvas.json', canvasBytes.length, now, '0');
+        yield canvasBytes;
+        if (canvasBytes.length % BLOCK !== 0) yield Buffer.alloc(BLOCK - (canvasBytes.length % BLOCK));
+      }
+    } catch {
+      /* canvas unavailable → skip (still a valid snapshot) */
     }
 
     yield withChecksum(tarHeader({ name: 'workspace/', size: 0, mtime: now, type: '5' }));
@@ -422,6 +438,19 @@ export async function importProjectSnapshot(uploadPath: string): Promise<Project
           saveNotes(created.slug, parsed);
         } catch {
           /* invalid notes doc — keep fresh empty notes */
+        }
+      }
+    }
+
+    // Restore the visual planning canvas (best-effort; malformed docs dropped).
+    const canvasPath = path.join(staging, 'canvas.json');
+    if (fs.existsSync(canvasPath)) {
+      const parsed = tryJson<unknown>(readIfPresent(canvasPath));
+      if (parsed) {
+        try {
+          saveCanvas(created.slug, parsed);
+        } catch {
+          /* invalid canvas doc — keep fresh empty board */
         }
       }
     }

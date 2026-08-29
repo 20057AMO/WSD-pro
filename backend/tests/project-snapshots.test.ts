@@ -88,6 +88,17 @@ describe('Project snapshots (export / restore)', () => {
       items: [{ id: 'n1', text: 'remember the polar bears', kind: 'bug', done: false, createdAt: new Date().toISOString() }],
     });
     assert.strictEqual(note.status, 200, `notes write: ${note.status}`);
+    // A planning canvas so the whiteboard travels with the snapshot too.
+    const canvas = await reqAuth('PUT', `/projects/${srcSlug}/canvas`, {
+      version: 1,
+      nodes: [
+        { id: 'sn', type: 'note', text: 'Idea: snapshot the board', x: 12, y: 24, w: 220, h: 100, color: 'yellow', done: false },
+        { id: 'sc', type: 'card', text: 'Make it survive restores', x: 300, y: 40, w: 240, h: 120, color: 'green', done: true },
+      ],
+      edges: [{ id: 'se', from: 'sn', to: 'sc' }],
+      updatedAt: null,
+    });
+    assert.strictEqual(canvas.status, 200, `canvas write: ${canvas.status}`);
   });
 
   after(async () => {
@@ -139,6 +150,17 @@ describe('Project snapshots (export / restore)', () => {
     const notes = (await notesRes.json()).items || [];
     assert.strictEqual(notes.length, 1, 'developer note restored');
     assert.strictEqual(notes[0].text, 'remember the polar bears');
+
+    const canvasRes = await reqAuth('GET', `/projects/${project.slug}/canvas`);
+    const canvas = await canvasRes.json();
+    assert.strictEqual(canvas.nodes.length, 2, 'canvas nodes restored');
+    assert.strictEqual(canvas.edges.length, 1, 'canvas edges restored');
+    const card = canvas.nodes.find((nd: any) => nd.id === 'sc') ?? {};
+    assert.strictEqual(card.type, 'card');
+    assert.strictEqual(card.text, 'Make it survive restores');
+    assert.strictEqual(card.color, 'green');
+    assert.strictEqual(card.done, true, 'done flag restored');
+    assert.strictEqual(canvas.edges[0].id, 'se', 'edge ids preserved through the roundtrip');
   });
 
   test('restore after the source is gone reuses the manifest ports', async () => {

@@ -181,6 +181,15 @@ describe('Project snapshot automation (scheduled server-side backups)', () => {
     await reqAuth('PUT', `/projects/${source}/notes`, {
       items: [{ id: 'r1', text: 'restore context note', kind: 'goal', done: false, createdAt: new Date().toISOString() }],
     });
+    await reqAuth('PUT', `/projects/${source}/canvas`, {
+      version: 1,
+      nodes: [
+        { id: 'rc1', type: 'note', text: 'Auto-backup roadmap', x: 5, y: 5, w: 220, h: 100, color: 'blue', done: false },
+        { id: 'rc2', type: 'card', text: 'Survive capture-now', x: 260, y: 30, w: 240, h: 120, color: 'red', done: false },
+      ],
+      edges: [{ id: 're1', from: 'rc1', to: 'rc2' }],
+      updatedAt: null,
+    });
 
     const { status, json } = await capture(source);
     assert.strictEqual(status, 201);
@@ -204,6 +213,13 @@ describe('Project snapshot automation (scheduled server-side backups)', () => {
     const notes = (await notesRes.json()).items || [];
     assert.strictEqual(notes.length, 1);
     assert.strictEqual(notes[0].text, 'restore context note');
+
+    const canvasRes = await reqAuth('GET', `/projects/${project.slug}/canvas`);
+    const canvas = await canvasRes.json();
+    assert.strictEqual(canvas.nodes.length, 2, 'stored snapshot restores the canvas board');
+    assert.strictEqual(canvas.edges.length, 1);
+    assert.strictEqual(canvas.edges[0].id, 're1');
+    assert.strictEqual((canvas.nodes.find((nd: any) => nd.id === 'rc2') ?? {}).text, 'Survive capture-now');
   });
 
   test('access control: member viewer can list/config but not capture/restore; outsider denied', async () => {
