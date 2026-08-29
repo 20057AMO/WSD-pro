@@ -55,6 +55,7 @@ import {
 import { detectProvider, checkProvider } from './services/providers-detect';
 import { getProjectContext, listProjectsBrief, capText } from './services/project-context';
 import * as notes from './services/project-notes';
+import * as canvas from './services/project-canvas';
 import { getIndexStats, retrieveProject, formatRetrievedChunks } from './services/project-index';
 import {
   listSessions,
@@ -903,6 +904,9 @@ app.put('/api/agents/:id/sessions/:chatId', (req, res) => {
 app.get('/api/projects', async (_req, res) => {
   try {
     const projects = await listProjects();
+    for (const p of projects) {
+      (p as any).canvasEditedAt = canvas.loadCanvas(p.slug).updatedAt;
+    }
     res.json({ projects });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1070,6 +1074,24 @@ app.get('/api/projects/:slug/notes', requireProjectAccess('viewer'), (req, res) 
 app.put('/api/projects/:slug/notes', requireProjectAccess('editor'), (req, res) => {
   try {
     res.json(notes.saveNotes(req.params.slug, req.body));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ── Project canvas (visual planning) — read + full-document save ────────
+app.get('/api/projects/:slug/canvas', requireProjectAccess('viewer'), (req, res) => {
+  try {
+    res.json(canvas.loadCanvas(req.params.slug));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+app.put('/api/projects/:slug/canvas', requireProjectAccess('editor'), (req, res) => {
+  try {
+    const doc = canvas.saveCanvas(req.params.slug, req.body);
+    recordAudit('canvas-save', true, req.ip);
+    res.json(doc);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -1782,6 +1804,11 @@ app.use((err: any, _req: any, res: any, next: any) => {
   if (res.headersSent) return next(err);
   if (err instanceof HttpError) {
     return res.status(err.statusCode).json({ error: err.message });
+  }
+  // body-parser rejections (malformed JSON / non-object JSON payloads) are
+  // client errors — surface them as 400, not 500.
+  if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') {
+    return res.status(400).json({ error: err.type === 'entity.parse.failed' ? 'Invalid JSON body' : 'Request body too large' });
   }
   console.error('[Madar] Unhandled error:', err?.stack || err);
   res.status(500).json({ error: 'Internal server error' });

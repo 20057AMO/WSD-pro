@@ -41,9 +41,13 @@ import { ProjectChat } from '../components/ProjectChat';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { TeamPanel } from '../components/TeamPanel';
 import { SnapshotsPanel } from '../components/SnapshotsPanel';
+import { ProjectCanvas } from '../components/ProjectCanvas';
+import { useAuth } from '../auth';
 import { usePresence } from '../usePresence';
 
-type Tab = 'overview' | 'chat' | 'files' | 'logs' | 'notes' | 'scripts' | 'team' | 'snapshots';
+type Tab = 'overview' | 'chat' | 'files' | 'logs' | 'notes' | 'scripts' | 'team' | 'snapshots' | 'canvas';
+
+const VALID_TABS: readonly Tab[] = ['overview', 'chat', 'files', 'logs', 'notes', 'scripts', 'team', 'snapshots', 'canvas'];
 
 function fmtBytes(bytes: number): string {
   if (!bytes) return '0 B';
@@ -88,8 +92,10 @@ function fmtAction(action: string): string {
 }
 
 export function Project({ params }: { params: { slug: string } }) {
-  const slug = params.slug;
-  const [, setLocation] = useHashLocation();
+  // wouter's :slug captures query strings too (hash routing), so strip `?tab=…`.
+  const slug = (params.slug || '').split('?')[0];
+  const [location, setLocation] = useHashLocation();
+  const { user } = useAuth();
   const [project, setProject] = useState<Project | null>(null);
   const [tab, setTab] = useState<Tab>('overview');
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +106,17 @@ export function Project({ params }: { params: { slug: string } }) {
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [ideNotice, setIdeNotice] = useState<string | null>(null);
   const onlineUsers = usePresence(slug);
+
+  // Deep-linkable tabs via `?tab=<name>`. wouter's hash router relocates the
+  // query into the real window.location.search, so match that first.
+  useEffect(() => {
+    const m = (window.location.search || location).match(/[?&]tab=([a-z]+)/);
+    if (m && (VALID_TABS as readonly string[]).includes(m[1])) setTab(m[1] as Tab);
+  }, [location]);
+
+  // Viewer members (and non-members) get a read-only board; owners/admins edit.
+  const readOnly = !!project && !!user && user.role !== 'admin' && project.ownerId !== user.id &&
+    (project.members?.find((m) => m.userId === user.id)?.role ?? 'viewer') === 'viewer';
 
   // Transient notices fade out on their own.
   useEffect(() => {
@@ -338,9 +355,9 @@ export function Project({ params }: { params: { slug: string } }) {
       )}
 
       <div class="detail-tabs">
-        {(['overview', 'chat', 'files', 'logs', 'notes', 'scripts', 'team', 'snapshots'] as Tab[]).map((t) => (
+        {((['overview', 'chat', 'files', 'logs', 'notes', 'scripts', 'team', 'snapshots', 'canvas'] as Tab[])).map((t) => (
           <button class={`tab-btn ${tab === t ? 'active' : ''}`} key={t} onClick={() => setTab(t)}>
-            {t === 'chat' ? 'AI Chat' : t === 'notes' ? 'Notes' : t === 'team' ? 'Team' : t === 'snapshots' ? 'Snapshots' : t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'chat' ? 'AI Chat' : t === 'notes' ? 'Notes' : t === 'team' ? 'Team' : t === 'snapshots' ? 'Snapshots' : t === 'canvas' ? 'Canvas' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
@@ -353,6 +370,7 @@ export function Project({ params }: { params: { slug: string } }) {
       {tab === 'scripts' && <ScriptsPanel slug={slug} />}
       {tab === 'team' && <TeamPanel slug={slug} project={project} onlineUsers={onlineUsers} />}
       {tab === 'snapshots' && <SnapshotsPanel slug={slug} />}
+      {tab === 'canvas' && <ProjectCanvas slug={slug} readOnly={readOnly} />}
 
       <ConfirmModal
         open={confirmRestart}

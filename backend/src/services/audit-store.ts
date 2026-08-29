@@ -39,6 +39,7 @@ export type AuditEvent =
   | 'snapshot-delete'
   | 'snapshot-restore'
   | 'snapshot-config-change'
+  | 'canvas-save'
   | 'workspace-janitor'
   | 'project-files-deleted'
   | 'opencode-studio'

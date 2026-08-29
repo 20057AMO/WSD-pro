@@ -13,6 +13,7 @@ export interface Project {
   activity?: { action: string; at: string }[];
   ownerId?: string;
   members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string }[];
+  canvasEditedAt?: string | null;
 }
 
 export interface ProjectTemplate {
@@ -458,6 +459,40 @@ export const saveProjectNotes = (slug: string, items: NoteItem[]) =>
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ items }),
+  });
+
+// ── Project canvas (visual planning) ────────────────────────────────────
+export type CanvasNodeType = 'note' | 'card';
+export type CanvasColor = 'yellow' | 'blue' | 'red' | 'green';
+export interface CanvasNode {
+  id: string;
+  type: CanvasNodeType;
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: CanvasColor;
+  done?: boolean;
+}
+export interface CanvasEdge {
+  id: string;
+  from: string;
+  to: string;
+}
+export interface ProjectCanvas {
+  version: 1;
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+  updatedAt: string | null;
+}
+export const getProjectCanvas = (slug: string) =>
+  api<ProjectCanvas>(`/api/projects/${encodeURIComponent(slug)}/canvas`);
+export const saveProjectCanvas = (slug: string, doc: ProjectCanvas) =>
+  api<ProjectCanvas>(`/api/projects/${encodeURIComponent(slug)}/canvas`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(doc),
   });
 export const getServerInfo = () => api<ServerInfo>('/api/server/info');
 export const getIdeStatus = () => api<{ ide: IdeStatus }>('/api/ide/status');

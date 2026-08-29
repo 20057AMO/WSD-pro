@@ -15,6 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { listProjects, getProject, projectLogs, WORKSPACES_ROOT, type ProjectInfo } from './docker-manager';
 import { formatNotesForContext, noteCounts, notesSignature } from './project-notes';
+import { formatCanvasForContext, canvasSignature as canvasSig } from './project-canvas';
 
 export const DEFAULT_MAX_CHARS = 24000;
 const BRIEF_MAX_CHARS = 4000;
@@ -302,9 +303,10 @@ function computeSig(files: ScannedFile[]): string {
   return parts.join('|');
 }
 
-/** Cache key = workspace signature + notes signature, so note edits invalidate. */
+/** Cache key = workspace signature + notes signature + canvas signature, so
+ * note/canvas edits invalidate the cached context. */
 function cacheKey(slug: string, sig: string): string {
-  return `${slug}::${sig}::${notesSignature(slug)}`;
+  return `${slug}::${sig}::${notesSignature(slug)}::${canvasSig(slug)}`;
 }
 
 /** Full context block for one project. */
@@ -318,6 +320,7 @@ export async function getProjectContext(
 
   // Developer notes survive workspace loss — always computed, shown either way.
   const notesText = formatNotesForContext(clean);
+  const canvasText = formatCanvasForContext(clean);
 
   if (exists) {
     const files = scanWorkspace(dir);
@@ -343,7 +346,8 @@ export async function getProjectContext(
     slug: clean,
     text:
       `[Project context — ${clean}]\n(workspace not found on disk)` +
-      (notesText ? `\n\n## Developer notes (from Madar Notes)\n${notesText}` : ''),
+      (notesText ? `\n\n## Developer notes (from Madar Notes)\n${notesText}` : '') +
+      (canvasText ? `\n\n${canvasText}` : ''),
     truncated: false,
   };
 }
@@ -385,6 +389,10 @@ async function buildFullContext(
   // 1.5) Developer notes from the Madar Notes tab (open bugs → goals → ideas).
   const notesText = formatNotesForContext(clean);
   if (notesText) parts.push(`\n## Developer notes (from Madar Notes)\n${notesText}`);
+
+  // 1.6) Visual planning canvas (sticky notes + task cards) — compact flat text.
+  const canvasText = formatCanvasForContext(clean);
+  if (canvasText) parts.push(`\n${canvasText}`);
 
   const byRel = new Map(files.map((f) => [f.rel, f]));
 

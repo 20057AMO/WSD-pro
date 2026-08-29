@@ -1,0 +1,766 @@
+import { useEffect, useRef, useState } from 'preact/hooks';
+import {
+  Plus,
+  StickyNote,
+  CheckSquare,
+  Link2,
+  MousePointer2,
+  ZoomIn,
+  ZoomOut,
+  Maximize,
+  Undo2,
+  Redo2,
+  Trash2,
+  Sparkles,
+  Lock,
+} from 'lucide-preact';
+import {
+  getProjectCanvas,
+  saveProjectCanvas,
+  getProjectNotes,
+} from '../api';
+import type { CanvasNode, CanvasColor, ProjectCanvas, CanvasNodeType } from '../api';
+
+/**
+ * ProjectCanvas — an infinite pan/zoom whiteboard for planning one project.
+ *
+ * The document itself is camera-free: nodes live at absolute world
+ * coordinates and the client view (pan/zoom) is purely local. Edits mutate a
+ * local mirror, autosave debounces ~900ms, and Ctrl+Z/Y walk a snapshot
+ * history. Viewers (readOnly) can pan/zoom but not edit.
+ */
+
+const HISTORY_DEPTH = 60;
+const MAX_NODES = 200;
+const MIN_Z = 0.2;
+const MAX_Z = 3;
+
+const COLORS: CanvasColor[] = ['yellow', 'blue', 'red', 'green'];
+
+interface ViewState {
+  x: number;
+  y: number;
+  z: number;
+}
+
+function freshId(prefix: string): string {
+  return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+export function ProjectCanvas({ slug, readOnly }: { slug: string; readOnly?: boolean }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [doc, setDoc] = useState<ProjectCanvas | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<'dirty' | 'saving' | 'saved'>('saved');
+  const [savedAt, setSavedAt] = useState('');
+
+  const [selNode, setSelNode] = useState<string | null>(null);
+  const [selEdge, setSelEdge] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [connectFrom, setConnectFrom] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+
+  const [view, setView] = useState<ViewState>({ x: 40, y: 40, z: 1 });
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const docRef = useRef<ProjectCanvas | null>(null);
+  const viewRef = useRef<ViewState>(view);
+  const saveTimer = useRef<number | null>(null);
+  const dirtyRef = useRef(false);
+  const dragRef = useRef<null | {
+    kind: 'node' | 'pan';
+    id?: string;
+    cX: number;
+    cY: number;
+    startX: number;
+    startY: number;
+  }>(null);
+
+  // ── load ─────────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const d = await getProjectCanvas(slug);
+        if (cancelled) return;
+        docRef.current = d;
+        setDoc(d);
+        setLoadError(null);
+      } catch (err: any) {
+        if (!cancelled) setLoadError(err.message || 'Failed to load canvas');
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
+
+  // ── autosave ─────────────────────────────────────────────────
+  const flushSave = () => {
+    saveTimer.current = null;
+    const d = docRef.current;
+    if (!d || !dirtyRef.current) return;
+    dirtyRef.current = false;
+    setSaveState('saving');
+    saveProjectCanvas(slug, d)
+      .then(() => {
+        if (docRef.current === d) {
+          setSaveState('saved');
+          setSavedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+          setSaveError(null);
+        }
+      })
+      .catch((err: any) => {
+        dirtyRef.current = true;
+        setSaveState('dirty');
+        setSaveError(err.message || 'Save failed');
+      });
+  };
+
+  const scheduleSave = () => {
+    if (readOnly) return;
+    dirtyRef.current = true;
+    setSaveState('dirty');
+    if (saveTimer.current === null) saveTimer.current = window.setTimeout(flushSave, 900);
+  };
+
+  // Flush a pending save on unmount (tab switches).
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current !== null) {
+        clearTimeout(saveTimer.current);
+        flushSave();
+      }
+    };
+  }, []);
+
+  // ── notices auto-dismiss ─────────────────────────────────────
+  useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(null), 3200);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
+  // ── mutations ────────────────────────────────────────────────
+  const pushHistory = () => {
+    const d = docRef.current;
+    if (!d) return;
+    histRef.current = [...histRef.current.slice(-(HISTORY_DEPTH - 1)), JSON.stringify(d)];
+    setCanUndo(true);
+  };
+  const histRef = useRef<string[]>([]);
+  const redoRef = useRef<string[]>([]);
+
+  const mutate = (fn: (d: ProjectCanvas) => ProjectCanvas, withHistory = true) => {
+    const d = docRef.current;
+    if (!d || readOnly) return;
+    if (withHistory) pushHistory();
+    if (redoRef.current.length) {
+      redoRef.current = [];
+      setCanRedo(false);
+    }
+    const next = fn(d);
+    docRef.current = next;
+    setDoc(next);
+    scheduleSave();
+  };
+
+  const undo = () => {
+    const prev = histRef.current.pop();
+    if (prev === undefined) return;
+    const cur = docRef.current;
+    if (cur) redoRef.current = [...redoRef.current, JSON.stringify(cur)];
+    setCanUndo(histRef.current.length > 0);
+    setCanRedo(true);
+    if (cur) {
+      const next = JSON.parse(prev) as ProjectCanvas;
+      docRef.current = next;
+      setDoc(next);
+      dirtyRef.current = true;
+      scheduleSave();
+    }
+  };
+
+  const redo = () => {
+    const nxt = redoRef.current.pop();
+    if (nxt === undefined) return;
+    const cur = docRef.current;
+    if (cur) histRef.current = [...histRef.current, JSON.stringify(cur)];
+    setCanUndo(true);
+    setCanRedo(redoRef.current.length > 0);
+    if (cur) {
+      const next = JSON.parse(nxt) as ProjectCanvas;
+      docRef.current = next;
+      setDoc(next);
+      dirtyRef.current = true;
+      scheduleSave();
+    }
+  };
+
+  const patchNode = (id: string, patch: Partial<CanvasNode>, withHistory = true) => {
+    mutate(
+      (d) => ({ ...d, nodes: d.nodes.map((n) => (n.id === id ? { ...n, ...patch } : n)) }),
+      withHistory
+    );
+  };
+
+  const setColor = (nodeId: string, color: CanvasColor) => patchNode(nodeId, { color });
+
+  const addNode = (type: CanvasNodeType) => {
+    if (docRef.current && docRef.current.nodes.length >= MAX_NODES) {
+      setNotice(`Canvas limit reached (${MAX_NODES} nodes)`);
+      return;
+    }
+    const el = containerRef.current;
+    const r = el?.getBoundingClientRect();
+    const cx = r ? (r.width / 2 - viewRef.current.x) / viewRef.current.z : 60;
+    const cy = r ? (r.height / 2 - viewRef.current.y) / viewRef.current.z : 60;
+    const id = freshId('n');
+    const node: CanvasNode = {
+      id,
+      type,
+      text: '',
+      x: cx - 110,
+      y: cy - 50,
+      w: 220,
+      h: type === 'card' ? 120 : 100,
+      color: type === 'card' ? 'blue' : 'yellow',
+      done: false,
+    };
+    mutate((d) => ({ ...d, nodes: [...d.nodes, node] }));
+    setSelNode(id);
+    setSelEdge(null);
+    setEditing(id); // type straight into the new node
+    setMenuOpen(false);
+  };
+
+  const addEdge = (from: string, to: string) => {
+    mutate((d) => ({ ...d, edges: [...d.edges, { id: freshId('e'), from, to }] }));
+  };
+
+  const removeSelected = () => {
+    if (selEdge) {
+      mutate((d) => ({ ...d, edges: d.edges.filter((e) => e.id !== selEdge) }));
+      setSelEdge(null);
+    } else if (selNode) {
+      mutate((d) => ({
+        ...d,
+        nodes: d.nodes.filter((n) => n.id !== selNode),
+        edges: d.edges.filter((e) => e.from !== selNode && e.to !== selNode),
+      }));
+      setSelNode(null);
+    }
+  };
+
+  // ── seed from project notes ──────────────────────────────────
+  const seedFromNotes = async () => {
+    try {
+      const { items } = await getProjectNotes(slug);
+      const open = items.filter((n) => !n.done).slice(0, 12);
+      if (!open.length) {
+        setNotice('No open notes to import');
+        return;
+      }
+      const colorByKind: Record<string, CanvasColor> = { idea: 'yellow', bug: 'red', goal: 'blue' };
+      let sy = viewRef.current.y + 20;
+      const nodes: CanvasNode[] = open.map((n, i) => {
+        const x = viewRef.current.x + 40 + (i % 3) * 260;
+        if (i % 3 === 0 && i > 0) sy += 150;
+        return {
+          id: freshId('n'),
+          type: 'note' as const,
+          text: n.text,
+          x,
+          y: sy,
+          w: 240,
+          h: 130,
+          color: colorByKind[n.kind] || 'yellow',
+        };
+      });
+      mutate((d) => ({ ...d, nodes: [...d.nodes, ...nodes] }));
+      setNotice(`Imported ${nodes.length} note(s) from the Notes tab`);
+    } catch (err: any) {
+      setNotice(err.message || 'Could not import notes');
+    }
+  };
+
+  // ── view helpers ─────────────────────────────────────────────
+  const setViewState = (v: ViewState) => {
+    viewRef.current = v;
+    setView(v);
+  };
+
+  const zoomBy = (factor: number, anchor?: { sx: number; sy: number }) => {
+    const v = viewRef.current;
+    const nz = clamp(v.z * factor, MIN_Z, MAX_Z);
+    const r = containerRef.current?.getBoundingClientRect();
+    const sx = anchor?.sx ?? (r ? r.width / 2 : 0);
+    const sy = anchor?.sy ?? (r ? r.height / 2 : 0);
+    setViewState({
+      z: nz,
+      x: sx - ((sx - v.x) * nz) / v.z,
+      y: sy - ((sy - v.y) * nz) / v.z,
+    });
+  };
+
+  const fitView = () => {
+    const d = docRef.current;
+    const r = containerRef.current?.getBoundingClientRect();
+    if (!d || !d.nodes.length) {
+      setViewState({ x: 40, y: 40, z: 1 });
+      return;
+    }
+    const minX = Math.min(...d.nodes.map((n) => n.x));
+    const minY = Math.min(...d.nodes.map((n) => n.y));
+    const maxX = Math.max(...d.nodes.map((n) => n.x + n.w));
+    const maxY = Math.max(...d.nodes.map((n) => n.y + n.h));
+    const pad = 60;
+    const w = maxX - minX + pad * 2;
+    const h = maxY - minY + pad * 2;
+    const z = r ? clamp(Math.min((r.width - 40) / Math.max(w, 1), (r.height - 40) / Math.max(h, 1)), MIN_Z, MAX_Z) : 1;
+    setViewState({
+      z,
+      x: r ? (r.width / 2) - (minX + (maxX - minX) / 2) * z : 40,
+      y: r ? (r.height / 2) - (minY + (maxY - minY) / 2) * z : 40,
+    });
+  };
+
+  // ── wheel zoom (non-passive so we can preventDefault) ───────
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if ((e.target as HTMLElement).closest?.('textarea')) return;
+      e.preventDefault();
+      zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12, { sx: e.clientX, sy: e.clientY });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // ── global keyboard (undo/redo/delete/shortcuts) ────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      const meta = e.ctrlKey || e.metaKey;
+      if (meta && (e.key === 'z' || e.key === 'Z' || e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault();
+        if ((e.key === 'y' || e.key === 'Y') || e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (e.key === 'Escape') {
+        setConnectFrom(null);
+        setSelNode(null);
+        setSelEdge(null);
+        setMenuOpen(false);
+        if (editing) setEditing(null);
+        return;
+      }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (selNode || selEdge)) {
+        e.preventDefault();
+        removeSelected();
+        return;
+      }
+      if (readOnly) return;
+      if (e.key === ' ') {
+        e.preventDefault();
+        setSpaceHeld(true);
+        return;
+      }
+      if (e.key === 'n' || e.key === 'N') addNode('note');
+      else if (e.key === 'c' || e.key === 'C') addNode('card');
+      else if (e.key === 'l' || e.key === 'L') {
+        if (selNode) setConnectFrom(selNode);
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ') setSpaceHeld(false);
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [readOnly, selNode, selEdge, editing, connectFrom]);
+
+  // ── pointer interactions (delegated to the canvas root) ─────
+  const onPointerDown = (e: any) => {
+    const el = containerRef.current;
+    if (!el) return;
+    const target = e.target as HTMLElement;
+    const nodeEl = (target as Element).closest?.('.cn-node');
+    const edgeEl = (target as Element).closest?.('.cn-edge');
+
+    if (e.button === 2) return;
+
+    if (edgeEl && !readOnly) {
+      const id = (edgeEl as HTMLElement).dataset.id!;
+      setSelEdge(id);
+      setSelNode(null);
+      return;
+    }
+
+    if (nodeEl) {
+      const id = (nodeEl as HTMLElement).dataset.id!;
+      const node = docRef.current?.nodes.find((n) => n.id === id);
+      if (!node) return;
+      e.stopPropagation();
+
+      if (connectFrom) {
+        if (connectFrom !== id) addEdge(connectFrom, id);
+        setConnectFrom(null);
+        return;
+      }
+      if (readOnly) {
+        setSelNode(id);
+        setSelEdge(null);
+        return;
+      }
+      setSelNode(id);
+      setSelEdge(null);
+      if (e.button === 0) {
+        pushHistory();
+        dragRef.current = {
+          kind: 'node',
+          id,
+          cX: e.clientX,
+          cY: e.clientY,
+          startX: node.x,
+          startY: node.y,
+        };
+        el.setPointerCapture(e.pointerId);
+      }
+      return;
+    }
+
+    // Background
+    if (connectFrom) {
+      setConnectFrom(null);
+      return;
+    }
+    if (e.button === 0 || e.button === 1 || spaceHeld) {
+      dragRef.current = {
+        kind: 'pan',
+        cX: e.clientX,
+        cY: e.clientY,
+        startX: viewRef.current.x,
+        startY: viewRef.current.y,
+      };
+      el.setPointerCapture(e.pointerId);
+    }
+    if (e.button === 0) {
+      setSelNode(null);
+      setSelEdge(null);
+      setMenuOpen(false);
+    }
+  };
+
+  const onPointerMove = (e: any) => {
+    const dr = dragRef.current;
+    if (!dr) return;
+    const dx = e.clientX - dr.cX;
+    const dy = e.clientY - dr.cY;
+    if (dr.kind === 'pan') {
+      setViewState({ ...viewRef.current, x: dr.startX + dx, y: dr.startY + dy });
+    } else if (dr.id) {
+      const z = viewRef.current.z;
+      patchNode(dr.id, { x: dr.startX + dx / z, y: dr.startY + dy / z }, false);
+    }
+  };
+
+  const endDrag = (e: any) => {
+    dragRef.current = null;
+    try {
+      (e.target as Element).closest?.('.canvas-root')?.releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* already released */
+    }
+  };
+
+  // ── editing (inline textarea) ───────────────────────────────
+  const startEdit = (id: string) => {
+    if (readOnly) return;
+    pushHistory(); // snapshot once, THEN stream keystrokes without history spam
+    setEditing(id);
+  };
+  const commitEdit = () => {
+    setEditing(null);
+  };
+  const onEditorKey = (e: any) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      (e.currentTarget as HTMLTextAreaElement).blur();
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      (e.currentTarget as HTMLTextAreaElement).blur();
+    }
+  };
+
+  const toggleDone = (id: string, done: boolean) => patchNode(id, { done });
+
+  if (loadError) {
+    return (
+      <div class="panel" style="margin-top: 8px">
+        <div class="empty-state">
+          <div style="color: var(--danger); margin-bottom: 8px">Could not load canvas</div>
+          <div class="dim">{loadError}</div>
+          <button class="btn-ghost sm" style="margin-top: 12px" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const selected = selNode ? (doc?.nodes.find((n) => n.id === selNode) ?? null) : null;
+  const nodeById = (id: string) => doc?.nodes.find((n) => n.id === id);
+
+  const renderEdges = () => {
+    if (!doc || !doc.edges.length) return null;
+    return (
+      <svg class="cn-svg" aria-hidden="true">
+        <defs>
+          <marker id={`arrow-${slug}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--text-3)" />
+          </marker>
+        </defs>
+        {doc.edges.map((edge) => {
+          const a = nodeById(edge.from);
+          const b = nodeById(edge.to);
+          if (!a || !b) return null;
+          const x1 = a.x + a.w / 2;
+          const y1 = a.y + a.h / 2;
+          const x2 = b.x + b.w / 2;
+          const y2 = b.y + b.h / 2;
+          const selectedLine = selEdge === edge.id;
+          return (
+            <g key={edge.id}>
+              <line
+                class="cn-edge"
+                data-id={edge.id}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke="transparent"
+                stroke-width="16"
+                style="pointer-events: stroke; cursor: pointer"
+                onPointerDown={(e: any) => {
+                  e.stopPropagation();
+                  if (readOnly) return;
+                  setSelEdge(edge.id);
+                  setSelNode(null);
+                }}
+              />
+              <line
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke={selectedLine ? 'var(--accent)' : 'var(--text-3)'}
+                stroke-width={selectedLine ? 2.5 : 1.5}
+                marker-end={`url(#arrow-${slug})`}
+                style="pointer-events: none"
+              />
+            </g>
+          );
+        })}
+      </svg>
+    );
+  };
+
+  return (
+    <div class="canvas-wrap">
+      {/* Top toolbar: view controls + mode + save status */}
+      <div class="cn-toolbar">
+        <div class="cn-tb-group">
+          <button class="cn-tb-btn" title="Zoom out (scroll to zoom)" onClick={() => zoomBy(1 / 1.2)}>
+            <ZoomOut width={15} height={15} />
+          </button>
+          <button class="cn-tb-btn" title="Zoom in" onClick={() => zoomBy(1.2)}>
+            <ZoomIn width={15} height={15} />
+          </button>
+          <button class="cn-tb-btn" title="Fit all nodes" onClick={fitView}>
+            <Maximize width={14} height={14} />
+          </button>
+        </div>
+        <div class="cn-tb-group">
+          <button class="cn-tb-btn" title="Undo (Ctrl+Z)" disabled={!canUndo} onClick={undo}>
+            <Undo2 width={14} height={14} />
+          </button>
+          <button class="cn-tb-btn" title="Redo (Ctrl+Shift+Z)" disabled={!canRedo} onClick={redo}>
+            <Redo2 width={14} height={14} />
+          </button>
+        </div>
+        <div class="cn-tb-group">
+          <button class={`cn-tb-btn ${connectFrom ? 'cn-active' : ''}`} title="Connect nodes (select source, then target)" disabled={readOnly || !selNode} onClick={() => setConnectFrom(connectFrom ? null : selNode)}>
+            <Link2 width={15} height={15} />
+            {connectFrom ? <span class="cn-tb-hint">pick target</span> : null}
+          </button>
+          {readOnly && (
+            <span class="cn-ro-chip" title="Your role can only view this canvas">
+              <Lock width={11} height={11} /> Read-only
+            </span>
+          )}
+        </div>
+        <div class="cn-tb-spacer" />
+        <div class="cn-save-state">
+          {saveState === 'saving' && <span class="dim">Saving…</span>}
+          {saveState === 'dirty' && <span class="dim">Unsaved changes</span>}
+          {saveState === 'saved' && savedAt && <span class="dim">Saved {savedAt}</span>}
+          {saveError ? <span class="cn-save-err">{saveError}</span> : null}
+        </div>
+      </div>
+
+      {/* Selection toolbar (active while a node is selected) */}
+      {selected && !readOnly && (
+        <div class="cn-selbar">
+          {COLORS.map((c) => (
+            <button
+              key={c}
+              class={`cn-dot c-${c} ${selected.color === c ? 'cn-dot-active' : ''}`}
+              title={`${c} color`}
+              onClick={() => setColor(selected.id, c)}
+            />
+          ))}
+          <span class="cn-sel-sep" />
+          <button class="cn-tb-btn" title="Delete (Del)" onClick={removeSelected}>
+            <Trash2 width={14} height={14} />
+          </button>
+        </div>
+      )}
+      {connectFrom && (
+        <div class="cn-connecting">
+          <MousePointer2 width={12} height={12} /> Click the target node to connect
+        </div>
+      )}
+
+      {/* Add menu */}
+      {!readOnly && (
+        <div class="cn-add-wrap">
+          <div class={`cn-add-menu ${menuOpen ? 'open' : ''}`}>
+            <button class="cn-add-item" onClick={() => addNode('note')}>
+              <StickyNote width={15} height={15} /> Sticky note <span class="dim">N</span>
+            </button>
+            <button class="cn-add-item" onClick={() => addNode('card')}>
+              <CheckSquare width={15} height={15} /> Task card <span class="dim">C</span>
+            </button>
+            <button class="cn-add-item" onClick={() => { if (selNode) { setConnectFrom(selNode); setMenuOpen(false); } else setMenuOpen(false); }}>
+              <Link2 width={15} height={15} /> Arrow <span class="dim">L</span>
+            </button>
+            <button class="cn-add-item" onClick={() => { seedFromNotes(); setMenuOpen(false); }}>
+              <Sparkles width={15} height={15} /> Seed from notes
+            </button>
+          </div>
+          <button class="cn-add-fab" title="Add to canvas" onClick={() => setMenuOpen((o) => !o)}>
+            <Plus width={18} height={18} />
+          </button>
+        </div>
+      )}
+
+      {/* Notice toast */}
+      {notice && <div class="cn-notice">{notice}</div>}
+
+      {/* The canvas */}
+      <div
+        ref={containerRef}
+        class={`canvas-root ${spaceHeld ? 'cn-panning' : ''}`}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onContextMenu={(e: any) => e.preventDefault()}
+      >
+        <div
+          class="cn-world"
+          style={`transform: translate3d(${view.x}px, ${view.y}px, 0) scale(${view.z}); transform-origin: 0 0;`}
+        >
+          {renderEdges()}
+          {doc?.nodes.map((n) => {
+            const isSel = selNode === n.id;
+            const isEditing = editing === n.id;
+            return (
+              <div
+                key={n.id}
+                class={`cn-node ${n.type} c-${n.color} ${isSel ? 'cn-selected' : ''} ${connectFrom === n.id ? 'cn-connect-src' : ''} ${connectFrom && connectFrom !== n.id ? 'cn-connectable' : ''}`}
+                data-id={n.id}
+                style={`left: ${n.x}px; top: ${n.y}px; width: ${n.w}px; height: ${n.h}px;`}
+                onDblClick={() => { if (!readOnly) startEdit(n.id); }}
+              >
+                {n.type === 'card' && !isEditing && (
+                  <span
+                    class={`cn-check ${n.done ? 'done' : ''}`}
+                    title={n.done ? 'Mark not done' : 'Mark done'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!readOnly) toggleDone(n.id, !n.done);
+                    }}
+                  >
+                    {n.done ? '✓' : ''}
+                  </span>
+                )}
+                {isEditing ? (
+                  <textarea
+                    class="cn-editor"
+                    data-id={n.id}
+                    value={n.text}
+                    autofocus
+                    placeholder={n.type === 'card' ? 'Task description…' : 'Type your note…'}
+                    onInput={(e: any) => patchNode(n.id, { text: e.currentTarget.value }, false)}
+                    onBlur={commitEdit}
+                    onKeyDown={onEditorKey}
+                    onClick={(e: any) => e.stopPropagation()}
+                    onPointerDown={(e: any) => e.stopPropagation()}
+                  />
+                ) : (
+                  <div class="cn-text">{n.text || <span class="cn-placeholder">Double-click to edit</span>}</div>
+                )}
+                {!isEditing && !readOnly && (
+                  <div class="cn-node-colors">
+                    {COLORS.map((c) => (
+                      <span
+                        key={c}
+                        class={`cn-dot s c-${c} ${n.color === c ? 'cn-dot-active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setColor(n.id, c);
+                        }}
+                        title={`${c} color`}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {loaded && doc && doc.nodes.length === 0 && (
+          <div class="cn-empty" onClick={() => setMenuOpen(true)}>
+            <div class="cn-empty-icon">✸</div>
+            <div class="cn-empty-title">An empty board for your big ideas</div>
+            <div class="cn-empty-sub">
+              Drop sticky notes (N), task cards (C), link them with arrows (L), or import open notes from the Notes tab.
+            </div>
+            {!readOnly && <button class="btn-ghost sm" onClick={(e) => { e.stopPropagation(); addNode('note'); }}>Start with a sticky note</button>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

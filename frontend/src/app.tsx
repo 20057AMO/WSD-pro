@@ -13,6 +13,7 @@ import {
   Unlock,
   Users,
   LayoutTemplate,
+  PencilRuler,
 } from 'lucide-preact';
 import { AuthProvider, useAuth } from './auth';
 import { VSCodeIcon, OpencodeIcon } from './components/brand-icons';
@@ -39,6 +40,7 @@ const Providers = lazy(() => import('./views/Providers').then(m => ({ default: m
 const Templates = lazy(() => import('./views/Templates').then(m => ({ default: m.Templates })));
 const Settings = lazy(() => import('./views/Settings').then(m => ({ default: m.Settings })));
 const Team = lazy(() => import('./views/Team').then(m => ({ default: m.Team })));
+const Planner = lazy(() => import('./views/Planner').then(m => ({ default: m.Planner })));
 
 
 interface ErrorBoundaryProps { children: ComponentChildren; }
@@ -195,6 +197,7 @@ function Sidebar() {
       <nav class="sidebar-nav">
         <NavButton href="/" label="Dashboard" icon={LayoutDashboard} />
         <NavButton href="/projects" label="Projects" icon={FolderOpen} />
+        <NavButton href="/planner" label="Planner" icon={PencilRuler} />
         <NavButton href="/templates" label="Templates" icon={LayoutTemplate} />
         <NavButton href="/terminals" label="Terminals" icon={SquareTerminal} />
         <NavButton href="/agents" label="Agents" icon={Bot} />
@@ -257,6 +260,7 @@ function Shell() {
         <Suspense fallback={<div style="display:flex;align-items:center;justify-content:center;height:100%;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}>
           <Route path="/" component={Dashboard} />
           <Route path="/projects" component={Projects} />
+        <Route path="/planner" component={Planner} />
           <Route path="/templates" component={Templates} />
           <Route path="/project/:slug" component={Project} />
           <Route path="/terminals" component={Terminals} />

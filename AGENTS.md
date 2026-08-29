@@ -52,6 +52,7 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 | Security | `tests/security.test.ts` | Path traversal, upload sanitization, malformed auth headers |
 | Smoke | `tests/smoke.test.ts` | Health, core endpoints, project roundtrip |
 | Project notes | `tests/project-notes.test.ts` | Notes CRUD + validation (junk body 400, cap 300, truncation, kind normalization) + AI-context injection (`[Developer notes]` section ordering, done-items omitted) + 'all'-brief per-project counts |
+| Project canvas | `tests/project-canvas.test.ts` | Visual-planning whiteboard: GET default-empty vs seeded roundtrip, viewer/editor/outsider 403 matrix, junk body 400 + node/edge caps + bounds normalization, node id churn on alternating writes (fresh ids each save — canvases never merge garbage from stale clients), `PUT` audits `canvas-save`, **`canvasEditedAt` appears on the project list after a save**, and the `[Planning canvas]` AI-context block renders sticky notes + task cards flat text (empty canvas → absent section) |
 | WebSocket matrix | `tests/websocket.test.ts` | 6 endpoints × {no token→401, valid→open, invalid→401} |
 
 **Test notes:**
@@ -88,7 +89,8 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 | `/login` | Login | Setup + login (unauthenticated only) |
 | `/` | Dashboard | Minimal overview: stats + quick actions |
 | `/projects` | Projects | Cards/table, search, filter, sort, bulk ops |
-| `/project/:slug` | Project | Detail: overview, AI chat, files, logs, **notes**, scripts (per-project terminal moved to global Terminals page) |
+| `/project/:slug` | Project | Detail: overview, AI chat, files, logs, **notes**, **canvas** (visual planning whiteboard), scripts (per-project terminal moved to global Terminals page) |
+| `/planner` | Planner | Visual planning hub: cards for every project with canvas state + last-edit recency, filter + sort; card opens the project straight on its Canvas tab (`?tab=canvas` deep link) |
 | `/terminals[/:slug]` | Terminals | Global terminal hub: all projects in one page — project picker (live status dots + search + last-used memory) driving the SAME ProjectTerminal component (tabs, project/control modes, history, zoom, reconnect, quick commands); deep-linkable via `/terminals/<slug>` |
 | `/agents` | Agents | AI agents with chat, RTL/LTR, presets |
 | `/providers` | Providers | LLM provider config |
