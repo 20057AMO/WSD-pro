@@ -251,6 +251,14 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 
 ## Working Methodology
 
+### Per-Feature Four-Phase Loop (يمثل العقد الإلزامي لكل ميزة أو تعديل)
+Every new feature or modification runs these four phases, in order, end-to-end:
+
+1. **التخطيط (Planning)** — `@planner` subagent first: open with the mandatory expert question **"ما المشكلة التي تحلّها هذه الميزة؟"** (what real problem does this solve — who is affected, when does it bite, what breaks today without it), then vertical goal, design approach with rejected alternatives, file-level task breakdown, edge cases/risks. No code before the problem is crisply defined.
+2. **التنفيذ (Execution)** — implement the approved plan; edits stay in ONE area per round.
+3. **التحقق (Verification)** — `@explore` subagent verifies the change against its intent; whenever a problem surfaces, `@debugger` diagnoses and fixes it (root-cause, then fix, then re-verify).
+4. **المراجعة والاختبار (Review & Testing)** — `@reviewer` (code quality), `@tester` (coverage/regressions), `@security` (auth/crypto/input/secret audit) review the round; run tsc + vite build + Docker rebuild + the affected suites, then commit + push.
+
 ### Area-by-Area (بالقطع)
 Work on one feature/page/area at a time. Do not jump between unrelated areas. Example: today's work was on the Agents page — all changes focused there.
 
