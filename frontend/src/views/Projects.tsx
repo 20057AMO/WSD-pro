@@ -247,8 +247,12 @@ export function Projects() {
       .map((s) => Number(s.trim()))
       .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
     const hasTemplate = templateId !== '';
-    if (parsedPorts.length === 0 && !hasTemplate) {
-      setCreateError('At least one port is required (1–65535), comma separated — or start from a template.');
+    if (!ports.trim() && !hasTemplate) {
+      setCreateError('Ports are required (1–65535, comma separated) — or start from a template.');
+      return;
+    }
+    if (ports.trim() && parsedPorts.length === 0) {
+      setCreateError('Invalid ports — use comma-separated integers between 1 and 65535.');
       return;
     }
     setCreating(true);
@@ -344,14 +348,6 @@ export function Projects() {
       setLocation(`/project/${p.slug}`);
     }
   };
-
-  // Ports field is mandatory: at least one integer in [1..65535].
-  const portsValid = ports
-    .split(',')
-    .some((s) => {
-      const n = Number(s.trim());
-      return Number.isInteger(n) && n > 0 && n <= 65535;
-    });
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
@@ -568,14 +564,14 @@ export function Projects() {
               <input
                 class="modern-input"
                 style="margin-top:10px"
-                placeholder="Ports (e.g. 3000, 8080 — from template if left empty)"
+                placeholder="Ports (required unless starting from a template)"
                 value={ports}
                 onInput={(e: any) => setPorts(e.target.value)}
               />
               {createError && <div class="login-error" style="margin-top:10px">{createError}</div>}
               <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end">
                 <button type="button" class="btn-ghost sm" onClick={() => setCreateOpen(false)}>Cancel</button>
-                <button type="submit" class="btn-primary" disabled={creating || !name.trim() || (!portsValid && !templateId)}>
+                <button type="submit" class="btn-primary" disabled={creating || !name.trim()}>
                   {creating ? 'Creating…' : 'Create'}
                 </button>
               </div>
