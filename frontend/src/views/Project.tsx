@@ -40,9 +40,10 @@ import { NotesPanel } from '../components/NotesPanel';
 import { ProjectChat } from '../components/ProjectChat';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { TeamPanel } from '../components/TeamPanel';
+import { SnapshotsPanel } from '../components/SnapshotsPanel';
 import { usePresence } from '../usePresence';
 
-type Tab = 'overview' | 'chat' | 'files' | 'logs' | 'notes' | 'scripts' | 'team';
+type Tab = 'overview' | 'chat' | 'files' | 'logs' | 'notes' | 'scripts' | 'team' | 'snapshots';
 
 function fmtBytes(bytes: number): string {
   if (!bytes) return '0 B';
@@ -337,9 +338,9 @@ export function Project({ params }: { params: { slug: string } }) {
       )}
 
       <div class="detail-tabs">
-        {(['overview', 'chat', 'files', 'logs', 'notes', 'scripts', 'team'] as Tab[]).map((t) => (
+        {(['overview', 'chat', 'files', 'logs', 'notes', 'scripts', 'team', 'snapshots'] as Tab[]).map((t) => (
           <button class={`tab-btn ${tab === t ? 'active' : ''}`} key={t} onClick={() => setTab(t)}>
-            {t === 'chat' ? 'AI Chat' : t === 'notes' ? 'Notes' : t === 'team' ? 'Team' : t.charAt(0).toUpperCase() + t.slice(1)}
+            {t === 'chat' ? 'AI Chat' : t === 'notes' ? 'Notes' : t === 'team' ? 'Team' : t === 'snapshots' ? 'Snapshots' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
       </div>
@@ -351,6 +352,7 @@ export function Project({ params }: { params: { slug: string } }) {
       {tab === 'notes' && <NotesPanel slug={slug} />}
       {tab === 'scripts' && <ScriptsPanel slug={slug} />}
       {tab === 'team' && <TeamPanel slug={slug} project={project} onlineUsers={onlineUsers} />}
+      {tab === 'snapshots' && <SnapshotsPanel slug={slug} />}
 
       <ConfirmModal
         open={confirmRestart}

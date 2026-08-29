@@ -23,6 +23,13 @@ export interface ProjectMember {
   addedAt: string;
 }
 
+/** Automated snapshot schedule for a project (meta.snapshot). */
+export interface SnapshotSchedule {
+  enabled: boolean;
+  intervalMin: number;
+  keep: number;
+}
+
 export interface ProjectMeta {
   name?: string;
   description?: string;
@@ -33,6 +40,8 @@ export interface ProjectMeta {
   activity: ActivityEntry[];
   ownerId?: string;
   members?: ProjectMember[];
+  snapshot?: SnapshotSchedule;
+  lastSnapshotAt?: string;
 }
 
 function metaFile(slug: string): string {

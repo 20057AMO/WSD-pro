@@ -379,6 +379,69 @@ export const importProjectSnapshot = (file: File) => {
   return api<{ project: Project }>('/api/projects/import', { method: 'POST', body: fd });
 };
 
+// ── Snapshot automation (scheduled server-side backups) ──────────────────
+export interface SnapshotEntry {
+  file: string;
+  size: number;
+  at: string;
+}
+export interface SnapshotSchedule {
+  enabled: boolean;
+  intervalMin: number;
+  keep: number;
+  lastSnapshotAt: string | null;
+}
+export const getProjectSnapshots = (slug: string) =>
+  api<{ snapshots: SnapshotEntry[] }>(`/api/projects/${encodeURIComponent(slug)}/snapshots`);
+export const getSnapshotSchedule = (slug: string) =>
+  api<SnapshotSchedule>(`/api/projects/${encodeURIComponent(slug)}/snapshots/config`);
+export const setSnapshotSchedule = (
+  slug: string,
+  body: { enabled?: boolean; intervalMin?: number; keep?: number },
+) =>
+  api<SnapshotSchedule>(`/api/projects/${encodeURIComponent(slug)}/snapshots/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+export const captureSnapshotNow = (slug: string) =>
+  api<{ snapshot: SnapshotEntry }>(`/api/projects/${encodeURIComponent(slug)}/snapshots`, { method: 'POST' });
+export const deleteStoredSnapshot = (slug: string, file: string) =>
+  api<{ ok: boolean }>(`/api/projects/${encodeURIComponent(slug)}/snapshots/${encodeURIComponent(file)}`, {
+    method: 'DELETE',
+  });
+export const restoreStoredSnapshot = (slug: string, file: string) =>
+  api<{ project: Project }>(`/api/projects/${encodeURIComponent(slug)}/snapshots/${encodeURIComponent(file)}/restore`, {
+    method: 'POST',
+  });
+/** Download a stored server-side snapshot as a Blob. */
+export async function downloadStoredSnapshot(slug: string, file: string): Promise<{ blob: Blob; filename: string }> {
+  const headers: Record<string, string> = {};
+  const token = getAuthToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const unlock = getProvidersUnlock();
+  if (unlock) headers['X-Providers-Unlock'] = unlock.token;
+  const res = await fetch(`/api/projects/${encodeURIComponent(slug)}/snapshots/${encodeURIComponent(file)}`, { headers });
+  if (!res.ok) {
+    let msg = `Request failed (HTTP ${res.status})`;
+    try {
+      const d = await res.json();
+      if (d?.error) msg = d.error;
+    } catch {
+      /* non-JSON body */
+    }
+    if (res.status === 401) {
+      localStorage.removeItem('wsd.token');
+      window.location.hash = '/login';
+    }
+    const err = new Error(msg) as ApiError;
+    err.status = res.status;
+    throw err;
+  }
+  const blob = await res.blob();
+  return { blob, filename: file };
+}
+
 // ── Project notes (ideas / bugs / goals) ─────────────────────────────────
 export type NoteKind = 'idea' | 'bug' | 'goal';
 export interface NoteItem {

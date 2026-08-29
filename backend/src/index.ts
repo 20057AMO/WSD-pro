@@ -38,6 +38,7 @@ import { listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, renameWorksp
 import { loadMeta, saveMeta } from './services/projects-meta';
 import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTemplate } from './services/project-templates';
 import { exportProjectSnapshot, importProjectSnapshot } from './services/project-snapshots';
+import * as snapAuto from './services/project-snapshots-auto';
 import { getIdeStatus } from './services/ide-service';
 import { detectIp } from './services/server-info';
 import { getChatConfig, updateChatConfig, listModels, type ChatConfig } from './services/chat-config';
@@ -1074,6 +1075,103 @@ app.put('/api/projects/:slug/notes', requireProjectAccess('editor'), (req, res) 
   }
 });
 
+// ── Snapshot automation (scheduled server-side backups) ──────────────
+// Sophisticated copy of the manual export/import flow: captures tar.gz
+// archives on a per-project schedule, stores them next to the meta store and
+// exposes list / config / capture-now / download / delete / restore.
+
+// List stored snapshots (viewer+ — read-only filenames/sizes/timestamps).
+app.get('/api/projects/:slug/snapshots', requireProjectAccess('viewer'), (req, res) => {
+  try {
+    res.json(snapAuto.listSnapshots(req.params.slug));
+  } catch (err: any) {
+    res.status(err.statusCode || 400).json({ error: err.message });
+  }
+});
+
+// Read a project's schedule (viewer+).
+app.get('/api/projects/:slug/snapshots/config', requireProjectAccess('viewer'), (req, res) => {
+  try {
+    res.json(snapAuto.snapshotConfig(req.params.slug));
+  } catch (err: any) {
+    res.status(err.statusCode || 400).json({ error: err.message });
+  }
+});
+
+// Update a project's schedule (partial merge: enabled / intervalMin / keep).
+app.put('/api/projects/:slug/snapshots/config', requireProjectAccess('editor'), (req, res) => {
+  try {
+    const cfg = snapAuto.setSnapshotConfig(req.params.slug, (req.body as any) || {});
+    recordAudit('snapshot-config-change', true, req.ip);
+    if (cfg.enabled) snapAuto.scheduleSnapshotSweep();
+    res.json(cfg);
+  } catch (err: any) {
+    recordAudit('snapshot-config-change', false, req.ip);
+    res.status(err.statusCode || 400).json({ error: err.message });
+  }
+});
+
+// Capture a stored snapshot now.
+app.post('/api/projects/:slug/snapshots', requireProjectAccess('editor'), async (req, res) => {
+  try {
+    const snapshot = await snapAuto.captureSnapshot(req.params.slug);
+    recordAudit('snapshot-save', true, req.ip);
+    res.status(201).json({ snapshot });
+  } catch (err: any) {
+    recordAudit('snapshot-save', false, req.ip);
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Download a stored snapshot archive (editor+ — data leaves the server).
+app.get('/api/projects/:slug/snapshots/:file', requireProjectAccess('editor'), (req, res) => {
+  let stream;
+  try {
+    stream = snapAuto.downloadSnapshot(req.params.slug, req.params.file);
+  } catch (err: any) {
+    return res.status(err.statusCode || 400).json({ error: err.message });
+  }
+  res.setHeader('Content-Type', 'application/gzip');
+  res.setHeader('Content-Disposition', `attachment; filename="${req.params.file}"`);
+  stream.on('error', (err: any) => {
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+    else res.destroy(err);
+  });
+  stream.pipe(res);
+  recordAudit('snapshot-download', true, req.ip);
+});
+
+// Delete a stored snapshot archive.
+app.delete('/api/projects/:slug/snapshots/:file', requireProjectAccess('editor'), (req, res) => {
+  try {
+    snapAuto.deleteSnapshot(req.params.slug, req.params.file);
+    recordAudit('snapshot-delete', true, req.ip);
+    res.json({ ok: true });
+  } catch (err: any) {
+    recordAudit('snapshot-delete', false, req.ip);
+    res.status(err.statusCode || 400).json({ error: err.message });
+  }
+});
+
+// Restore a stored snapshot as a NEW project (never overwrites an existing one).
+app.post('/api/projects/:slug/snapshots/:file/restore', requireProjectAccess('editor'), async (req: any, res) => {
+  try {
+    const project = await snapAuto.restoreStoredSnapshot(req.params.slug, req.params.file);
+    const userId = req.user?.id;
+    if (userId) {
+      const meta = loadMeta(project.slug) || { activity: [] };
+      meta.ownerId = userId;
+      meta.members = [{ userId, role: 'admin', addedAt: new Date().toISOString() }];
+      saveMeta(project.slug, meta);
+    }
+    recordAudit('snapshot-restore', true, req.ip);
+    res.status(201).json({ project });
+  } catch (err: any) {
+    recordAudit('snapshot-restore', false, req.ip);
+    res.status(err.statusCode || 400).json({ error: err.message });
+  }
+});
+
 // ── Project Templates (reusable runtime recipes) ───────────────
 // Readable by any authenticated user (the create-project flow picks a
 // template); write operations are admin-only — they're server-wide config.
@@ -1704,6 +1802,9 @@ server.listen(PORT, HOST, () => {
 
 // Automatic orphaned-workspace cleanup (boot + every WSD_JANITOR_INTERVAL_MS).
 startJanitor();
+
+// Per-project automated snapshot captures (boot + every WSD_SNAPSHOT_SWEEP_MS).
+snapAuto.startSnapshotAutomation();
 
 
 
