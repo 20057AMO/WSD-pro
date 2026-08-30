@@ -43,6 +43,8 @@ export function Projects() {
   const [description, setDescription] = useState('');
   const [ports, setPorts] = useState('');
   const [templateId, setTemplateId] = useState('');
+  const [createCpu, setCreateCpu] = useState('');
+  const [createMem, setCreateMem] = useState('');
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -259,16 +261,27 @@ export function Projects() {
     setCreating(true);
     setCreateError(null);
     try {
+      // Optional creation-time limits — blank fields mean "unconstrained",
+      // the server re-validates them against the current host (400 on junk).
+      const cpuText = createCpu.trim();
+      const memText = createMem.trim();
+      const limits =
+        cpuText || memText
+          ? { cpu: cpuText || undefined, memory: memText || undefined }
+          : undefined;
       const { project } = await createProject({
         name: name.trim(),
         description: description.trim() || undefined,
         ports: parsedPorts,
         templateId: hasTemplate ? templateId : undefined,
+        limits,
       });
       setName('');
       setDescription('');
       setPorts('');
       setTemplateId('');
+      setCreateCpu('');
+      setCreateMem('');
       setCreateOpen(false);
       await refresh();
       setLocation(`/project/${project.slug}`);
@@ -574,6 +587,22 @@ export function Projects() {
                 value={ports}
                 onInput={(e: any) => setPorts(e.target.value)}
               />
+              <div style="display:flex;gap:10px;margin-top:10px">
+                <input
+                  class="modern-input"
+                  style="flex:1"
+                  placeholder="CPU limit (optional, e.g. 2 or 500m)"
+                  value={createCpu}
+                  onInput={(e: any) => setCreateCpu(e.target.value)}
+                />
+                <input
+                  class="modern-input"
+                  style="flex:1"
+                  placeholder="Memory limit (optional, e.g. 128Mi)"
+                  value={createMem}
+                  onInput={(e: any) => setCreateMem(e.target.value)}
+                />
+              </div>
               {createError && <div class="login-error" style="margin-top:10px">{createError}</div>}
               <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end">
                 <button type="button" class="btn-ghost sm" onClick={() => setCreateOpen(false)}>Cancel</button>

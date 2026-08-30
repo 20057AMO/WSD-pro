@@ -331,7 +331,7 @@ async function api<T>(path: string, init?: ApiInit): Promise<T> {
 
 export const listProjects = () => api<{ projects: Project[] }>('/api/projects');
 export const getProject = (slug: string) => api<{ project: Project }>(`/api/projects/${slug}`);
-export const createProject = (body: { name: string; description?: string; ports?: number[]; templateId?: string; env?: Record<string, string> }) =>
+export const createProject = (body: { name: string; description?: string; ports?: number[]; templateId?: string; env?: Record<string, string>; limits?: ProjectLimits }) =>
   api<{ project: Project }>('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
