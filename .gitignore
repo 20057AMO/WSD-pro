@@ -50,3 +50,7 @@ Thumbs.db
 # Playwright artifacts
 frontend/test-results/
 frontend/playwright-report/
+
+# Python (backend Playwright E2E)
+__pycache__/
+*.pyc
