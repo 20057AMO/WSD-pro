@@ -70,11 +70,9 @@ import {
 import {
   setup,
   login,
-  verifyCredentials,
-  issueSessionToken,
+  signLoginSession,
   changePassword,
   hasUser,
-  getUser,
   getUserCount,
   listUsers,
   getUserInfo,
@@ -95,7 +93,6 @@ import {
   enableTotp,
   disableTotp,
   verifyTotpCode,
-  signPending2faToken,
   verifyPending2faToken,
 } from './services/user-store';
 import { otpauthUri } from './services/totp';
@@ -270,16 +267,14 @@ app.post('/api/auth/login', authLimiter, (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
-    if (!verifyCredentials(String(username), String(password))) {
-      recordAudit('login-failed', false, req.ip);
-      return res.status(401).json({ error: 'Invalid username or password.' });
+    const result = login(String(username), String(password));
+    if ('requires2fa' in result) {
+      // TOTP is enabled for THIS user — no session until the code verifies.
+      // Record the accepted-password step so a correct password that stops at
+      // the authenticator still leaves a trace in the security activity log.
+      recordAudit('login', true, req.ip);
+      return res.json(result);
     }
-    if (isTotpEnabled()) {
-      // Find the user to get their id for 2FA token
-      const user = getUser();
-      return res.json({ requires2fa: true, pendingToken: signPending2faToken(user?.id || '') });
-    }
-    const result = issueSessionToken();
     recordAudit('login', true, req.ip);
     res.json(result);
   } catch (err: any) {
@@ -304,7 +299,7 @@ app.post('/api/auth/login/verify', totpLimiter, (req: any, res) => {
     recordAudit('login-2fa-failed', false, req.ip);
     return res.status(401).json({ error: 'Invalid authenticator code.' });
   }
-  const result = issueSessionToken();
+  const result = signLoginSession(pendingUserId);
   recordAudit('login', true, req.ip);
   res.json(result);
 });

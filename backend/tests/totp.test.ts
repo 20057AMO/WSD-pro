@@ -219,6 +219,9 @@ describe('TOTP endpoints & login flow', () => {
     assert.strictEqual(verify.status, 200);
     const { token } = await verify.json();
     assert.ok(token, 'expected a full session token');
+    const decoded = jwt.decode(token) as any;
+    assert.strictEqual(decoded?.username, 'isolated', 'the session must belong to the account that completed the 2FA challenge');
+    assert.strictEqual(decoded?.scope, undefined, 'a session must never carry the 2fa-pending scope');
 
     const probe = await fetch(`${API_URL}/providers-lock`, {
       headers: { Authorization: `Bearer ${token}` },

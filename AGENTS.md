@@ -36,7 +36,7 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 
 | Suite | File | Coverage |
 |-------|------|----------|
-| Auth & access control | `tests/auth.test.ts` | 401s, forged/tampered/expired tokens, setup guard |
+| Auth & access control | `tests/auth.test.ts` | 401s, forged/tampered/expired tokens, setup guard, **per-user login identity matrix** (editor/viewer logins sign their OWN id/role/JWT — the fix that ended first-admin session impersonation — 403s through `requireAdmin`/`requireRole`, revocation-aware `tv`, sessions never carry the `2fa-pending` scope), deep **per-user 2FA journey** (enrol TOTP on a NON-first editor → challenge → verify signs the editor; pending token minted for the challenged user) gated behind `WSD_TEST_ACCOUNT_PASSWORD` (isolated server) because it costs 4 slots of the shared 10/min auth limiter; all login/setup calls use `Retry-After` backoff so window bleed from other suites never 429s the assertions |
 | Session revocation | `tests/auth-revoke.test.ts` | logout-everywhere + token rotation (needs `WSD_TEST_ACCOUNT_PASSWORD`; self-skips) |
 | Project lifecycle | `tests/projects.lifecycle.test.ts` | Real Docker: create → env → files → logs/stats/ports → stop/start → delete → 404; **duplicate** feature (copy source project: workspaces files + developer notes + **planning canvas** carried over, fresh ports applied, owner = duplicator) via `POST /api/projects/:slug/duplicate` |
 | Project ports edit | `tests/project-ports.test.ts` | Real Docker published-ports editing: `PUT /api/projects/:slug/ports` (editor+, audited) persists a validated+deduped (cap 50, no privileged/reserved ≤65535) set into meta immediately — applied only on the next explicit recreate (Docker can't rebind live), honest `needsRecreate`; **self-exclusion vs sibling conflicts**, 409+`taken[]`, **stale LIVE bindings of edited-but-not-recreated siblings** and **stopped containers' baked `HostConfig.PortBindings`** (which the cheap docker list misses — inspected individually) still block the claim; snapshot manifest serializes the *edited meta* while stale; access matrix (outsider editor 403 / viewer member 403 / editor member 200), 404 unknown |
@@ -106,6 +106,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 
 ### Authentication
 - **Unified auth**: Single user password = providers password
+- **Per-user identities**: `POST /api/auth/login` resolves the authenticated user BY USERNAME and mints a session carrying THEIR OWN `id`/`username`/`role`/`tv`/`jti` (never the first admin's — `login()` in `user-store.ts`; legacy first-admin `issueSessionToken` removed). `POST /api/auth/login/verify` signs the user who completed the challenge (`signLoginSession(pendingUserId)`). Team member logins/multi-role access depend on this: editor/viewer tokens now really are editor/viewer (403 on admin routes), not admin
 - **Backend**: bcrypt (10 rounds) + JWT (24h expiry) stored in `data/users.json`
 - **Frontend**: `auth.tsx` AuthProvider context, token in `localStorage` as `wsd.token`
 - **HTTP**: `authMiddleware` on all routes after `/api/auth/*` (returns 401 without Bearer token)
@@ -115,7 +116,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 
 ### Two-Factor Authentication (optional TOTP)
 - RFC 6238 TOTP implemented from scratch in `backend/src/services/totp.ts` (HMAC-SHA1, 30s steps, 6 digits, ±1 step drift) — verified against the official Appendix B vectors in `tests/totp.test.ts`; compatible with Google Authenticator/Authy/Aegis
-- **Login flow with 2FA on**: `POST /api/auth/login` verifies credentials then returns `{requires2fa:true, pendingToken}` — a 5-min JWT (`scope:'2fa-pending'`), NOT a session. `POST /api/auth/login/verify {pendingToken, code}` exchanges it for a real session; guarded by a dedicated `totp` rate-limit scope (8/min/IP)
+- **Login flow with 2FA on**: `POST /api/auth/login` verifies credentials then returns `{requires2fa:true, pendingToken}` — a 5-min JWT (`scope:'2fa-pending'`), NOT a session. The challenge is **per-user**: only an account whose OWN TOTP is enabled gets diverted; everyone else gets a direct session (an editor is never blocked because the admin enabled 2FA). `POST /api/auth/login/verify {pendingToken, code}` exchanges it for a session signed for the user who went through the challenge; guarded by a dedicated `totp` rate-limit scope (8/min/IP)
 - Enrollment: `POST /api/auth/2fa/setup` → `{secret, uri}` (pending secret, disabled until proven); `POST /api/auth/2fa/enable {code}` activates only after a live code verifies; `POST /api/auth/2fa/disable {accountPassword}` requires sudo re-auth
 - Frontend: Login shows an authenticator-code step when `pending2fa` is set in AuthProvider; Settings → Two-Factor panel renders the QR (`qrcode` npm pkg) + manual base32 key, activate/cancel, disable via ReAuthModal
 - Audit: `2fa-enabled/-failed`, `2fa-disabled/-failed`, `login-2fa-failed`

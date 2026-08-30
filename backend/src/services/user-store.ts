@@ -95,19 +95,6 @@ export function getUserCount(): number {
   return usersMap.size;
 }
 
-/** Legacy: returns the first admin user (for backward-compat callers). */
-export function getUser(): { id: string; username: string; role: UserRole; createdAt: string; passwordChangedAt?: string } | null {
-  if (usersMap.size === 0) loadUsers();
-  for (const u of usersMap.values()) {
-    if (u.role === 'admin') return { id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, passwordChangedAt: u.passwordChangedAt };
-  }
-  // fallback: return first user
-  for (const u of usersMap.values()) {
-    return { id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, passwordChangedAt: u.passwordChangedAt };
-  }
-  return null;
-}
-
 /** List all users (safe fields only — no hashes). */
 export function listUsers(): Array<{ id: string; username: string; role: UserRole; createdAt: string; passwordChangedAt?: string }> {
   if (usersMap.size === 0) loadUsers();
@@ -159,29 +146,32 @@ export function setup(username: string, password: string): { id: string; usernam
 
 // ── Login ─────────────────────────────────────────────────────
 
-export function login(username: string, password: string): { id: string; username: string; role: UserRole; token: string } {
+export type LoginResult =
+  | { requires2fa: true; pendingToken: string }
+  | { id: string; username: string; role: UserRole; token: string };
+
+/**
+ * Authenticate by credentials and issue a session for the RESOLVED user.
+ * TOTP is evaluated per-user: only a member whose own account has 2FA enabled
+ * is diverted to the pending-token step; everyone else gets a direct session
+ * carrying their own identity (never the first admin's).
+ */
+export function login(username: string, password: string): LoginResult {
   if (usersMap.size === 0) loadUsers();
   const user = getUserByUsername(username);
   if (!user) throw new Error('Invalid username or password.');
   if (!bcrypt.compareSync(password, user.passwordHash)) throw new Error('Invalid username or password.');
-
+  if (isTotpEnabled(user.id)) {
+    return { requires2fa: true, pendingToken: signPending2faToken(user.id) };
+  }
   return { id: user.id, username: user.username, role: user.role, token: signSessionToken(user) };
 }
 
-export function verifyCredentials(username: string, password: string): boolean {
-  if (usersMap.size === 0) loadUsers();
-  const user = getUserByUsername(username);
-  if (!user) return false;
-  return bcrypt.compareSync(String(password || ''), user.passwordHash);
-}
-
-export function issueSessionToken(): { id: string; username: string; role: UserRole; token: string } {
-  // Legacy: signs for the first admin user (backward compat)
-  if (usersMap.size === 0) loadUsers();
-  for (const u of usersMap.values()) {
-    if (u.role === 'admin') return { id: u.id, username: u.username, role: u.role, token: signSessionToken(u) };
-  }
-  throw new Error('No user configured. Run setup first.');
+/** Issue a fresh session for a specific user id (used by the login/verify route). */
+export function signLoginSession(userId: string): { id: string; username: string; role: UserRole; token: string } {
+  const user = getUserById(userId);
+  if (!user) throw new Error('User not found.');
+  return { id: user.id, username: user.username, role: user.role, token: signSessionToken(user) };
 }
 
 // ── JWT ───────────────────────────────────────────────────────
@@ -462,7 +452,7 @@ export function verifyTotpCode(code: string, userId: string): boolean {
   return verifyTotp(user.totp.secret, code);
 }
 
-export function signPending2faToken(userId: string): string {
+function signPending2faToken(userId: string): string {
   const user = getUserById(userId);
   if (!user) throw new Error('User not found.');
   return jwt.sign({ scope: '2fa-pending', id: user.id }, JWT_SECRET, { expiresIn: PENDING_2FA_EXPIRY });
