@@ -3,6 +3,7 @@ import { useHashLocation } from 'wouter/use-hash-location';
 import { ArrowUpRight, LayoutGrid } from 'lucide-preact';
 import { listProjects } from '../api';
 import type { Project } from '../api';
+import { fmtCpu, fmtMem } from '../lib/limits';
 
 /**
  * Planner — a visual overview of every project and its planning canvas.
@@ -137,6 +138,8 @@ export function Planner() {
                   {p.hostPorts && Object.entries(p.hostPorts).map(([priv, pub]) => (
                     <span class="meta-chip port" key={priv}>:{pub}</span>
                   ))}
+                  {p.limits?.cpu && <span class="meta-chip" title="CPU limit">CPU {fmtCpu(p.limits.cpu)}</span>}
+                  {p.limits?.memory && <span class="meta-chip" title="Memory limit">RAM {fmtMem(p.limits.memory)}</span>}
                 </div>
                 <div class="card-footer planner-footer">
                   <span class={`plan-edit ${edited ? '' : 'plan-new'}`}>

@@ -28,6 +28,7 @@ import {
   AgentDef,
   OpencodeStatus,
 } from '../api';
+import { fmtCpu, fmtMem } from '../lib/limits';
 
 // How many project cards to show on the dashboard before a "view all" link.
 const PROJECT_PREVIEW_LIMIT = 8;
@@ -202,7 +203,9 @@ export function Dashboard() {
                 {p.hostPorts && Object.entries(p.hostPorts).map(([priv, pub]) => (
                   <span class="meta-chip port" key={priv}>:{pub}</span>
                 ))}
-                {(!p.hostPorts || Object.keys(p.hostPorts).length === 0) && <span class="meta-chip">{p.slug}</span>}
+                {p.limits?.cpu && <span class="meta-chip" title="CPU limit">CPU {fmtCpu(p.limits.cpu)}</span>}
+                {p.limits?.memory && <span class="meta-chip" title="Memory limit">RAM {fmtMem(p.limits.memory)}</span>}
+                {(!p.hostPorts || Object.keys(p.hostPorts).length === 0) && !p.limits?.cpu && !p.limits?.memory && <span class="meta-chip">{p.slug}</span>}
               </div>
               <div class="card-footer">
                 <button class="btn-ghost sm" disabled={acting === p.slug} onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>
