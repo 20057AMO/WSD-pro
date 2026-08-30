@@ -64,6 +64,9 @@ cd backend && node --test --test-concurrency=1 "tests/**/*.test.ts"
 - Every suite cleans up its own data (projects, agents, providers, sessions)
 - Change-password is intentionally NOT auto-tested (would mutate the real account)
 
+### UI E2E (Playwright)
+`backend/tests/e2e/limits_ui.py` — the one browser-level suite, covering the Resource-limits UI end to end against the running container: create-modal CPU/Memory inputs → create-with-limits (cap applied immediately) → edit → honest "Recreate to apply" pending banner → blanking both fields removes the limits (banner persists while the cap is live) → CPU/RAM meta-chips on Projects/Dashboard/Planner cards. It forges an admin-session JWT from the repo `JWT_SECRET` (the real account has TOTP, and the UI login route always steps the FIRST user through the authenticator — see `user-store.isTotpEnabled()`), seeds it into `localStorage['wsd.token']` before first paint, and cleans up every `e2e-*` project before/after. Exit 0 = all green, 1 = failures, 42 = skip. Host deps: `python 3.x` + `pip install playwright pyjwt requests` (+ `playwright install chromium`); server must be up. Run: `python backend/tests/e2e/limits_ui.py`
+
 ## Project Structure
 
 ```
