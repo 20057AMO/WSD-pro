@@ -15,6 +15,7 @@ import { loadMeta, saveMeta, deleteMeta, touchActivity, listMetaSlugs, type Proj
 import { loadNotes, saveNotes } from './project-notes';
 import { loadCanvas, saveCanvas } from './project-canvas';
 import { purgeOpencodeProjectRows } from './opencode-store';
+import { parseCpu, parseMemory, sanitizeLimitsPatch, limitsEqual, isEmptyLimits, checkCeilings, resolveDefaultLimits, getHostInfo, formatMemory, formatCpu, type ProjectLimits } from './project-limits';
 import { runSweep } from './workspace-janitor';
 import {
   createOpencodeSession,
@@ -36,6 +37,8 @@ const WORKSPACES_HOST_DIR = (process.env.WSD_WORKSPACES_HOST_DIR || '').replace(
 const BASE_IMAGE = process.env.WSD_WORKSPACE_IMAGE || 'wsd/workspace:latest';
 
 export interface ProjectSpec {
+  limits?: { cpu?: string | null; memory?: string | null };
+
   name: string;
   slug: string;
   description?: string;
@@ -45,6 +48,9 @@ export interface ProjectSpec {
 }
 
 export interface ProjectInfo {
+  limits?: ProjectLimits;
+  liveLimits?: ProjectLimits;
+
   id: string;
   name: string;
   slug: string;
@@ -276,6 +282,43 @@ async function ensureImage(image: string): Promise<void> {
  */
 export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   const clean = validateProjectSpec(spec);
+  // Compute effective limits: request > previous meta > defaults (if any).
+  const rawLimits = spec.limits || {};
+  let effectiveLimits: ProjectLimits | undefined;
+  const prevMeta = loadMeta(clean.slug);
+  if (rawLimits.cpu !== undefined || rawLimits.memory !== undefined) {
+    // User explicitly provided a limits patch.
+    let merged: ProjectLimits;
+    try {
+      merged = sanitizeLimitsPatch(rawLimits, {});
+      await checkCeilings(merged, await getHostInfo());
+    } catch (e: any) {
+      throw new HttpError(400, e?.message || 'Invalid resource limits');
+    }
+    effectiveLimits = isEmptyLimits(merged) ? undefined : merged;
+  } else if (prevMeta?.limits) {
+    // Re-derived from stored meta — re-validate against the CURRENT host so a
+    // migrated/down-sized host can never silently oversubscribe. A stored set
+    // that no longer fits degrades to unlimited (logged), not a hard 400.
+    try {
+      const merged = sanitizeLimitsPatch(prevMeta.limits, {});
+      await checkCeilings(merged, await getHostInfo());
+      effectiveLimits = isEmptyLimits(merged) ? undefined : merged;
+    } catch (e: any) {
+      console.warn(`[limits] stored limits for '${clean.slug}' no longer fit this host, ignoring`, e?.message);
+      effectiveLimits = undefined;
+    }
+  } else {
+    // New project – apply defaults from env if defined. A misconfigured
+    // WSD_DEFAULT_* must never 500 every create: warn and run unlimited.
+    try {
+      effectiveLimits = await resolveDefaultLimits();
+    } catch (e: any) {
+      console.warn('[limits] invalid WSD_DEFAULT_CPU/WSD_DEFAULT_MEMORY, ignoring defaults', e?.message);
+      effectiveLimits = undefined;
+    }
+  }
+
   const existing = await getProject(clean.slug);
   if (existing) {
     throw new HttpError(409, `Project '${clean.slug}' already exists`);
@@ -338,6 +381,17 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     HostConfig: {
       Binds: [`${bindSource}:/workspace`],
       PortBindings: portBindings,
+      // Resource limits – omitted if undefined (unlimited).
+      ...(effectiveLimits?.memory ? { Memory: parseMemory(effectiveLimits.memory)!.bytes } : {}),
+      ...(effectiveLimits?.cpu ? { NanoCpus: parseCpu(effectiveLimits.cpu)!.nano } : {}),
+      // Without MemorySwap Docker silently defaults swap to 2× RAM, which
+      // would undermine the memory cap. MemorySwap is the memory+swap TOTAL,
+      // so passing the exact memory limit disables swap: the container is
+      // OOM-killed at the cap instead of thrashing host swap. NB -1 would mean
+      // UNLIMITED swap — that is the opposite of what a "limit" promises.
+      ...(effectiveLimits?.memory
+        ? { MemorySwap: parseMemory(effectiveLimits.memory)!.bytes }
+        : {}),
       RestartPolicy: { Name: 'unless-stopped' },
     },
     Labels: {
@@ -365,6 +419,8 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     image,
     ports: clean.ports,
     env: clean.env,
+    limits: effectiveLimits,
+    liveLimits: effectiveLimits,
   };
 
   const prev = loadMeta(slug);
@@ -378,6 +434,7 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     description: clean.description,
     image,
     ports: clean.ports,
+    limits: effectiveLimits,
     createdAt: info.createdAt,
     env: clean.env,
     activity: [
@@ -433,6 +490,7 @@ export async function listProjects(): Promise<ProjectInfo[]> {
       project.description = meta.description;
       project.image = meta.image;
       project.ports = meta.ports;
+      project.limits = meta.limits;
       project.env = meta.env;
       project.activity = meta.activity;
       project.ownerId = meta.ownerId;
@@ -481,11 +539,24 @@ export async function getProject(slug: string): Promise<ProjectInfo | null> {
       project.description = meta.description;
       project.image = meta.image;
       project.ports = meta.ports;
+      project.limits = meta.limits;
       project.env = meta.env;
       project.activity = meta.activity;
       project.ownerId = meta.ownerId;
       project.members = meta.members;
     }
+
+    // Derive live limits from HostConfig (Memory / NanoCpus are set only
+    // when a limit was applied at container creation; Docker reports 0 when
+    // unlimited).
+    const liveLimits: ProjectLimits = {};
+    if (typeof data.HostConfig?.Memory === 'number' && data.HostConfig.Memory > 0) {
+      liveLimits.memory = formatMemory(data.HostConfig.Memory);
+    }
+    if (typeof data.HostConfig?.NanoCpus === 'number' && data.HostConfig.NanoCpus > 0) {
+      liveLimits.cpu = formatCpu(data.HostConfig.NanoCpus);
+    }
+    project.liveLimits = Object.keys(liveLimits).length ? liveLimits : undefined;
 
     return project;
   } catch {
@@ -680,6 +751,7 @@ export async function recreateProject(slug: string): Promise<ProjectInfo> {
     image: meta.image,
     ports: meta.ports,
     env: meta.env,
+    limits: meta.limits,
   });
 }
 
@@ -726,6 +798,46 @@ export async function updateProjectPorts(slug: string, requested: number[]): Pro
   const needsRecreate = live.length !== want.length || live.some((p, i) => p !== want[i]);
 
   return { project: { ...proj, ports: requested }, needsRecreate };
+}
+
+export interface UpdateLimitsResult {
+  limits: ProjectLimits | undefined;
+  needsRecreate: boolean;
+}
+
+/**
+ * Persist new CPU/memory limits for an existing project. The limits are
+ * validated against host capacity, then written to meta immediately. The
+ * live container catches up only on the next explicit "Recreate container" —
+ * Docker cannot change a running/stopped container's cgroup limits, so
+ * `needsRecreate` reports honestly whether the current container already
+ * applies the requested set.
+ */
+export async function updateProjectLimits(slug: string, patch: Partial<ProjectLimits>): Promise<UpdateLimitsResult> {
+  const projectSlug = validateProjectSlug(slug);
+  const proj = await requireContainer(projectSlug);
+
+  const meta: ProjectMeta = loadMeta(projectSlug) || { activity: [] };
+  let merged: ProjectLimits;
+  try {
+    merged = sanitizeLimitsPatch(patch, meta.limits ?? {});
+    await checkCeilings(merged, await getHostInfo());
+  } catch (e: any) {
+    throw new HttpError(400, e?.message || 'Invalid resource limits');
+  }
+
+  meta.limits = isEmptyLimits(merged) ? undefined : merged;
+  meta.activity = [
+    ...(meta.activity || []),
+    { action: 'limits_updated', at: new Date().toISOString() },
+  ].slice(-200);
+  saveMeta(projectSlug, meta);
+
+  // requireContainer already inspected the container — reuse its liveLimits
+  // instead of paying for a second Docker inspect per edit.
+  const needsRecreate = !limitsEqual(meta.limits, proj.liveLimits);
+
+  return { limits: meta.limits, needsRecreate };
 }
 
 export interface ScriptRunResult {
@@ -925,6 +1037,7 @@ export async function duplicateProject(
     image: srcMeta.image,
     ports: (spec.ports && spec.ports.length > 0) ? spec.ports : undefined,
     env: srcMeta.env,
+    limits: srcMeta.limits,
   });
 
   // Carry the source workspace files into the new project.

@@ -1,3 +1,8 @@
+export interface ProjectLimits {
+  cpu?: string | null;
+  memory?: string | null;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -10,6 +15,8 @@ export interface Project {
   image?: string;
   ports?: number[];
   env?: Record<string, string>;
+  limits?: ProjectLimits;
+  liveLimits?: ProjectLimits;
   activity?: { action: string; at: string }[];
   ownerId?: string;
   members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string }[];
@@ -797,6 +804,12 @@ export const setProjectPorts = (slug: string, ports: number[]) =>
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ports }),
+  });
+export const setProjectLimits = (slug: string, limits: Partial<ProjectLimits>) =>
+  api<{ limits: ProjectLimits; needsRecreate: boolean }>(`/api/projects/${slug}/limits`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(limits),
   });
 export const cloneProject = (slug: string, url: string) =>
   api<{ target: string; output: string }>(`/api/projects/${slug}/clone`, {

@@ -15,6 +15,7 @@ import {
   type Project,
   type ProjectTemplate,
 } from '../api';
+import { fmtCpu, fmtMem } from '../lib/limits';
 
 type SortKey = 'name' | 'status' | 'created';
 type SortDir = 'asc' | 'desc';
@@ -467,6 +468,8 @@ export function Projects() {
                 {p.hostPorts && Object.entries(p.hostPorts).map(([priv, pub]) => (
                   <span class="meta-chip port" key={priv}>:{pub}</span>
                 ))}
+                {p.limits?.cpu && <span class="meta-chip" title="CPU limit">CPU {fmtCpu(p.limits.cpu)}</span>}
+                {p.limits?.memory && <span class="meta-chip" title="Memory limit">RAM {fmtMem(p.limits.memory)}</span>}
               </div>
               <div class="card-footer">
                 <button class="btn-ghost sm" onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>
@@ -509,7 +512,10 @@ export function Projects() {
                   <td class="proj-td-desc">{p.description || '—'}</td>
                   <td>{p.hostPorts && Object.values(p.hostPorts).map((pub) => (
                     <span class="meta-chip port" key={pub}>:{pub}</span>
-                  ))}</td>
+                  ))}
+                  {p.limits?.cpu && <span class="meta-chip" title="CPU limit">CPU {fmtCpu(p.limits.cpu)}</span>}
+                  {p.limits?.memory && <span class="meta-chip" title="Memory limit">RAM {fmtMem(p.limits.memory)}</span>}
+                </td>
                   <td class="proj-td-date">{p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <button class="btn-ghost sm" onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>

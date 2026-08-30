@@ -57,6 +57,7 @@ const AUDIT_LABELS: Record<string, string> = {
   'backup-export': 'Backup exported',
   'backup-import': 'Backup imported',
   'project-ports': 'Project ports updated',
+  'project-limits': 'Project resource limits updated',
 };
 
 type Msg = { type: 'ok' | 'err'; text: string } | null;

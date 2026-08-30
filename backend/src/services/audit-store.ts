@@ -41,6 +41,7 @@ export type AuditEvent =
   | 'snapshot-config-change'
   | 'canvas-save'
   | 'project-ports'
+  | 'project-limits'
   | 'workspace-janitor'
   | 'project-files-deleted'
   | 'opencode-studio'

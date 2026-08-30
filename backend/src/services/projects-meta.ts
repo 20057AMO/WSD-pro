@@ -9,6 +9,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import type { ProjectLimits } from './project-limits';
+
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const META_DIR = path.join(DATA_DIR, 'projects');
 
@@ -37,6 +39,7 @@ export interface ProjectMeta {
   ports?: number[];
   createdAt?: string;
   env?: Record<string, string>;
+  limits?: ProjectLimits;
   activity: ActivityEntry[];
   ownerId?: string;
   members?: ProjectMember[];

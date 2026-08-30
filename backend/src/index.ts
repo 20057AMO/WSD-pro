@@ -30,10 +30,12 @@ import {
   duplicateProject,
   validatePortSet,
   updateProjectPorts,
+  updateProjectLimits,
   ensureOpencodeSession,
   HttpError,
   WORKSPACES_ROOT,
 } from './services/docker-manager';
+import { type ProjectLimits } from './services/project-limits';
 import { startJanitor } from './services/workspace-janitor';
 import * as studio from './services/opencode-studio';
 import { listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, renameWorkspacePath, deleteWorkspacePath, resolveProjectSubdir } from './services/workspace-files';
@@ -938,7 +940,7 @@ app.get('/api/projects', async (_req, res) => {
 // request body able to override any of them.
 app.post('/api/projects', async (req: any, res) => {
   try {
-    const { name, slug, description, image, ports, env, templateId } = req.body || {};
+    const { name, slug, description, image, ports, env, templateId, limits } = req.body || {};
     if (!name || !String(name).trim()) {
       return res.status(400).json({ error: 'Project name is required' });
     }
@@ -963,6 +965,7 @@ app.post('/api/projects', async (req: any, res) => {
       image: specImage,
       ports: specPorts,
       env: specEnv,
+      limits: limits && typeof limits === 'object' && !Array.isArray(limits) ? limits : undefined,
     });
     // Set owner to the creating user
     const userId = req.user?.id;
@@ -1665,6 +1668,24 @@ app.put('/api/projects/:slug/ports', requireProjectAccess('editor'), async (req,
   } catch (err: any) {
     recordAudit('project-ports', false, req.ip);
     res.status(err.statusCode || 500).json({ error: err.message, ...(err.taken ? { taken: err.taken } : {}) });
+  }
+});
+
+// Set project resource limits (CPU / memory — applied on recreate).
+// Partial-update contract: only keys present in the body change; `null`
+// clears; omitted keys survive untouched.
+app.put('/api/projects/:slug/limits', requireProjectAccess('editor'), async (req, res) => {
+  try {
+    const raw = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const patch: Partial<ProjectLimits> = {};
+    if ('cpu' in raw) patch.cpu = raw.cpu;
+    if ('memory' in raw) patch.memory = raw.memory;
+    const result = await updateProjectLimits(req.params.slug, patch);
+    recordAudit('project-limits', true, req.ip);
+    res.json({ limits: result.limits, needsRecreate: result.needsRecreate });
+  } catch (err: any) {
+    recordAudit('project-limits', false, req.ip);
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 

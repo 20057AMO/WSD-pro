@@ -10,6 +10,7 @@ import {
   recreateProject,
   setProjectEnv,
   setProjectPorts,
+  setProjectLimits,
   cloneProject,
   getProjectStats,
   checkProjectPorts,
@@ -38,6 +39,7 @@ import type {
   ChatContext,
 } from '../api';
 import { NotesPanel } from '../components/NotesPanel';
+import { fmtCpu, fmtMem, limitsPending } from '../lib/limits';
 import { ProjectChat } from '../components/ProjectChat';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { TeamPanel } from '../components/TeamPanel';
@@ -88,6 +90,7 @@ function fmtAction(action: string): string {
     case 'cloned': return 'Git cloned';
     case 'env_updated': return 'Env updated';
     case 'ports_updated': return 'Ports updated';
+    case 'limits_updated': return 'Limits updated';
     case 'deleted': return 'Deleted';
     default: return action.charAt(0).toUpperCase() + action.slice(1);
   }
@@ -424,6 +427,13 @@ function OverviewPanel({
   const [savingPorts, setSavingPorts] = useState(false);
   const portsInputRef = useRef<HTMLInputElement | null>(null);
 
+  const [cpuText, setCpuText] = useState('');
+  const [memText, setMemText] = useState('');
+  const [limitsMsg, setLimitsMsg] = useState<string | null>(null);
+  const [savingLimits, setSavingLimits] = useState(false);
+  const cpuInputRef = useRef<HTMLInputElement | null>(null);
+  const memInputRef = useRef<HTMLInputElement | null>(null);
+
   const [recreating, setRecreating] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -493,6 +503,16 @@ function OverviewPanel({
     setPortsText((project?.ports || []).join(', '));
   }, [project?.ports]);
 
+  useEffect(() => {
+    if (document.activeElement === cpuInputRef.current) return;
+    setCpuText(project?.limits?.cpu || '');
+  }, [project?.limits?.cpu]);
+
+  useEffect(() => {
+    if (document.activeElement === memInputRef.current) return;
+    setMemText(project?.limits?.memory || '');
+  }, [project?.limits?.memory]);
+
   const saveDescription = async () => {
     try {
       await updateProject(slug, { description: descText });
@@ -557,6 +577,31 @@ function OverviewPanel({
       setPortsMsg(`Failed: ${err.message}`);
     } finally {
       setSavingPorts(false);
+    }
+  };
+
+  const saveLimits = async () => {
+    if (savingLimits) return;
+    const limits = {
+      cpu: cpuText.trim() || null,
+      memory: memText.trim() || null,
+    };
+    setSavingLimits(true);
+    setLimitsMsg(null);
+    try {
+      const r = await setProjectLimits(slug, limits);
+      setLimitsMsg(
+        r.needsRecreate
+          ? 'Saved. Recreate the container to apply.'
+          : limits.cpu || limits.memory
+            ? 'Saved. Already applied to the container.'
+            : 'Saved. Limits removed.',
+      );
+      onChanged();
+    } catch (err: any) {
+      setLimitsMsg(`Failed: ${err.message}`);
+    } finally {
+      setSavingLimits(false);
     }
   };
 
@@ -760,6 +805,42 @@ function OverviewPanel({
               {savingPorts ? 'Saving…' : 'Save ports'}
             </button>
             {portsMsg && <span class="dim" style="color: var(--text-3); font-size:0.74rem">{portsMsg}</span>}
+          </div>
+          <div class="panel-title" style="margin-top:22px">Resource limits</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap">
+            <input
+              class="modern-input mono"
+              style="flex:1; min-width:120px"
+              placeholder="CPU e.g. 2 or 500m — blank = no limit"
+              value={cpuText}
+              ref={cpuInputRef}
+              onInput={(e: any) => setCpuText(e.target.value)}
+              onKeyDown={(e: any) => e.key === 'Enter' && saveLimits()}
+            />
+            <input
+              class="modern-input mono"
+              style="flex:1; min-width:120px"
+              placeholder="Memory e.g. 512Mi or 1Gi — blank = no limit"
+              value={memText}
+              ref={memInputRef}
+              onInput={(e: any) => setMemText(e.target.value)}
+              onKeyDown={(e: any) => e.key === 'Enter' && saveLimits()}
+            />
+          </div>
+          <div style="display:flex; gap:8px; margin-top:10px; align-items:center; flex-wrap:wrap">
+            <button class="btn-ghost sm" onClick={saveLimits} disabled={savingLimits}>
+              {savingLimits ? 'Saving…' : 'Save limits'}
+            </button>
+            {limitsPending(project) && (
+              <span class="dim" style="color: var(--amber, #eab308); font-size:0.74rem">
+                Pending — container still runs on {fmtCpu(project?.liveLimits?.cpu) || 'no CPU limit'}
+                {project?.liveLimits?.memory ? ` / ${fmtMem(project.liveLimits.memory)}` : ' / no memory limit'}.
+                Recreate to apply.
+              </span>
+            )}
+            {!limitsPending(project) && limitsMsg && (
+              <span class="dim" style="color: var(--text-3); font-size:0.74rem">{limitsMsg}</span>
+            )}
           </div>
           <div style="display:flex; gap:8px; margin-top:10px; align-items:center">
             <button class="btn-primary sm" onClick={saveEnv}>Save env</button>
