@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { ExternalLink, Download } from 'lucide-preact';
+import { ExternalLink, Download, TriangleAlert } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   getProject,
@@ -28,6 +28,7 @@ import {
   getLogs,
   wsUrl,
   exportProjectSnapshot,
+  crashTitle,
 } from '../api';
 import type {
   Project,
@@ -45,6 +46,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { TeamPanel } from '../components/TeamPanel';
 import { SnapshotsPanel } from '../components/SnapshotsPanel';
 import { ProjectCanvas } from '../components/ProjectCanvas';
+import { CrashBadge } from '../components/CrashBadge';
 import { useAuth } from '../auth';
 import { usePresence } from '../usePresence';
 
@@ -318,6 +320,7 @@ export function Project({ params }: { params: { slug: string } }) {
               <span class="detail-slug">{slug}</span>
               <button class="btn-ghost sm" style="padding: 1px 8px" onClick={() => copy(slug)}>copy</button>
               <span class={`status-badge ${project?.status || 'missing'}`}>{project?.status || '…'}</span>
+              {project?.crash && <CrashBadge crash={project.crash} />}
               {wsConnected && <span class="ws-live-dot" title="Live updates active" />}
               {onlineUsers.length > 0 && (
                 <span class="presence-indicator" title={onlineUsers.map(u => u.username).join(', ')}>
@@ -351,6 +354,23 @@ export function Project({ params }: { params: { slug: string } }) {
           </button>
         </div>
       </div>
+
+      {project?.crash && (
+        <div class="panel" style="margin-bottom: 16px; border-left: 3px solid var(--red); background: rgba(248,81,73,0.06);">
+          <div style="display:flex; align-items:center; gap:8px; color: var(--red); font-weight: 600;">
+            <TriangleAlert width={15} height={15} class="icon" />
+            <span>This container crashed</span>
+            <span class="dim" style="color:var(--text-2); font-weight:400">{crashTitle(project.crash)}</span>
+          </div>
+          <p class="settings-hint" style="margin: 6px 0 0">
+            {project.crash.reason === 'oom'
+              ? 'The container ran out of memory — check the Logs tab, then raise the memory limit or reduce the workload.'
+              : project.crash.restarted
+                ? 'Docker auto-restarted it (restart policy). If crashes keep repeating, inspect the Logs tab and the resource limits.'
+                : 'It exited unexpectedly — check the Logs tab, then press Start to bring it back up.'}
+          </p>
+        </div>
+      )}
 
       {portLinks.length > 0 && (
         <div class="panel" style="margin-bottom: 16px">

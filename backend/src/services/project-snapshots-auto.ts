@@ -18,6 +18,7 @@ import { pipeline } from 'stream/promises';
 import { HttpError } from './docker-manager';
 import { loadMeta, saveMeta, listMetaSlugs, type SnapshotSchedule } from './projects-meta';
 import { exportProjectSnapshot, importProjectSnapshot } from './project-snapshots';
+import { dispatchWebhook } from './webhook-sender';
 import {
   DEFAULT_SCHEDULE,
   MAX_KEEP,
@@ -180,6 +181,15 @@ export async function captureSnapshot(slug: string): Promise<SnapshotEntry> {
       }
     }
   }
+
+  dispatchWebhook('snapshot-saved', {
+    event: 'snapshot-saved',
+    slug,
+    name: meta.name || slug,
+    file,
+    size,
+    at: meta.lastSnapshotAt,
+  });
 
   return { file, size, at: meta.lastSnapshotAt };
 }

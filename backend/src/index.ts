@@ -62,6 +62,16 @@ import * as notes from './services/project-notes';
 import * as canvas from './services/project-canvas';
 import { getIndexStats, retrieveProject, formatRetrievedChunks } from './services/project-index';
 import {
+  listWebhooks,
+  getWebhook,
+  createWebhook,
+  updateWebhook,
+  deleteWebhook,
+  toPublic,
+} from './services/webhooks-store';
+import { sendWebhook } from './services/webhook-sender';
+import { startAlertsAutomation } from './services/project-alerts';
+import {
   listSessions,
   createSession,
   renameSession,
@@ -1408,6 +1418,74 @@ app.delete('/api/projects/:slug', requireProjectAccess('admin'), rateLimit('stri
   }
 });
 
+// ── Notifications / Webhooks (admin) ────────────────────────
+// Lifecycle + crash events fire to external URLs. Secrets are masked in
+// every response (`hasSecret`); config writes are audited.
+
+app.get('/api/webhooks', requireAdmin, (_req, res) => {
+  res.json({ webhooks: listWebhooks().map(toPublic) });
+});
+
+app.post('/api/webhooks', requireAdmin, (req: any, res) => {
+  try {
+    const webhook = createWebhook((req.body as any) || {});
+    recordAudit('webhook-config-change', true, req.ip);
+    res.status(201).json({ webhook: toPublic(webhook) });
+  } catch (err: any) {
+    res.status(err.statusCode || err.status || 400).json({ error: err.message });
+  }
+});
+
+app.put('/api/webhooks/:id', requireAdmin, (req: any, res) => {
+  try {
+    const webhook = updateWebhook(String(req.params.id), (req.body as any) || {});
+    if (!webhook) return res.status(404).json({ error: 'Webhook not found' });
+    recordAudit('webhook-config-change', true, req.ip);
+    res.json({ webhook: toPublic(webhook) });
+  } catch (err: any) {
+    res.status(err.statusCode || err.status || 400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/webhooks/:id', requireAdmin, (req: any, res) => {
+  try {
+    const ok = deleteWebhook(String(req.params.id));
+    if (!ok) return res.status(404).json({ error: 'Webhook not found' });
+    recordAudit('webhook-config-change', true, req.ip);
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(err.statusCode || err.status || 400).json({ error: err.message });
+  }
+});
+
+// Manual "Test" — awaited so the admin sees a real success/failure. Accepts a
+// saved webhook id OR a raw URL (pre-validate a Slack hook before saving).
+app.post('/api/webhooks/test', requireAdmin, rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req: any, res) => {
+  try {
+    const { id, url } = (req.body as any) || {};
+    let webhook: { url: string; secret?: string } | null = null;
+    if (id) {
+      webhook = getWebhook(String(id));
+      if (!webhook) return res.status(404).json({ error: 'Webhook not found' });
+    } else if (url) {
+      webhook = { url: String(url) };
+    }
+    if (!webhook) return res.status(400).json({ error: 'Provide a webhook id or URL to test' });
+    const result = await sendWebhook(webhook, {
+      event: 'test',
+      at: new Date().toISOString(),
+      project: 'Madar — webhook test',
+    });
+    if (!result.ok) {
+      return res.status(result.status || 502).json(result.error ? { ...result, error: result.error } : result);
+    }
+    recordAudit('webhook-send', true, req.ip);
+    res.json(result);
+  } catch (err: any) {
+    res.status(err.statusCode || err.status || 400).json({ error: err.message });
+  }
+});
+
 // Open a project in opencode (ensures registration + a session exists) so the
 // opencode page's project picker can land the user on the right workspace.
 app.post('/api/opencode/open', async (req, res) => {
@@ -1884,6 +1962,10 @@ startJanitor();
 
 // Per-project automated snapshot captures (boot + every WSD_SNAPSHOT_SWEEP_MS).
 snapAuto.startSnapshotAutomation();
+
+// Container-crash detection (boot + every WSD_ALERT_SWEEP_MS) — WebSocket-
+// independent, so crashes are caught even with zero browsers connected.
+startAlertsAutomation();
 
 
 

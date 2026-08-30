@@ -11,6 +11,9 @@ import {
   ShieldCheck,
   Smartphone,
   Settings as SettingsIcon,
+  BellRing,
+  Plus,
+  Trash2,
 } from 'lucide-preact';
 import { useAuth } from '../auth';
 import {
@@ -28,11 +31,21 @@ import {
   totpSetup,
   totpEnable,
   totpDisable,
+  listWebhooks,
+  createWebhook,
+  updateWebhook,
+  deleteWebhook,
+  testWebhook,
+  WEBHOOK_EVENTS,
   type AuditEntry,
   type BackupFile,
+  type Webhook,
+  type WebhookEvent,
+  type WebhookInput,
 } from '../api';
 import { PwMeter } from '../components/PwMeter';
 import { ReAuthModal } from '../components/ReAuthModal';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 const APP_VERSION = '2.0.0-beta';
 
@@ -58,6 +71,10 @@ const AUDIT_LABELS: Record<string, string> = {
   'backup-import': 'Backup imported',
   'project-ports': 'Project ports updated',
   'project-limits': 'Project resource limits updated',
+  'container-crash': 'Container crash detected',
+  'webhook-send': 'Webhook delivered',
+  'webhook-send-failed': 'Webhook delivery failed',
+  'webhook-config-change': 'Webhooks configuration changed',
 };
 
 type Msg = { type: 'ok' | 'err'; text: string } | null;
@@ -71,6 +88,103 @@ function fmtDate(iso?: string): string {
   } catch {
     return iso;
   }
+}
+
+interface WhRowProps {
+  w: Webhook;
+  onChanged: (msg: string) => void;
+  onDelete: () => void;
+}
+
+/** One webhook editor row — self-contained local state, merged on Save. */
+function WhRow({ w, onChanged, onDelete }: WhRowProps) {
+  const [name, setName] = useState(w.name);
+  const [url, setUrl] = useState(w.url);
+  const [events, setEvents] = useState<WebhookEvent[]>([...w.events]);
+  const [enabled, setEnabled] = useState(w.enabled);
+  const [secret, setSecret] = useState('');
+  const [clearSecret, setClearSecret] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<Msg>(null);
+
+  const toggleEvent = (ev: WebhookEvent) => () =>
+    setEvents((cur) => (cur.includes(ev) ? cur.filter((x) => x !== ev) : [...cur, ev]));
+
+  const save = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const body: WebhookInput = { name, url, events, enabled };
+      if (secret.trim()) body.secret = secret.trim();
+      else if (clearSecret) body.secret = '';
+      await updateWebhook(w.id, body);
+      setSecret('');
+      setClearSecret(false);
+      onChanged(`Webhook '${name.trim()}' saved.`);
+    } catch (err: any) {
+      setMsg({ type: 'err', text: err.message || 'Failed to save webhook' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const test = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await testWebhook({ id: w.id });
+      setMsg(
+        r.ok
+          ? { type: 'ok', text: `Test delivered — receiver answered HTTP ${r.status}.` }
+          : { type: 'err', text: r.error || 'Test delivery failed' }
+      );
+    } catch (err: any) {
+      setMsg({ type: 'err', text: err.message || 'Test delivery failed' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style="border:1px solid var(--border); border-radius:var(--radius); padding:10px 12px;">
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <input class="modern-input" style="max-width:190px" placeholder="Name" value={name} onInput={(e: any) => setName(e.currentTarget.value)} />
+        <input class="modern-input" style="flex:1; min-width:260px" placeholder="https://…" value={url} onInput={(e: any) => setUrl(e.currentTarget.value)} />
+        <label class="wh-event-label" style="white-space:nowrap">
+          <input type="checkbox" checked={enabled} onChange={(e: any) => setEnabled(e.currentTarget.checked)} /> enabled
+        </label>
+        <button class="btn-ghost sm" onClick={test} disabled={busy}>Test</button>
+        <button class="btn-primary sm" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+        <button class="btn-ghost sm" style="color: var(--red)" onClick={onDelete} title="Delete webhook">
+          <Trash2 width={13} height={13} class="icon" />
+        </button>
+      </div>
+      <div style="margin-top:8px; display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+        {WEBHOOK_EVENTS.map((ev) => (
+          <label class="wh-event-label" key={ev}>
+            <input type="checkbox" checked={events.includes(ev)} onChange={toggleEvent(ev)} /> {ev}
+          </label>
+        ))}
+        {w.hasSecret && <span class="meta-chip" style="color:var(--text-3)">HMAC secret set</span>}
+      </div>
+      <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+        <input
+          class="modern-input"
+          type="password"
+          style="max-width:300px"
+          placeholder={w.hasSecret ? 'New signing secret (blank = keep current)' : 'Optional signing secret'}
+          value={secret}
+          onInput={(e: any) => setSecret(e.currentTarget.value)}
+        />
+        {(w.hasSecret || secret.trim()) && (
+          <label class="wh-event-label" style="white-space:nowrap">
+            <input type="checkbox" checked={clearSecret} onChange={(e: any) => setClearSecret(e.currentTarget.checked)} /> remove secret
+          </label>
+        )}
+      </div>
+      {msg && <div class={msg.type === 'ok' ? 'chat-save-msg' : 'login-error'} style="margin-top:6px">{msg.text}</div>}
+    </div>
+  );
 }
 
 export function Settings() {
@@ -116,6 +230,64 @@ export function Settings() {
   // ── Backup ──
   const [backupMsg, setBackupMsg] = useState<Msg>(null);
   const pendingImportRef = useRef<BackupFile | null>(null);
+
+  // ── Notifications / Webhooks (admin-only management) ──
+  const [webhooks, setWebhooks] = useState<Webhook[] | null>(null);
+  const [whMsg, setWhMsg] = useState<Msg>(null);
+  const [whName, setWhName] = useState('');
+  const [whUrl, setWhUrl] = useState('');
+  const [whDelete, setWhDelete] = useState<Webhook | null>(null);
+  const [whDeleting, setWhDeleting] = useState(false);
+
+  useEffect(() => {
+    if (user?.role !== 'admin') return;
+    listWebhooks()
+      .then((r) => setWebhooks(r.webhooks))
+      .catch((err: any) => {
+        setWhMsg({ type: 'err', text: err.message || 'Failed to load webhooks' });
+        setWebhooks([]);
+      });
+  }, [user?.role]);
+
+  const whRefresh = async (okText?: string) => {
+    try {
+      const r = await listWebhooks();
+      setWebhooks(r.webhooks);
+      if (okText) setWhMsg({ type: 'ok', text: okText });
+      else setWhMsg(null);
+    } catch (err: any) {
+      setWhMsg({ type: 'err', text: err.message || 'Failed to refresh webhooks' });
+    }
+  };
+
+  const whAdd = async () => {
+    if (!whName.trim() || !whUrl.trim()) {
+      setWhMsg({ type: 'err', text: 'Webhook name and URL are required.' });
+      return;
+    }
+    try {
+      await createWebhook({ name: whName.trim(), url: whUrl.trim(), events: ['crash'], enabled: true });
+      setWhName('');
+      setWhUrl('');
+      await whRefresh("Webhook added (subscribed to 'crash'). Edit events below if needed.");
+    } catch (err: any) {
+      setWhMsg({ type: 'err', text: err.message || 'Failed to add webhook' });
+    }
+  };
+
+  const whConfirmDelete = async () => {
+    if (!whDelete) return;
+    setWhDeleting(true);
+    try {
+      await deleteWebhook(whDelete.id);
+      setWhDelete(null);
+      await whRefresh(`Webhook '${whDelete.name}' deleted.`);
+    } catch (err: any) {
+      setWhMsg({ type: 'err', text: err.message || 'Failed to delete webhook' });
+    } finally {
+      setWhDeleting(false);
+    }
+  };
 
   // ── Two-factor authentication (TOTP) ──
   const [totpEnabled, setTotpEnabled] = useState<boolean | null>(null);
@@ -670,6 +842,62 @@ export function Settings() {
         </div>
       </div>
 
+      {/* Notifications / Webhooks */}
+      <div class="panel settings-section">
+        <div class="panel-title"><span class="icon-wrap"><BellRing width={14} height={14} /></span> Notifications &amp; Webhooks</div>
+        <p class="settings-hint">
+          Forward container lifecycle and crash events to an external URL (Slack, Discord, Telegram, a status page…).
+          Crashes are detected by the server even when no browser is open. When a signing secret is set, every POST
+          carries an <code>X-Madar-Signature</code> HMAC header so receivers can verify the sender.
+        </p>
+
+        {whMsg && (
+          <div class={whMsg.type === 'ok' ? 'chat-save-msg' : 'login-error'} style="margin-bottom: 8px">
+            {whMsg.text}
+          </div>
+        )}
+
+        {user?.role !== 'admin' ? (
+          <div class="dim" style="margin-top: 4px">Only admins can manage webhooks.</div>
+        ) : (
+          <>
+            <div style="display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; align-items: center;">
+              <input
+                class="modern-input"
+                placeholder="Webhook name"
+                style="max-width: 190px"
+                value={whName}
+                onInput={(e: any) => setWhName(e.currentTarget.value)}
+              />
+              <input
+                class="modern-input"
+                placeholder="https://hooks.slack.com/…"
+                style="flex: 1; min-width: 260px; max-width: 380px"
+                value={whUrl}
+                onInput={(e: any) => setWhUrl(e.currentTarget.value)}
+              />
+              <button class="btn-primary sm" onClick={whAdd}>
+                <span class="icon-wrap"><Plus width={13} height={13} /></span> Add
+              </button>
+            </div>
+
+            {webhooks === null ? (
+              <div class="dim" style="margin-top: 12px">Loading webhooks…</div>
+            ) : webhooks.length === 0 ? (
+              <div class="dim" style="margin-top: 12px">
+                No webhooks — crashes and lifecycle events are still shown in-app.
+              </div>
+            ) : (
+              <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 12px;">
+                {webhooks.map((w) => (
+                  <WhRow key={w.id} w={w} onChanged={(msg) => void whRefresh(msg)} onDelete={() => setWhDelete(w)} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
       {/* Backup / Restore */}
       <div class="panel settings-section">
         <div class="panel-title">Backup &amp; Restore</div>
@@ -796,7 +1024,17 @@ export function Settings() {
         </div>
       </div>
 
-      {/* Unified identity confirmation */}
+      {/* Combined identity confirmation */}
+      <ConfirmModal
+        open={!!whDelete}
+        danger
+        title={whDelete ? `Delete webhook '${whDelete.name}'?` : 'Delete webhook?'}
+        message="Crash and lifecycle events will stop being forwarded to this URL."
+        confirmLabel="Delete"
+        loading={whDeleting}
+        onConfirm={whConfirmDelete}
+        onCancel={() => setWhDelete(null)}
+      />
       <ReAuthModal
         open={pendingAction !== null}
         username={user?.username}

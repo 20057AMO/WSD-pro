@@ -6,6 +6,7 @@ import {
   Loader2,
   Play,
   Square,
+  TriangleAlert,
   MonitorCheck,
   MonitorOff,
   SquareTerminal,
@@ -13,6 +14,7 @@ import {
   ChevronRight,
 } from 'lucide-preact';
 import { VSCodeIcon, OpencodeIcon } from '../components/brand-icons';
+import { CrashBadge } from '../components/CrashBadge';
 import {
   listProjects,
   listProjectTemplates,
@@ -78,6 +80,7 @@ export function Dashboard() {
 
   const running = projects.filter((p) => p.status === 'running').length;
   const stopped = projects.filter((p) => p.status === 'stopped' || p.status === 'created').length;
+  const crashed = projects.filter((p) => p.crash).length;
 
   const toolBase = `${window.location.protocol === 'https:' ? 'https' : 'http'}://${window.location.hostname}`;
   const opencodeUrl = `${toolBase}:${oc?.port || 4096}/`;
@@ -161,6 +164,15 @@ export function Dashboard() {
             <span class="dash-stat-label">Stopped</span>
           </div>
         </div>
+        {crashed > 0 && (
+          <div class="dash-stat-card crashed" onClick={() => setLocation('/projects')}>
+            <div class="dash-stat-icon"><TriangleAlert width={18} height={18} class="icon" /></div>
+            <div class="dash-stat-info">
+              <span class="dash-stat-value">{crashed}</span>
+              <span class="dash-stat-label">Crashed</span>
+            </div>
+          </div>
+        )}
         <div class="dash-stat-card" onClick={() => setLocation('/ide')}>
           <div class="dash-stat-icon">{ide?.running ? <MonitorCheck width={18} height={18} class="icon" /> : <MonitorOff width={18} height={18} class="icon" />}</div>
           <div class="dash-stat-info">
@@ -197,6 +209,7 @@ export function Dashboard() {
               <div class="project-card-header">
                 <h3>{p.name}</h3>
                 <span class={`status-badge ${p.status}`}>{p.status}</span>
+                {p.crash && <CrashBadge crash={p.crash} />}
               </div>
               <div class="project-desc">{p.description || '—'}</div>
               <div class="project-meta">

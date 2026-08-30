@@ -32,6 +32,31 @@ export interface SnapshotSchedule {
   keep: number;
 }
 
+/**
+ * A detected container crash — user-facing, rendered as a red chip/banner
+ * until an explicit start/recreate clears it. Kept OUT of the status union
+ * so every existing status consumer (WS diff, pollers, filters) keeps working.
+ */
+export interface CrashInfo {
+  at: string;
+  reason: 'exited' | 'oom' | 'restart';
+  exitCode?: number;
+  /** how many times the container has auto-restarted (restart reason). */
+  restarted?: number;
+  /** the container start epoch this crash is attached to (restart dedupe). */
+  startedAt?: string;
+}
+
+/**
+ * Internal last-known container state used by the crash detector to spot
+ * silent auto-restarts under RestartPolicy:unless-stopped. Never surfaced
+ * to clients.
+ */
+export interface CrashWatch {
+  restartCount: number;
+  startedAt: string;
+}
+
 export interface ProjectMeta {
   name?: string;
   description?: string;
@@ -45,6 +70,12 @@ export interface ProjectMeta {
   members?: ProjectMember[];
   snapshot?: SnapshotSchedule;
   lastSnapshotAt?: string;
+  /** true after an explicit UI stop — protects the exit from crash detection. */
+  requestedStop?: boolean;
+  /** last detected crash (surfaced to clients; cleared by start/recreate). */
+  crash?: CrashInfo;
+  /** internal crash-detector bookkeeping (never surfaced). */
+  crashWatch?: CrashWatch;
 }
 
 function metaFile(slug: string): string {
@@ -98,4 +129,47 @@ export function touchActivity(slug: string, action: string): ProjectMeta | null 
   meta.activity = [...(meta.activity || []), { action, at: new Date().toISOString() }].slice(-200);
   saveMeta(clean, meta);
   return meta;
+}
+
+// ── Crash-detection state (requestedStop / crash / crashWatch) ──────────
+
+/** Record that the user explicitly asked to stop this container (pre-stop). */
+export function markRequestedStop(slug: string): void {
+  const meta = loadMeta(slug) || { activity: [] };
+  meta.requestedStop = true;
+  saveMeta(slug, meta);
+}
+
+export function getCrashWatch(slug: string): CrashWatch | null {
+  return loadMeta(slug)?.crashWatch || null;
+}
+
+export function setCrashWatch(slug: string, watch: CrashWatch | undefined): void {
+  const meta = loadMeta(slug);
+  if (!meta) return;
+  if (watch) meta.crashWatch = watch;
+  else delete meta.crashWatch;
+  saveMeta(slug, meta);
+}
+
+/** Persist a detected crash (single-fire by design — see project-alerts). */
+export function setCrashState(slug: string, crash: CrashInfo): void {
+  const meta = loadMeta(slug);
+  if (!meta) return;
+  meta.crash = crash;
+  meta.activity = [...(meta.activity || []), { action: 'crashed', at: new Date().toISOString() }].slice(-200);
+  saveMeta(slug, meta);
+}
+
+/**
+ * Clear crash state + requestedStop after an explicit start/recreate/create.
+ * `crashWatch` is re-seeded by the detector on its next inspect pass.
+ */
+export function clearCrashState(slug: string): void {
+  const meta = loadMeta(slug);
+  if (!meta) return;
+  delete meta.crash;
+  delete meta.requestedStop;
+  delete meta.crashWatch;
+  saveMeta(slug, meta);
 }

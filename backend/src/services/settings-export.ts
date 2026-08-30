@@ -16,6 +16,7 @@ const AGENTS_FILE = path.join(DATA_DIR, 'agents.json');
 const AGENT_SESSIONS_FILE = path.join(DATA_DIR, 'agent-sessions.json');
 const PROVIDERS_FILE = path.join(DATA_DIR, 'providers.json');
 const CHAT_CONFIG_FILE = path.join(DATA_DIR, 'chat-config.json');
+const WEBHOOKS_FILE = path.join(DATA_DIR, 'webhooks.json');
 
 export interface BackupFile {
   kind: 'madar-backup' | 'wsd-pro-backup'; // wsd-pro-backup = legacy exports (pre-rename), still importable
@@ -28,6 +29,7 @@ export interface BackupFile {
     agentSessions?: unknown[];
     providers?: Record<string, unknown>;
     chatConfig?: Record<string, unknown>;
+    webhooks?: unknown[];
   };
 }
 
@@ -53,6 +55,14 @@ function sanitizeProvider(entry: unknown): Record<string, unknown> | null {
   return rest;
 }
 
+/** Strip the signing secret from a single webhook entry. */
+function sanitizeWebhook(entry: unknown): Record<string, unknown> | null {
+  if (!entry || typeof entry !== 'object') return null;
+  const { secret, ...rest } = entry as Record<string, unknown>;
+  void secret;
+  return rest;
+}
+
 /** Build an export payload. Provider entries are stripped of API keys/auth modes. */
 export function buildBackup(version: string): BackupFile {
   // providers.json shape: Record<id, ProviderConfig>
@@ -68,6 +78,10 @@ export function buildBackup(version: string): BackupFile {
   const rawAgents = readJson(AGENTS_FILE);
   const rawAgentSessions = readJson(AGENT_SESSIONS_FILE);
   const rawChatConfig = readJson(CHAT_CONFIG_FILE);
+  const rawWebhooks = readJson(WEBHOOKS_FILE);
+  const cleanWebhooks = Array.isArray(rawWebhooks)
+    ? rawWebhooks.map((w) => sanitizeWebhook(w)).filter((w): w is Record<string, unknown> => !!w)
+    : [];
 
   return {
     kind: 'madar-backup',
@@ -81,6 +95,7 @@ export function buildBackup(version: string): BackupFile {
       ...(rawChatConfig && typeof rawChatConfig === 'object' && !Array.isArray(rawChatConfig)
         ? { chatConfig: rawChatConfig as Record<string, unknown> }
         : {}),
+      ...(cleanWebhooks.length > 0 ? { webhooks: cleanWebhooks } : {}),
     },
   };
 }
@@ -178,6 +193,28 @@ export function restoreFromBackup(backup: unknown): RestoreResult {
       resetChatConfigCache();
       imported['chatConfig'] = Object.keys(filled).length;
     }
+  }
+
+  // ── Webhooks: array store keyed by id — add unknown ids only, secrets
+  // ── are never imported (even hand-edited backups can't smuggle one in).
+  if (Array.isArray(b.data.webhooks) && b.data.webhooks.length > 0) {
+    const currentRaw = readJson(WEBHOOKS_FILE);
+    const existing = Array.isArray(currentRaw) ? [...(currentRaw as unknown[])] : [];
+    const ids = new Set(existing.map((x: any) => String(x?.id ?? '')));
+    let added = 0;
+    for (const item of b.data.webhooks) {
+      const clean = sanitizeWebhook(item);
+      const id = String(clean?.id ?? '');
+      if (!id || ids.has(id)) {
+        skipped += 1;
+        continue;
+      }
+      ids.add(id);
+      existing.push(clean);
+      added += 1;
+    }
+    if (added > 0) writeJson(WEBHOOKS_FILE, existing);
+    imported['webhooks'] = added;
   }
 
   return { imported, skipped };

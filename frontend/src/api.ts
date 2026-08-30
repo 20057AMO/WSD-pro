@@ -21,7 +21,23 @@ export interface Project {
   ownerId?: string;
   members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string }[];
   canvasEditedAt?: string | null;
+  /** Last detected container crash — red chip/banner until cleared. */
+  crash?: CrashInfo;
 }
+
+/** Container-crash record set by the server-side detector. */
+export interface CrashInfo {
+  at: string;
+  reason: 'exited' | 'oom' | 'restart';
+  exitCode?: number;
+  /** restart count recorded for a silent auto-restart crash. */
+  restarted?: number;
+  startedAt?: string;
+}
+
+/** Badge title text for a detected crash. */
+export const crashTitle = (c: CrashInfo): string =>
+  `Crashed ${new Date(c.at).toLocaleString()} — ${c.reason}${c.exitCode != null ? ` (exit ${c.exitCode})` : ''}${c.restarted ? ` — was auto-restarted ×${c.restarted}` : ''}`;
 
 export interface ProjectTemplate {
   id: string;
@@ -927,4 +943,64 @@ export const transferOwner = (slug: string, userId: string) =>
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ userId }),
+  });
+
+// ── Notifications / Webhooks (admin) ─────────────────────────
+
+export const WEBHOOK_EVENTS = [
+  'crash',
+  'created',
+  'started',
+  'stopped',
+  'recreated',
+  'deleted',
+  'snapshot-saved',
+] as const;
+
+export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
+
+export interface Webhook {
+  id: string;
+  name: string;
+  url: string;
+  events: WebhookEvent[];
+  enabled: boolean;
+  hasSecret: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WebhookInput {
+  name?: string;
+  url?: string;
+  events?: WebhookEvent[];
+  enabled?: boolean;
+  /** '' clears the signing secret; omitted = unchanged. */
+  secret?: string;
+}
+
+export const listWebhooks = () => api<{ webhooks: Webhook[] }>('/api/webhooks');
+
+export const createWebhook = (body: WebhookInput) =>
+  api<{ webhook: Webhook }>('/api/webhooks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+export const updateWebhook = (id: string, body: WebhookInput) =>
+  api<{ webhook: Webhook }>(`/api/webhooks/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+export const deleteWebhook = (id: string) =>
+  api<{ ok: boolean }>(`/api/webhooks/${encodeURIComponent(id)}`, { method: 'DELETE' });
+
+export const testWebhook = (body: { id?: string; url?: string }) =>
+  api<{ ok: boolean; status?: number; error?: string }>(`/api/webhooks/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });

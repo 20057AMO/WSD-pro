@@ -3,6 +3,7 @@ import { useHashLocation } from 'wouter/use-hash-location';
 import { ArrowUpRight, LayoutGrid } from 'lucide-preact';
 import { listProjects } from '../api';
 import type { Project } from '../api';
+import { CrashBadge } from '../components/CrashBadge';
 import { fmtCpu, fmtMem } from '../lib/limits';
 
 /**
@@ -131,6 +132,7 @@ export function Planner() {
                 <div class="project-card-header">
                   <h3>{p.name}</h3>
                   <span class={`status-badge ${p.status}`}>{p.status}</span>
+                  {p.crash && <CrashBadge crash={p.crash} />}
                 </div>
                 <div class="project-desc">{p.description || `Workspace ${p.slug}`}</div>
                 <div class="project-meta">

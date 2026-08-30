@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
 import { FolderSearch, FolderOpen, Copy, Upload } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { CrashBadge } from '../components/CrashBadge';
 import {
   listProjects,
   createProject,
@@ -166,6 +167,7 @@ export function Projects() {
 
   const running = projects.filter((p) => p.status === 'running').length;
   const stopped = projects.filter((p) => p.status === 'stopped' || p.status === 'created').length;
+  const crashed = projects.filter((p) => p.crash).length;
 
   const filtered = useMemo(() => {
     let list = projects;
@@ -400,7 +402,7 @@ export function Projects() {
       <div class="proj-header">
         <div>
           <h1 class="hero-title" style="font-size:1.5rem">Projects</h1>
-          <p class="hero-sub" style="margin:0">{projects.length} projects · {running} running · {stopped} stopped</p>
+          <p class="hero-sub" style="margin:0">{projects.length} projects · {running} running · {stopped} stopped{crashed > 0 ? ` · ${crashed} crashed` : ''}</p>
         </div>
         <div style="display:flex;gap:8px;align-items:center">
           <input ref={restoreInputRef} type="file" accept=".tar.gz,application/gzip" style="display:none" onChange={handleRestoreFile} />
@@ -474,6 +476,7 @@ export function Projects() {
                 </label>
                 <h3>{p.name}</h3>
                 <span class={`status-badge ${p.status}`}>{p.status}</span>
+                {p.crash && <CrashBadge crash={p.crash} />}
               </div>
               <div class="project-desc">{p.description || '—'}</div>
               <div class="project-meta">
@@ -521,7 +524,7 @@ export function Projects() {
                     <input type="checkbox" checked={selected.has(p.slug)} onChange={() => toggleSelect(p.slug)} />
                   </td>
                   <td class="proj-td-name">{p.name}</td>
-                  <td><span class={`status-badge ${p.status}`}>{p.status}</span></td>
+                  <td><span class={`status-badge ${p.status}`}>{p.status}</span>{p.crash && <CrashBadge crash={p.crash} />}</td>
                   <td class="proj-td-desc">{p.description || '—'}</td>
                   <td>{p.hostPorts && Object.values(p.hostPorts).map((pub) => (
                     <span class="meta-chip port" key={pub}>:{pub}</span>

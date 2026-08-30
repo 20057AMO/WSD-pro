@@ -49,7 +49,11 @@ export type AuditEvent =
   | 'opencode-update-failed'
   | 'user-created'
   | 'user-role-changed'
-  | 'user-deleted';
+  | 'user-deleted'
+  | 'container-crash'
+  | 'webhook-send'
+  | 'webhook-send-failed'
+  | 'webhook-config-change';
 
 export interface AuditEntry {
   ts: string;

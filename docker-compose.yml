@@ -29,6 +29,9 @@ services:
       # auth/unlock/totp brute-force scopes stay at their REAL values — that's
       # exactly what the security suites assert. Production: WSD_TESTING=0.
       WSD_TESTING: ${WSD_TESTING:-1}
+      # Crash-detector sweep cadence (min 5s; lower = faster detection, more
+      # docker inspect calls per second).
+      WSD_ALERT_SWEEP_MS: ${WSD_ALERT_SWEEP_MS:-10000}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./workspaces:/workspaces

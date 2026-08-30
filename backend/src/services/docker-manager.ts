@@ -11,10 +11,21 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { execSync, spawn, execFileSync } from 'child_process';
-import { loadMeta, saveMeta, deleteMeta, touchActivity, listMetaSlugs, type ProjectMeta } from './projects-meta';
+import {
+  loadMeta,
+  saveMeta,
+  deleteMeta,
+  touchActivity,
+  listMetaSlugs,
+  markRequestedStop,
+  clearCrashState,
+  type CrashInfo,
+  type ProjectMeta,
+} from './projects-meta';
 import { loadNotes, saveNotes } from './project-notes';
 import { loadCanvas, saveCanvas } from './project-canvas';
 import { purgeOpencodeProjectRows } from './opencode-store';
+import { dispatchWebhook } from './webhook-sender';
 import { parseCpu, parseMemory, sanitizeLimitsPatch, limitsEqual, isEmptyLimits, checkCeilings, resolveDefaultLimits, getHostInfo, formatMemory, formatCpu, type ProjectLimits } from './project-limits';
 import { runSweep } from './workspace-janitor';
 import {
@@ -65,6 +76,8 @@ export interface ProjectInfo {
   activity?: { action: string; at: string }[];
   ownerId?: string;
   members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string }[];
+  /** Last detected crash — set by the crash detector, cleared by start/recreate. */
+  crash?: CrashInfo;
 }
 
 function validateProjectSlug(slug: string): string {
@@ -428,7 +441,10 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   // later call with the same slug) must preserve membership, owner and the
   // snapshot schedule rather than silently demoting a team project to the
   // "legacy, allow all" state. A fresh slug sees prev = null → current behavior.
-  saveMeta(slug, {
+  // Crash state (crash / requestedStop / crashWatch) is NEVER carried over —
+  // a brand-new container starts clean; the detector re-seeds its watch on
+  // the next inspect pass.
+  const savedMeta: ProjectMeta = {
     ...prev,
     name: clean.name,
     description: clean.description,
@@ -441,7 +457,11 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
       ...(prev?.activity || []),
       { action: 'created', at: new Date().toISOString() },
     ].slice(-200),
-  });
+  };
+  delete savedMeta.crash;
+  delete savedMeta.requestedStop;
+  delete savedMeta.crashWatch;
+  saveMeta(slug, savedMeta);
 
   // Event-driven janitor pass: any orphan that accumulated while the app was
   // running is archived immediately, so code-server's explorer (rooted at
@@ -453,6 +473,8 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   } catch {
     /* never fail a create over cleanup */
   }
+
+  dispatchWebhook('created', { event: 'created', slug, name: clean.name, at: new Date().toISOString() });
 
   return info;
 }
@@ -495,6 +517,7 @@ export async function listProjects(): Promise<ProjectInfo[]> {
       project.activity = meta.activity;
       project.ownerId = meta.ownerId;
       project.members = meta.members;
+      project.crash = meta.crash;
     }
 
     projects.push(project);
@@ -544,6 +567,7 @@ export async function getProject(slug: string): Promise<ProjectInfo | null> {
       project.activity = meta.activity;
       project.ownerId = meta.ownerId;
       project.members = meta.members;
+      project.crash = meta.crash;
     }
 
     // Derive live limits from HostConfig (Memory / NanoCpus are set only
@@ -572,10 +596,19 @@ export async function startProject(slug: string): Promise<ProjectInfo> {
   await requireContainer(projectSlug);
   const container = docker.getContainer(`wsd-${projectSlug}`);
   await container.start();
+  // An explicit start clears any prior crash and the requestedStop marker the
+  // detector uses to tell intentional stops apart from crashes.
+  clearCrashState(projectSlug);
   touchActivity(projectSlug, 'started');
   const info = await getProject(projectSlug);
   if (!info) throw new HttpError(500, 'Project not found after start');
   info.status = 'running';
+  dispatchWebhook('started', {
+    event: 'started',
+    slug: projectSlug,
+    name: loadMeta(projectSlug)?.name || projectSlug,
+    at: new Date().toISOString(),
+  });
   return info;
 }
 
@@ -585,12 +618,23 @@ export async function startProject(slug: string): Promise<ProjectInfo> {
 export async function stopProject(slug: string): Promise<ProjectInfo> {
   const projectSlug = validateProjectSlug(slug);
   await requireContainer(projectSlug);
+  // Mark the stop as INTENTIONAL *before* the container exits, so a crash
+  // sweep racing the stop can never classify this graceful shutdown as a
+  // crash (both are synchronous on the event loop, but the sweep may already
+  // hold an inspect promise).
+  markRequestedStop(projectSlug);
   const container = docker.getContainer(`wsd-${projectSlug}`);
   await container.stop();
   touchActivity(projectSlug, 'stopped');
   const info = await getProject(projectSlug);
   if (!info) throw new HttpError(500, 'Project not found after stop');
   info.status = 'stopped';
+  dispatchWebhook('stopped', {
+    event: 'stopped',
+    slug: projectSlug,
+    name: loadMeta(projectSlug)?.name || projectSlug,
+    at: new Date().toISOString(),
+  });
   return info;
 }
 
@@ -601,12 +645,19 @@ export async function stopProject(slug: string): Promise<ProjectInfo> {
 export async function removeProject(slug: string): Promise<void> {
   const projectSlug = validateProjectSlug(slug);
   await requireContainer(projectSlug);
+  const removedMeta = loadMeta(projectSlug);
   const container = docker.getContainer(`wsd-${projectSlug}`);
   await container.remove({ force: true });
   deleteMeta(projectSlug);
   removeWorkspaceDir(projectSlug);
   unregisterOpencodeProject(projectSlug);
   purgeOpencodeProjectRows([projectSlug]);
+  dispatchWebhook('deleted', {
+    event: 'deleted',
+    slug: projectSlug,
+    name: removedMeta?.name || projectSlug,
+    at: new Date().toISOString(),
+  });
   // If the workspace dir could not be fully removed (busy files, partial
   // failure), archive the leftover NOW instead of letting it haunt
   // code-server/opencode until the next periodic sweep.
@@ -744,7 +795,7 @@ export async function recreateProject(slug: string): Promise<ProjectInfo> {
     await c.remove({ force: true }).catch(() => {});
   }
 
-  return createProject({
+  const created = await createProject({
     name: meta.name || proj.name,
     slug: projectSlug,
     description: meta.description,
@@ -753,6 +804,16 @@ export async function recreateProject(slug: string): Promise<ProjectInfo> {
     env: meta.env,
     limits: meta.limits,
   });
+
+  // createProject already fired 'created'; the recreate gets its own event on
+  // top (a genuine teardown + rebuild worth distinguishing in receivers).
+  dispatchWebhook('recreated', {
+    event: 'recreated',
+    slug: projectSlug,
+    name: meta.name || proj.name,
+    at: new Date().toISOString(),
+  });
+  return created;
 }
 
 export interface UpdatePortsResult {
