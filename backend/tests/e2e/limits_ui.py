@@ -126,8 +126,11 @@ def _create_via_modal(pg, name: str, ports: list[str], cpu: str, mem: str) -> bo
         except Exception:  # noqa: BLE001
             modal_err = pg.locator('.login-error')
             text = modal_err.nth(0).inner_text() if modal_err.count() else ""
-            if "already in use" in text.lower() or "taken" in text.lower():
-                print(f"  . port {port} taken, retrying with another")
+            # Retry on any port-level create rejection: conflict, and host-side
+            # bind failures (Windows "excluded port range" gives a 500 with
+            # 'ports are not available: exposing port ... bind').
+            if "already in use" in text.lower() or "taken" in text.lower() or "ports are not available" in text.lower():
+                print(f"  . port {port} unavailable ({text.strip()}), retrying with another")
                 continue
             print(f"  . create failed: {text}")
             return False
@@ -179,7 +182,8 @@ def main() -> int:
                   cpu_m.count() == 1 and mem_m.count() == 1,
                   f"cpu={cpu_m.count()} mem={mem_m.count()}")
 
-            created_ok = _create_via_modal(pg, "e2e-limited", [str(random.randint(20000, 59000))],
+            created_ok = _create_via_modal(pg, "e2e-limited",
+                                           [str(random.randint(20000, 49000)) for _ in range(5)],
                                            "1", "256Mi")
             check("create-with-limits navigates to the project page", created_ok)
             if not created_ok:
