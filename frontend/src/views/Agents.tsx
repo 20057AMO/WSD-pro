@@ -22,7 +22,7 @@ import { useChatSocket } from '../useChatSocket';
 import { useChatAttachments, formatSize } from '../useChatAttachments';
 import { renderMarkdown } from '../lib/markdown';
 import { AgentSettingsModal } from '../components/AgentSettingsModal';
-import { ConfirmDialog } from '../components/ConfirmDialog';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 const AGENT_PRESETS = [
   { name: 'Coder', icon: '⚡', desc: 'Write and build code', prompt: 'You are an expert developer. Follow this workflow: 1) Read context and existing patterns, 2) Plan approach briefly, 3) Implement clean minimal code, 4) Verify with build/typecheck, 5) Summarize changes. Standards: error handling on every async call, proper TypeScript types, sanitize input, no unrelated refactors. After coding, always run the appropriate build command to verify.', tools: true },
@@ -612,7 +612,8 @@ export function Agents() {
       )}
 
       {confirmDelete && (
-        <ConfirmDialog
+        <ConfirmModal
+          open
           title="Delete Session"
           message={`Delete session '${confirmDelete.name}'? This cannot be undone.`}
           confirmLabel="Delete"

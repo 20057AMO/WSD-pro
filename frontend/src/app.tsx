@@ -13,6 +13,7 @@ import {
   Unlock,
   Users,
   PencilRuler,
+  Menu,
 } from 'lucide-preact';
 import { AuthProvider, useAuth } from './auth';
 import { VSCodeIcon, OpencodeIcon } from './components/brand-icons';
@@ -170,7 +171,7 @@ function ProvidersUnlockBadge() {
   );
 }
 
-function Sidebar() {
+function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user } = useAuth();
   const [ocPort, setOcPort] = useState(4096);
 
@@ -184,15 +185,15 @@ function Sidebar() {
 
   const toolBase = `${window.location.protocol === 'https:' ? 'https' : 'http'}://${window.location.hostname}`;
   return (
-    <aside class="sidebar">
-      <div class="sidebar-brand">
+    <aside class={`sidebar${open ? ' open' : ''}`}>
+      <div class="sidebar-brand" onClick={() => { navigate('/'); onClose(); }}>
         <div class="brand-mark"><img class="brand-logo" src="/logo.png" alt="Madar" /></div>
         <div class="brand-text">
           <span class="brand-name">Madar</span>
           <span class="brand-tag">مدار · orbit</span>
         </div>
       </div>
-      <nav class="sidebar-nav">
+      <nav class="sidebar-nav" onClick={onClose}>
         <NavButton href="/" label="Dashboard" icon={LayoutDashboard} />
         <NavButton href="/projects" label="Projects" icon={FolderOpen} />
         <NavButton href="/planner" label="Planner" icon={PencilRuler} />
@@ -220,6 +221,11 @@ function Sidebar() {
 function Shell() {
   const [location] = useHashLocation();
   const { user, loading } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location]);
 
   if (loading) {
     return (
@@ -252,7 +258,14 @@ function Shell() {
 
   return (
     <div class="app-view">
-      <Sidebar />
+      <div class={`sidebar-backdrop${sidebarOpen ? ' open' : ''}`} onClick={() => setSidebarOpen(false)} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <div class="mobile-topbar">
+        <button class="menu-btn" aria-label="Open menu" onClick={() => setSidebarOpen(true)}>
+          <Menu width={20} height={20} />
+        </button>
+        <span class="mobile-topbar-brand">Madar</span>
+      </div>
       <main class="main">
         <Suspense fallback={<div style="display:flex;align-items:center;justify-content:center;height:100%;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}>
           <Route path="/" component={Dashboard} />

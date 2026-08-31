@@ -20,7 +20,7 @@ import {
 import { useChatSocket } from '../useChatSocket';
 import { useChatAttachments, formatSize } from '../useChatAttachments';
 import { renderMarkdown } from '../lib/markdown';
-import { ConfirmDialog } from './ConfirmDialog';
+import { ConfirmModal } from './ConfirmModal';
 
 function relTime(iso: string): string {
   const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
@@ -270,7 +270,8 @@ export function ProjectChat({ slug }: { slug: string }) {
       )}
 
       {confirmDelete && (
-        <ConfirmDialog
+        <ConfirmModal
+          open
           title="Delete Session"
           message={`Delete session '${confirmDelete.name}'? This cannot be undone.`}
           confirmLabel="Delete"

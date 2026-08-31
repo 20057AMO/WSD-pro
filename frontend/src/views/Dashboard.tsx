@@ -2,19 +2,16 @@ import { useState, useEffect } from 'preact/hooks';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   FolderOpen,
-  Bot,
   Loader2,
   Play,
   Square,
   TriangleAlert,
   MonitorCheck,
   MonitorOff,
-  SquareTerminal,
   ChevronRight,
   RefreshCw,
   HardDrive,
 } from 'lucide-preact';
-import { VSCodeIcon, OpencodeIcon } from '../components/brand-icons';
 import { CrashBadge } from '../components/CrashBadge';
 import {
   listProjects,
@@ -22,14 +19,10 @@ import {
   stopProject,
   getServerInfo,
   getIdeStatus,
-  listAgents,
-  getOpencodeStatus,
   getStorageMetrics,
   Project,
   ServerInfo,
   IdeStatus,
-  AgentDef,
-  OpencodeStatus,
   StorageMetrics,
 } from '../api';
 import { fmtCpu, fmtMem } from '../lib/limits';
@@ -41,10 +34,8 @@ const PROJECT_PREVIEW_LIMIT = 8;
 export function Dashboard() {
   const [, setLocation] = useHashLocation();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [agents, setAgents] = useState<AgentDef[]>([]);
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [ide, setIde] = useState<IdeStatus | null>(null);
-  const [oc, setOc] = useState<OpencodeStatus | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
@@ -55,19 +46,15 @@ export function Dashboard() {
     let cancelled = false;
     const tick = async () => {
       try {
-        const [p, i, s, a, o] = await Promise.all([
+        const [p, i, s] = await Promise.all([
           listProjects(),
           getServerInfo(),
           getIdeStatus(),
-          listAgents(),
-          getOpencodeStatus().catch(() => null),
         ]);
         if (cancelled) return;
         setProjects(p.projects);
         setInfo(i);
         setIde(s.ide);
-        setAgents(a.agents);
-        setOc(o);
         setLoadError(null);
       } catch (err: any) {
         if (!cancelled) setLoadError(err.message);
@@ -108,9 +95,6 @@ export function Dashboard() {
   const stopped = projects.filter((p) => p.status === 'stopped' || p.status === 'created').length;
   const crashed = projects.filter((p) => p.crash).length;
 
-  const toolBase = `${window.location.protocol === 'https:' ? 'https' : 'http'}://${window.location.hostname}`;
-  const opencodeUrl = `${toolBase}:${oc?.port || 4096}/`;
-
   const handleAction = async (e: MouseEvent, slug: string, action: 'start' | 'stop') => {
     e.stopPropagation();
     if (acting) return;
@@ -134,15 +118,6 @@ export function Dashboard() {
       setLocation(`/project/${p.slug}`);
     }
   };
-
-  type QuickLink = { label: string; Icon: any; desc: string; route?: string; externalUrl?: string };
-  const quickLinks: QuickLink[] = [
-    { label: 'Projects', Icon: FolderOpen, desc: `${projects.length} total`, route: '/projects' },
-    { label: 'Terminals', Icon: SquareTerminal, desc: 'All projects', route: '/terminals' },
-    { label: 'Agents', Icon: Bot, desc: `${agents.length} agents`, route: '/agents' },
-    { label: 'VS Code', Icon: VSCodeIcon, desc: ide?.running ? 'Running' : 'Stopped', route: '/ide' },
-    { label: 'OpenCode', Icon: OpencodeIcon, desc: oc?.running ? 'Running' : 'Stopped', externalUrl: opencodeUrl },
-  ];
 
   if (loading) {
     return (
@@ -298,19 +273,6 @@ export function Dashboard() {
             )}
           </>
         )}
-      </div>
-
-      <div class="section-head">
-        <h2>Quick Actions</h2>
-      </div>
-      <div class="dash-actions">
-        {quickLinks.map((l) => (
-          <button class="dash-action-card" key={l.label} onClick={() => (l.externalUrl ? window.open(l.externalUrl, '_blank', 'noopener') : setLocation(l.route || '/'))}>
-            <span class="dash-action-icon"><l.Icon width={20} height={20} class="icon" /></span>
-            <span class="dash-action-label">{l.label}</span>
-            <span class="dash-action-desc">{l.desc}</span>
-          </button>
-        ))}
       </div>
 
       <div class="section-head">
