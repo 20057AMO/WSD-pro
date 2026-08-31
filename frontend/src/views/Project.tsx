@@ -12,6 +12,7 @@ import {
   setProjectPorts,
   setProjectLimits,
   cloneProject,
+  updateProjectTags,
   getProjectStats,
   checkProjectPorts,
   getChatContext,
@@ -454,6 +455,11 @@ function OverviewPanel({
   const cpuInputRef = useRef<HTMLInputElement | null>(null);
   const memInputRef = useRef<HTMLInputElement | null>(null);
 
+  const [tagInput, setTagInput] = useState('');
+  const [currentTags, setCurrentTags] = useState<string[]>([]);
+  const [tagsMsg, setTagsMsg] = useState<string | null>(null);
+  const [savingTags, setSavingTags] = useState(false);
+
   const [recreating, setRecreating] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -529,9 +535,22 @@ function OverviewPanel({
   }, [project?.limits?.cpu]);
 
   useEffect(() => {
+    if (document.activeElement === cpuInputRef.current) return;
+    setCpuText(project?.limits?.cpu || '');
+  }, [project?.limits?.cpu]);
+
+  useEffect(() => {
     if (document.activeElement === memInputRef.current) return;
     setMemText(project?.limits?.memory || '');
   }, [project?.limits?.memory]);
+
+  useEffect(() => {
+    if (project?.tags) {
+      setCurrentTags([...project.tags]);
+    } else {
+      setCurrentTags([]);
+    }
+  }, [project?.tags]);
 
   const saveDescription = async () => {
     try {
@@ -625,6 +644,37 @@ function OverviewPanel({
     }
   };
 
+  const saveTags = async () => {
+    if (savingTags) return;
+    setSavingTags(true);
+    setTagsMsg(null);
+    try {
+      await updateProjectTags(slug, currentTags);
+      setTagsMsg('Saved ✓');
+      setTimeout(() => setTagsMsg(null), 4000);
+      onChanged();
+    } catch (err: any) {
+      setTagsMsg(`Failed: ${err.message}`);
+    } finally {
+      setSavingTags(false);
+    }
+  };
+
+  const handleTagKeyDown = (e: any) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const val = tagInput.trim();
+      if (val && !currentTags.includes(val)) {
+        setCurrentTags([...currentTags, val]);
+        setTagInput('');
+      }
+    }
+  };
+
+  const removeTag = (tag: string) => {
+    setCurrentTags(currentTags.filter((t) => t !== tag));
+  };
+
   const doRecreate = async () => {
     setRecreating(true);
     try {
@@ -704,18 +754,40 @@ function OverviewPanel({
                 )}
               </div>
             </div>
-            <div class="kv">
-              <span>Created</span>
-              <b>{project?.createdAt ? fmtTime(project.createdAt) : '—'}</b>
-            </div>
-            <div class="kv">
-              <span>Uptime</span>
-              <b>{effectiveStats?.running ? fmtUptime(effectiveStats.startedAt) : project?.status === 'running' ? '…' : 'stopped'}</b>
-            </div>
-            <div class="kv">
-              <span>Ports</span>
-              <b>{project?.ports && project.ports.length > 0 ? project.ports.join(', ') : 'none'}</b>
-            </div>
+                <div class="kv">
+                  <span>Created</span>
+                  <b>{project?.createdAt ? fmtTime(project.createdAt) : '—'}</b>
+                </div>
+                <div class="kv">
+                  <span>Uptime</span>
+                  <b>{effectiveStats?.running ? fmtUptime(effectiveStats.startedAt) : project?.status === 'running' ? '…' : 'stopped'}</b>
+                </div>
+                <div class="kv" style="flex-direction:column; align-items:flex-start; gap:6px">
+                  <span class="dim" style="font-size:0.72rem">Tags</span>
+                  <div style="display:flex; flex-wrap:wrap; gap:4px">
+                    {currentTags.map((t) => (
+                      <span class="tag-chip" key={t}>
+                        {t} <span class="tag-remove" onClick={() => removeTag(t)}>×</span>
+                      </span>
+                    ))}
+                    <input
+                      class="modern-input"
+                      style="width:80px; height:20px; font-size:0.7rem; padding:2px 4px"
+                      placeholder="Add..."
+                      value={tagInput}
+                      onInput={(e: any) => setTagInput(e.target.value)}
+                      onKeyDown={handleTagKeyDown}
+                    />
+                  </div>
+                  <button class="btn-ghost sm" style="margin-top:4px; width:fit-content" onClick={saveTags} disabled={savingTags}>
+                    {savingTags ? 'Saving…' : 'Save tags'}
+                  </button>
+                  {tagsMsg && <span class="dim" style="color: var(--text-3); font-size:0.7rem">{tagsMsg}</span>}
+                </div>
+                <div class="kv">
+                  <span>Ports</span>
+                  <b>{project?.ports && project.ports.length > 0 ? project.ports.join(', ') : 'none'}</b>
+                </div>
           </div>
         </div>
 

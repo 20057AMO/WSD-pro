@@ -1580,6 +1580,67 @@ textarea.agent-prompt-input {
   margin: 6px 0 12px; line-height: 1.5;
 }
 
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 6px; border-radius: 4px;
+  background: color-mix(in srgb, var(--accent, #6ea8fe) 15%, transparent);
+  color: var(--accent, #6ea8fe);
+  font-size: 0.72rem; font-weight: 500;
+  border: 1px solid color-mix(in srgb, var(--accent, #6ea8fe) 30%, transparent);
+}
+button.tag-chip { cursor: pointer; }
+button.tag-chip:hover { background: color-mix(in srgb, var(--accent, #6ea8fe) 28%, transparent); }
+button.tag-chip.active {
+  background: var(--accent, #6ea8fe);
+  color: #0b0e14;
+  font-weight: 600;
+}
+.tag-remove {
+  cursor: pointer; font-weight: 700; opacity: 0.6;
+}
+.tag-remove:hover { opacity: 1; color: var(--red); }
+
+/* ── Project tag filter row ── */
+.proj-tag-filter {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 10px 0 2px;
+  margin-bottom: 6px;
+}
+
+/* ── Storage metrics panel + dashboard card ── */
+.storage-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.storage-total {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 12px; border-radius: var(--radius);
+  background: var(--bg, rgba(128, 128, 128, 0.05));
+  border: 1px solid var(--border);
+}
+.storage-total span { font-size: 0.68rem; color: var(--text-3); }
+.storage-total b { font-size: 0.95rem; font-weight: 600; }
+.storage-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.storage-table th {
+  text-align: left; font-size: 0.68rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-3); padding: 4px 8px; border-bottom: 1px solid var(--border);
+}
+.storage-table td { padding: 7px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+.storage-name { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.storage-name .dim { font-weight: 400; margin-left: 2px; font-size: 0.72rem; }
+.storage-offenders { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.storage-offender {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 7px 10px; border-radius: var(--radius);
+  background: var(--bg, rgba(128, 128, 128, 0.05));
+  cursor: pointer;
+}
+.storage-offender:hover { background: color-mix(in srgb, var(--accent, #6ea8fe) 8%, var(--bg, transparent)); }
+.storage-offender-name { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; }
+.storage-offender-size { font-size: 0.82rem; font-weight: 600; color: var(--text-2); }
+
 /* â”€â”€ Beta chip â”€â”€ */
 .beta-chip {
   display: inline-block;

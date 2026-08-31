@@ -76,6 +76,8 @@ export interface ProjectInfo {
   activity?: { action: string; at: string }[];
   ownerId?: string;
   members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string }[];
+  /** User-defined labels for organizing/filtering projects. */
+  tags?: string[];
   /** Last detected crash — set by the crash detector, cleared by start/recreate. */
   crash?: CrashInfo;
 }
@@ -517,6 +519,7 @@ export async function listProjects(): Promise<ProjectInfo[]> {
       project.activity = meta.activity;
       project.ownerId = meta.ownerId;
       project.members = meta.members;
+      project.tags = meta.tags;
       project.crash = meta.crash;
     }
 
@@ -567,6 +570,7 @@ export async function getProject(slug: string): Promise<ProjectInfo | null> {
       project.activity = meta.activity;
       project.ownerId = meta.ownerId;
       project.members = meta.members;
+      project.tags = meta.tags;
       project.crash = meta.crash;
     }
 

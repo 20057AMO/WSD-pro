@@ -70,6 +70,7 @@ export interface ProjectMeta {
   members?: ProjectMember[];
   snapshot?: SnapshotSchedule;
   lastSnapshotAt?: string;
+  tags?: string[];
   /** true after an explicit UI stop — protects the exit from crash detection. */
   requestedStop?: boolean;
   /** last detected crash (surfaced to clients; cleared by start/recreate). */

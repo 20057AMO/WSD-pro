@@ -10,27 +10,30 @@ import {
   MonitorCheck,
   MonitorOff,
   SquareTerminal,
-  LayoutTemplate,
   ChevronRight,
+  RefreshCw,
+  HardDrive,
 } from 'lucide-preact';
 import { VSCodeIcon, OpencodeIcon } from '../components/brand-icons';
 import { CrashBadge } from '../components/CrashBadge';
 import {
   listProjects,
-  listProjectTemplates,
   startProject,
   stopProject,
   getServerInfo,
   getIdeStatus,
   listAgents,
   getOpencodeStatus,
+  getStorageMetrics,
   Project,
   ServerInfo,
   IdeStatus,
   AgentDef,
   OpencodeStatus,
+  StorageMetrics,
 } from '../api';
 import { fmtCpu, fmtMem } from '../lib/limits';
+import { fmtBytes } from '../lib/size';
 
 // How many project cards to show on the dashboard before a "view all" link.
 const PROJECT_PREVIEW_LIMIT = 8;
@@ -39,25 +42,25 @@ export function Dashboard() {
   const [, setLocation] = useHashLocation();
   const [projects, setProjects] = useState<Project[]>([]);
   const [agents, setAgents] = useState<AgentDef[]>([]);
-  const [templatesCount, setTemplatesCount] = useState(0);
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [ide, setIde] = useState<IdeStatus | null>(null);
   const [oc, setOc] = useState<OpencodeStatus | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
+  const [storage, setStorage] = useState<StorageMetrics | null>(null);
+  const [storageRefreshing, setStorageRefreshing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
       try {
-        const [p, i, s, a, o, t] = await Promise.all([
+        const [p, i, s, a, o] = await Promise.all([
           listProjects(),
           getServerInfo(),
           getIdeStatus(),
           listAgents(),
           getOpencodeStatus().catch(() => null),
-          listProjectTemplates().catch(() => ({ templates: [] })),
         ]);
         if (cancelled) return;
         setProjects(p.projects);
@@ -65,18 +68,41 @@ export function Dashboard() {
         setIde(s.ide);
         setAgents(a.agents);
         setOc(o);
-        setTemplatesCount(t.templates?.length || 0);
         setLoadError(null);
       } catch (err: any) {
         if (!cancelled) setLoadError(err.message);
       } finally {
         if (!cancelled) setLoading(false);
       }
+      try {
+        const sm = await getStorageMetrics().catch(() => null);
+        if (!cancelled && sm) setStorage(sm);
+      } catch {
+        /* storage is best-effort */
+      }
     };
     tick();
     const t = setInterval(tick, 5000);
     return () => { cancelled = true; clearInterval(t); };
   }, []);
+
+  const refreshStorage = async () => {
+    if (storageRefreshing) return;
+    setStorageRefreshing(true);
+    try {
+      const sm = await getStorageMetrics(true);
+      setStorage(sm);
+    } catch (err: any) {
+      setLoadError(err.message);
+    } finally {
+      setStorageRefreshing(false);
+    }
+  };
+
+  const storageTop = (storage?.projects || [])
+    .slice()
+    .sort((a, b) => b.workspaceBytes - a.workspaceBytes)
+    .slice(0, 3);
 
   const running = projects.filter((p) => p.status === 'running').length;
   const stopped = projects.filter((p) => p.status === 'stopped' || p.status === 'created').length;
@@ -112,7 +138,6 @@ export function Dashboard() {
   type QuickLink = { label: string; Icon: any; desc: string; route?: string; externalUrl?: string };
   const quickLinks: QuickLink[] = [
     { label: 'Projects', Icon: FolderOpen, desc: `${projects.length} total`, route: '/projects' },
-    { label: 'Templates', Icon: LayoutTemplate, desc: `${templatesCount} recipes`, route: '/templates' },
     { label: 'Terminals', Icon: SquareTerminal, desc: 'All projects', route: '/terminals' },
     { label: 'Agents', Icon: Bot, desc: `${agents.length} agents`, route: '/agents' },
     { label: 'VS Code', Icon: VSCodeIcon, desc: ide?.running ? 'Running' : 'Stopped', route: '/ide' },
@@ -206,13 +231,18 @@ export function Dashboard() {
               key={p.slug}
               onClick={() => setLocation(`/project/${p.slug}`)}
             >
-              <div class="project-card-header">
-                <h3>{p.name}</h3>
-                <span class={`status-badge ${p.status}`}>{p.status}</span>
-                {p.crash && <CrashBadge crash={p.crash} />}
-              </div>
-              <div class="project-desc">{p.description || '—'}</div>
-              <div class="project-meta">
+<div class="project-card-header">
+  <h3>{p.name}</h3>
+  <span class={`status-badge ${p.status}`}>{p.status}</span>
+  {p.crash && <CrashBadge crash={p.crash} />}
+</div>
+<div class="project-desc">{p.description || '—'}</div>
+<div class="project-tags" style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px">
+  {p.tags && p.tags.map(t => (
+    <span class="tag-chip" key={t}>{t}</span>
+  ))}
+</div>
+<div class="project-meta">
                 {p.hostPorts && Object.entries(p.hostPorts).map(([priv, pub]) => (
                   <span class="meta-chip port" key={priv}>:{pub}</span>
                 ))}
@@ -235,6 +265,40 @@ export function Dashboard() {
           ))}
         </div>
       )}
+
+      <div class="panel dash-storage">
+        <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <span>Storage</span>
+          <button class="btn-ghost sm" onClick={refreshStorage} disabled={storageRefreshing}>
+            {storageRefreshing ? <Loader2 width={13} height={13} class="icon spin" /> : <RefreshCw width={13} height={13} class="icon" />}
+            Refresh
+          </button>
+        </div>
+        <p class="settings-hint">Workspaces · snapshot archives · Docker disk usage.</p>
+        {storage == null ? (
+          <div class="dim">Loading storage…</div>
+        ) : (
+          <>
+            <div class="storage-totals">
+              <div class="storage-total"><span>Workspaces</span><b>{fmtBytes(storage.totalWorkspaceBytes)}</b></div>
+              <div class="storage-total"><span>Snapshot archives</span><b>{fmtBytes(storage.totalSnapshotBytes)}</b></div>
+              <div class="storage-total"><span>Data directory</span><b>{fmtBytes(storage.dataDirBytes)}</b></div>
+              <div class="storage-total"><span>Containers (writable)</span><b>{fmtBytes(storage.containerWritableBytes)}</b></div>
+            </div>
+            {storageTop.length > 0 && (
+              <div class="storage-offenders">
+                <div class="dim" style="font-size:0.75rem;margin:12px 0 6px">Largest workspaces</div>
+                {storageTop.map((p) => (
+                  <div class="storage-offender" key={p.slug} onClick={() => setLocation(`/project/${p.slug}`)}>
+                    <span class="storage-offender-name"><HardDrive width={12} height={12} class="icon" /> {p.name}</span>
+                    <span class="storage-offender-size">{fmtBytes(p.workspaceBytes)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       <div class="section-head">
         <h2>Quick Actions</h2>

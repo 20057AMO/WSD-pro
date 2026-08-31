@@ -40,7 +40,7 @@ import { startJanitor } from './services/workspace-janitor';
 import * as studio from './services/opencode-studio';
 import { listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, renameWorkspacePath, deleteWorkspacePath, resolveProjectSubdir } from './services/workspace-files';
 import { loadMeta, saveMeta } from './services/projects-meta';
-import { listTemplates, getTemplate, createTemplate, updateTemplate, deleteTemplate } from './services/project-templates';
+
 import { exportProjectSnapshot, importProjectSnapshot } from './services/project-snapshots';
 import * as snapAuto from './services/project-snapshots-auto';
 import { getIdeStatus } from './services/ide-service';
@@ -71,6 +71,7 @@ import {
 } from './services/webhooks-store';
 import { sendWebhook } from './services/webhook-sender';
 import { startAlertsAutomation } from './services/project-alerts';
+import { getStorageMetrics, invalidateStorageCache } from './services/storage-metrics';
 import {
   listSessions,
   createSession,
@@ -940,36 +941,32 @@ app.get('/api/projects', async (_req, res) => {
   }
 });
 
-// Create a new project (provisions container + workspace). Optionally start
-// from a saved project template: templateId resolves image/ports/env, with the
-// request body able to override any of them.
+// Disk-usage visibility (read-only): per-project workspace size, snapshot
+// archives, data-directory footprint and Docker-level aggregates. Server-side
+// TTL cache + singleflight keep the filesystem/Docker scan to one pass.
+app.get('/api/storage', async (req: any, res) => {
+  try {
+    const fresh = req.query?.fresh === '1' || req.query?.fresh === 'true';
+    res.json(await getStorageMetrics({ fresh }));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to compute storage metrics' });
+  }
+});
+
+// Create a new project (provisions container + workspace).
 app.post('/api/projects', async (req: any, res) => {
   try {
-    const { name, slug, description, image, ports, env, templateId, limits } = req.body || {};
+    const { name, slug, description, image, ports, env, limits } = req.body || {};
     if (!name || !String(name).trim()) {
       return res.status(400).json({ error: 'Project name is required' });
-    }
-    let specImage = image;
-    let specPorts = ports;
-    let specEnv = env;
-    if (templateId) {
-      const tpl = getTemplate(String(templateId));
-      if (!tpl) {
-        return res.status(404).json({ error: 'Project template not found' });
-      }
-      // Explicit request fields win; the template fills the rest. Ports merge
-      // is "request first, else template" — never union (host collisions).
-      specImage = image !== undefined ? image : tpl.image;
-      specPorts = Array.isArray(ports) && ports.length > 0 ? ports : tpl.ports;
-      specEnv = { ...(tpl.env || {}), ...(env && typeof env === 'object' ? env : {}) };
     }
     const project = await createProject({
       name: String(name).trim(),
       slug,
       description,
-      image: specImage,
-      ports: specPorts,
-      env: specEnv,
+      image,
+      ports,
+      env,
       limits: limits && typeof limits === 'object' && !Array.isArray(limits) ? limits : undefined,
     });
     // Set owner to the creating user
@@ -980,6 +977,7 @@ app.post('/api/projects', async (req: any, res) => {
       meta.members = [{ userId, role: 'admin', addedAt: new Date().toISOString() }];
       saveMeta(project.slug, meta);
     }
+    invalidateStorageCache();
     res.status(201).json({ project });
   } catch (err: any) {
     res.status(err.statusCode || 500).json({ error: err.message });
@@ -1024,6 +1022,7 @@ app.post('/api/projects/:slug/duplicate', requireProjectAccess('editor'), async 
       meta.members = [{ userId, role: 'admin', addedAt: new Date().toISOString() }];
       saveMeta(project.slug, meta);
     }
+    invalidateStorageCache();
     res.status(201).json({ project });
   } catch (err: any) {
     res.status(err.statusCode || 500).json({ error: err.message });
@@ -1064,6 +1063,7 @@ app.post('/api/projects/import', requireRole('editor'), upload.single('file'), a
       meta.members = [{ userId, role: 'admin', addedAt: new Date().toISOString() }];
       saveMeta(project.slug, meta);
     }
+    invalidateStorageCache();
     recordAudit('snapshot-import', true, req.ip);
     res.status(201).json({ project });
   } catch (err: any) {
@@ -1104,6 +1104,27 @@ app.put('/api/projects/:slug/notes', requireProjectAccess('editor'), (req, res) 
     res.json(notes.saveNotes(req.params.slug, req.body));
   } catch (err: any) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/projects/:slug/tags', requireProjectAccess('editor'), (req, res) => {
+  try {
+    const { tags } = req.body || {};
+    if (!Array.isArray(tags)) throw new HttpError(400, 'Tags must be an array of strings');
+    if (tags.length > 20) throw new HttpError(400, 'Too many tags (max 20)');
+
+    const sanitized = tags
+      .map((t) => String(t || '').trim())
+      .filter((t) => t.length > 0 && t.length <= 30)
+      .filter((t, i, a) => a.indexOf(t) === i);
+
+    const meta = loadMeta(req.params.slug) || { activity: [] };
+    meta.tags = sanitized;
+    saveMeta(req.params.slug, meta);
+    recordAudit('project-tags', true, req.ip);
+    res.json({ tags: sanitized });
+  } catch (err: any) {
+    res.status(err.statusCode || 400).json({ error: err.message });
   }
 });
 
@@ -1214,44 +1235,13 @@ app.post('/api/projects/:slug/snapshots/:file/restore', requireProjectAccess('ed
       meta.members = [{ userId, role: 'admin', addedAt: new Date().toISOString() }];
       saveMeta(project.slug, meta);
     }
+    invalidateStorageCache();
     recordAudit('snapshot-restore', true, req.ip);
     res.status(201).json({ project });
   } catch (err: any) {
     recordAudit('snapshot-restore', false, req.ip);
     res.status(err.statusCode || 400).json({ error: err.message });
   }
-});
-
-// ── Project Templates (reusable runtime recipes) ───────────────
-// Readable by any authenticated user (the create-project flow picks a
-// template); write operations are admin-only — they're server-wide config.
-
-app.get('/api/templates', (_req, res) => {
-  res.json({ templates: listTemplates() });
-});
-
-app.post('/api/templates', requireAdmin, (req, res) => {
-  try {
-    const template = createTemplate((req.body as any) || {});
-    res.status(201).json({ template });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.put('/api/templates/:id', requireAdmin, (req, res) => {
-  try {
-    const template = updateTemplate(req.params.id, (req.body as any) || {});
-    if (!template) return res.status(404).json({ error: 'Template not found' });
-    res.json({ template });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.delete('/api/templates/:id', requireAdmin, (req, res) => {
-  if (!deleteTemplate(req.params.id)) return res.status(404).json({ error: 'Template not found' });
-  res.json({ ok: true });
 });
 
 // ── Project membership ────────────────────────────────────────
@@ -1411,6 +1401,7 @@ app.post('/api/projects/:slug/stop', requireProjectAccess('editor'), async (req,
 app.delete('/api/projects/:slug', requireProjectAccess('admin'), rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
   try {
     await removeProject(req.params.slug);
+    invalidateStorageCache();
     recordAudit('project-files-deleted', true, req.ip);
     res.json({ ok: true });
   } catch (err: any) {

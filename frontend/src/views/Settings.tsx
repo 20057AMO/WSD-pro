@@ -14,6 +14,8 @@ import {
   BellRing,
   Plus,
   Trash2,
+  HardDrive,
+  RefreshCw,
 } from 'lucide-preact';
 import { useAuth } from '../auth';
 import {
@@ -36,16 +38,19 @@ import {
   updateWebhook,
   deleteWebhook,
   testWebhook,
+  getStorageMetrics,
   WEBHOOK_EVENTS,
   type AuditEntry,
   type BackupFile,
   type Webhook,
   type WebhookEvent,
   type WebhookInput,
+  type StorageMetrics,
 } from '../api';
 import { PwMeter } from '../components/PwMeter';
 import { ReAuthModal } from '../components/ReAuthModal';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { fmtBytes } from '../lib/size';
 
 const APP_VERSION = '2.0.0-beta';
 
@@ -239,6 +244,11 @@ export function Settings() {
   const [whDelete, setWhDelete] = useState<Webhook | null>(null);
   const [whDeleting, setWhDeleting] = useState(false);
 
+  // ── Disk usage / storage metrics (read-only, any authenticated user) ──
+  const [storage, setStorage] = useState<StorageMetrics | null>(null);
+  const [storageRefreshing, setStorageRefreshing] = useState(false);
+  const [storageMsg, setStorageMsg] = useState<Msg>(null);
+
   useEffect(() => {
     if (user?.role !== 'admin') return;
     listWebhooks()
@@ -248,6 +258,30 @@ export function Settings() {
         setWebhooks([]);
       });
   }, [user?.role]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getStorageMetrics()
+      .then((r) => { if (!cancelled) setStorage(r); })
+      .catch((err: any) => {
+        if (!cancelled) setStorageMsg({ type: 'err', text: err.message || 'Failed to load storage metrics' });
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const refreshStorage = async () => {
+    if (storageRefreshing) return;
+    setStorageRefreshing(true);
+    setStorageMsg(null);
+    try {
+      const r = await getStorageMetrics(true);
+      setStorage(r);
+    } catch (err: any) {
+      setStorageMsg({ type: 'err', text: err.message || 'Failed to refresh storage' });
+    } finally {
+      setStorageRefreshing(false);
+    }
+  };
 
   const whRefresh = async (okText?: string) => {
     try {
@@ -893,6 +927,63 @@ export function Settings() {
                   <WhRow key={w.id} w={w} onChanged={(msg) => void whRefresh(msg)} onDelete={() => setWhDelete(w)} />
                 ))}
               </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Storage / disk usage */}
+      <div class="panel settings-section">
+        <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>Storage</span>
+          <button class="btn-ghost sm" onClick={refreshStorage} disabled={storageRefreshing}>
+            {storageRefreshing ? <Loader2 width={13} height={13} class="icon spin" /> : <RefreshCw width={13} height={13} class="icon" />}
+            Refresh
+          </button>
+        </div>
+        <p class="settings-hint">
+          Disk usage across workspaces, snapshot archives and Docker. Read-only snapshot — refresh forces a rescan.
+        </p>
+        {storageMsg && (
+          <div class={storageMsg.type === 'ok' ? 'chat-save-msg' : 'login-error'} style="margin-bottom:8px">{storageMsg.text}</div>
+        )}
+        {storage == null ? (
+          <div class="dim">Loading storage metrics…</div>
+        ) : (
+          <>
+            <div class="storage-totals">
+              <div class="storage-total"><span>Workspaces</span><b>{fmtBytes(storage.totalWorkspaceBytes)}</b></div>
+              <div class="storage-total"><span>Snapshot archives</span><b>{fmtBytes(storage.totalSnapshotBytes)}</b></div>
+              <div class="storage-total"><span>Data directory</span><b>{fmtBytes(storage.dataDirBytes)}</b></div>
+              <div class="storage-total"><span>Containers (writable)</span><b>{fmtBytes(storage.containerWritableBytes)}</b></div>
+              {storage.docker.system && (
+                <div class="storage-total"><span>Docker total</span><b>{fmtBytes(storage.docker.system.totalBytes)}</b></div>
+              )}
+            </div>
+            <div class="dim" style="font-size:0.75rem;margin:14px 0 6px">Per project</div>
+            <table class="storage-table">
+              <thead>
+                <tr><th>Project</th><th>Workspace</th><th>Snapshots</th><th>Container</th></tr>
+              </thead>
+              <tbody>
+                {storage.projects.length === 0 && (
+                  <tr><td colspan={4} class="dim">No projects — storage is idle.</td></tr>
+                )}
+                {storage.projects.map((p) => (
+                  <tr key={p.slug}>
+                    <td class="storage-name"><HardDrive width={12} height={12} class="icon" /> {p.name}<span class="dim">{p.slug}</span></td>
+                    <td>{fmtBytes(p.workspaceBytes)}</td>
+                    <td>{fmtBytes(p.snapshotBytes)}</td>
+                    <td>{p.container ? fmtBytes(p.container.writableBytes) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {storage.docker.system && (
+              <p class="settings-hint" style="font-size:0.72rem;margin-top:10px">
+                Docker totals — images {fmtBytes(storage.docker.system.imagesBytes)} · containers {fmtBytes(storage.docker.system.containersBytes)} ·
+                volumes {fmtBytes(storage.docker.system.volumesBytes)} · build cache {fmtBytes(storage.docker.system.buildCacheBytes)}
+              </p>
             )}
           </>
         )}

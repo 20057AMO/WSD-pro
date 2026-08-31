@@ -39,6 +39,7 @@ export type AuditEvent =
   | 'snapshot-delete'
   | 'snapshot-restore'
   | 'snapshot-config-change'
+  | 'project-tags'
   | 'canvas-save'
   | 'project-ports'
   | 'project-limits'

@@ -21,6 +21,7 @@ export interface Project {
   ownerId?: string;
   members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string }[];
   canvasEditedAt?: string | null;
+  tags?: string[];
   /** Last detected container crash — red chip/banner until cleared. */
   crash?: CrashInfo;
 }
@@ -39,45 +40,36 @@ export interface CrashInfo {
 export const crashTitle = (c: CrashInfo): string =>
   `Crashed ${new Date(c.at).toLocaleString()} — ${c.reason}${c.exitCode != null ? ` (exit ${c.exitCode})` : ''}${c.restarted ? ` — was auto-restarted ×${c.restarted}` : ''}`;
 
-export interface ProjectTemplate {
-  id: string;
+/** Per-project disk usage from GET /api/storage. */
+export interface ProjectStorage {
+  slug: string;
   name: string;
-  description?: string;
-  defaultName?: string;
-  image?: string;
-  ports: number[];
-  env: Record<string, string>;
-  createdAt: string;
-  updatedAt: string;
+  workspaceBytes: number;
+  snapshotBytes: number;
+  workspaceTruncated?: boolean;
+  container?: { writableBytes: number; rootFsBytes: number };
 }
 
-export type ProjectTemplateInput = {
-  name: string;
-  description?: string;
-  defaultName?: string;
-  image?: string;
-  ports?: number[];
-  env?: Record<string, string>;
-};
+export interface DockerSystemDF {
+  totalBytes: number;
+  imagesBytes: number;
+  containersBytes: number;
+  volumesBytes: number;
+  buildCacheBytes: number;
+}
 
-export const listProjectTemplates = () => api<{ templates: ProjectTemplate[] }>('/api/templates');
-
-export const createProjectTemplate = (body: ProjectTemplateInput) =>
-  api<{ template: ProjectTemplate }>('/api/templates', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-export const updateProjectTemplate = (id: string, body: ProjectTemplateInput) =>
-  api<{ template: ProjectTemplate }>(`/api/templates/${encodeURIComponent(id)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-export const deleteProjectTemplate = (id: string) =>
-  api<{ ok: boolean }>(`/api/templates/${encodeURIComponent(id)}`, { method: 'DELETE' });
+export interface StorageMetrics {
+  generatedAt: string;
+  dataDirBytes: number;
+  totalWorkspaceBytes: number;
+  totalSnapshotBytes: number;
+  containerWritableBytes: number;
+  docker: {
+    system: DockerSystemDF | null;
+    perProject: Record<string, { writableBytes: number; rootFsBytes: number }>;
+  };
+  projects: ProjectStorage[];
+}
 
 export interface ProjectStats {
   running: boolean;
@@ -346,8 +338,11 @@ async function api<T>(path: string, init?: ApiInit): Promise<T> {
 }
 
 export const listProjects = () => api<{ projects: Project[] }>('/api/projects');
+/** Disk-usage metrics (server-side TTL cache; `fresh` forces a rescan). */
+export const getStorageMetrics = (fresh = false) =>
+  api<StorageMetrics>(`/api/storage${fresh ? '?fresh=1' : ''}`);
 export const getProject = (slug: string) => api<{ project: Project }>(`/api/projects/${slug}`);
-export const createProject = (body: { name: string; description?: string; ports?: number[]; templateId?: string; env?: Record<string, string>; limits?: ProjectLimits }) =>
+export const createProject = (body: { name: string; description?: string; ports?: number[]; env?: Record<string, string>; limits?: ProjectLimits }) =>
   api<{ project: Project }>('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -363,6 +358,14 @@ export const startProject = (slug: string) =>
   api<{ project: Project }>(`/api/projects/${slug}/start`, { method: 'POST' });
 export const stopProject = (slug: string) =>
   api<{ project: Project }>(`/api/projects/${slug}/stop`, { method: 'POST' });
+
+export const updateProjectTags = (slug: string, tags: string[]) =>
+  api<{ tags: string[] }>(`/api/projects/${encodeURIComponent(slug)}/tags`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tags }),
+  });
+
 export const deleteProject = (slug: string) =>
   api<{ ok: boolean }>(`/api/projects/${slug}`, { method: 'DELETE' });
 

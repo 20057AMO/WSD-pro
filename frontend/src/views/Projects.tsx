@@ -11,10 +11,8 @@ import {
   startProject,
   stopProject,
   deleteProject,
-  listProjectTemplates,
   wsUrl,
   type Project,
-  type ProjectTemplate,
 } from '../api';
 import { fmtCpu, fmtMem } from '../lib/limits';
 
@@ -31,6 +29,7 @@ export function Projects() {
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterStatus>('all');
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('created');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [view, setView] = useState<ViewMode>('cards');
@@ -43,19 +42,10 @@ export function Projects() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [ports, setPorts] = useState('');
-  const [templateId, setTemplateId] = useState('');
   const [createCpu, setCreateCpu] = useState('');
   const [createMem, setCreateMem] = useState('');
-  const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-
-  // Load the saved runtime recipes once, so the create modal can offer them.
-  useEffect(() => {
-    listProjectTemplates()
-      .then((res) => setTemplates(res.templates || []))
-      .catch(() => setTemplates([]));
-  }, []);
 
   // Deep-link from the dashboard: its empty-state "New Project" button sets
   // ws.openCreate in sessionStorage, then navigates here — we open the modal
@@ -169,17 +159,27 @@ export function Projects() {
   const stopped = projects.filter((p) => p.status === 'stopped' || p.status === 'created').length;
   const crashed = projects.filter((p) => p.crash).length;
 
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of projects) for (const t of p.tags || []) set.add(t);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [projects]);
+
   const filtered = useMemo(() => {
     let list = projects;
     if (filter !== 'all') {
       list = list.filter((p) => filter === 'running' ? p.status === 'running' : p.status !== 'running');
+    }
+    if (tagFilter) {
+      list = list.filter((p) => p.tags?.includes(tagFilter));
     }
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter((p) =>
         p.name.toLowerCase().includes(q) ||
         p.slug.toLowerCase().includes(q) ||
-        (p.description || '').toLowerCase().includes(q)
+        (p.description || '').toLowerCase().includes(q) ||
+        (p.tags || []).some(t => t.toLowerCase().includes(q))
       );
     }
     list = [...list].sort((a, b) => {
@@ -190,7 +190,7 @@ export function Projects() {
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return list;
-  }, [projects, filter, search, sortKey, sortDir]);
+  }, [projects, filter, tagFilter, search, sortKey, sortDir]);
 
   const toggleSelect = (slug: string) => {
     setSelected((cur) => {
@@ -251,12 +251,11 @@ export function Projects() {
       .split(',')
       .map((s) => Number(s.trim()))
       .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
-    const hasTemplate = templateId !== '';
-    if (!ports.trim() && !hasTemplate) {
-      setCreateError('Ports are required (1–65535, comma separated) — or start from a template.');
+    if (!ports.trim()) {
+      setCreateError('Ports are required (1–65535, comma separated).');
       return;
     }
-    if (ports.trim() && parsedPorts.length === 0) {
+    if (parsedPorts.length === 0) {
       setCreateError('Invalid ports — use comma-separated integers between 1 and 65535.');
       return;
     }
@@ -275,13 +274,11 @@ export function Projects() {
         name: name.trim(),
         description: description.trim() || undefined,
         ports: parsedPorts,
-        templateId: hasTemplate ? templateId : undefined,
         limits,
       });
       setName('');
       setDescription('');
       setPorts('');
-      setTemplateId('');
       setCreateCpu('');
       setCreateMem('');
       setCreateOpen(false);
@@ -292,18 +289,6 @@ export function Projects() {
     } finally {
       setCreating(false);
     }
-  };
-
-  // Choosing a template pre-fills the recipe (name/desc/ports) and lets the
-  // server inherit its image + env when the project is created.
-  const handleTemplatePick = (id: string) => {
-    setTemplateId(id);
-    if (!id) return;
-    const tpl = templates.find((t) => t.id === id);
-    if (!tpl) return;
-    if (!name) setName(tpl.defaultName || tpl.name);
-    if (!description) setDescription(tpl.description || '');
-    if (!ports) setPorts((tpl.ports || []).join(', '));
   };
 
   const openDuplicate = (e: Event, p: Project) => {
@@ -443,6 +428,26 @@ export function Projects() {
         </div>
       </div>
 
+      {allTags.length > 0 && (
+        <div class="proj-tag-filter">
+          <button
+            class={`tag-chip ${tagFilter === null ? 'active' : ''}`}
+            onClick={() => setTagFilter(null)}
+          >
+            All
+          </button>
+          {allTags.map((t) => (
+            <button
+              class={`tag-chip ${tagFilter === t ? 'active' : ''}`}
+              key={t}
+              onClick={() => setTagFilter(tagFilter === t ? null : t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+
       {selected.size > 0 && (
         <div class="proj-bulk-bar">
           <span>{selected.size} selected</span>
@@ -556,21 +561,8 @@ export function Projects() {
           <div class="create-card modal-dialog" style="max-width:500px;width:100%">
             <div class="create-title">New Project</div>
             <form onSubmit={handleCreate}>
-              <label class="settings-hint" style="display:block;margin-bottom:6px;font-size:0.72rem">Start from a saved template (optional)</label>
-              <select
-                class="modern-input"
-                style="width:100%"
-                value={templateId}
-                onChange={(e: any) => handleTemplatePick(e.target.value)}
-              >
-                <option value="">— Blank project —</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
               <input
                 class="modern-input"
-                style="margin-top:10px"
                 placeholder="Project name"
                 value={name}
                 onInput={(e: any) => setName(e.target.value)}
@@ -586,7 +578,7 @@ export function Projects() {
               <input
                 class="modern-input"
                 style="margin-top:10px"
-                placeholder="Ports (required unless starting from a template)"
+                placeholder="Ports (required, comma separated)"
                 value={ports}
                 onInput={(e: any) => setPorts(e.target.value)}
               />
