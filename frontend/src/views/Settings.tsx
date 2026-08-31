@@ -961,7 +961,8 @@ export function Settings() {
               )}
             </div>
             <div class="dim" style="font-size:0.75rem;margin:14px 0 6px">Per project</div>
-            <table class="storage-table">
+            <div class="table-scroll">
+              <table class="storage-table">
               <thead>
                 <tr><th>Project</th><th>Workspace</th><th>Snapshots</th><th>Container</th></tr>
               </thead>
@@ -979,6 +980,7 @@ export function Settings() {
                 ))}
               </tbody>
             </table>
+            </div>
             {storage.docker.system && (
               <p class="settings-hint" style="font-size:0.72rem;margin-top:10px">
                 Docker totals — images {fmtBytes(storage.docker.system.imagesBytes)} · containers {fmtBytes(storage.docker.system.containersBytes)} ·

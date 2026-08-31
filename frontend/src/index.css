@@ -1126,10 +1126,24 @@ textarea.agent-prompt-input {
   .proj-search-row { width: 100%; }
   .proj-search { flex: 1; min-width: 0; max-width: none; }
   .detail-topbar { gap: 8px; }
+  .detail-tabs { overflow-x: auto; scrollbar-width: none; }
+  .detail-tabs::-webkit-scrollbar { display: none; }
   .presets-modal { min-width: 0; max-width: calc(100vw - 24px); }
   .modal-card, .unlock-card, .reauth-card { padding: 18px; }
   .modal-overlay { padding: 12px; }
   .proj-header { flex-direction: column; gap: 12px; }
+  .agents-topbar { flex-wrap: wrap; }
+  .agents-topbar-right { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-start; }
+  .agents-agent-desc { flex-basis: 100%; }
+  .agents-topbar-right .chat-settings-label { flex: 1 1 45%; min-width: 110px; box-sizing: border-box; }
+  .opencode-toolbar { flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+  .opencode-toolbar > span { flex-wrap: wrap; }
+  .terms-split { flex-direction: column; }
+  .terms-picker { width: 100% !important; max-height: 220px; border-right: none !important; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .studio-body { flex-direction: column !important; }
+  .studio-list { width: 100% !important; max-height: 200px; border-right: none !important; }
+  .team-row { flex-wrap: wrap; }
+  .empty-state { box-sizing: border-box; max-width: 100%; }
 }
 
 /* OpenCode panel */
@@ -1641,6 +1655,7 @@ button.tag-chip.active {
   color: var(--text-3); padding: 4px 8px; border-bottom: 1px solid var(--border);
 }
 .storage-table td { padding: 7px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+.table-scroll { overflow-x: auto; }
 .storage-name { display: flex; align-items: center; gap: 6px; font-weight: 500; }
 .storage-name .dim { font-weight: 400; margin-left: 2px; font-size: 0.72rem; }
 .storage-offenders { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }

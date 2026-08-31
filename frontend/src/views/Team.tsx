@@ -204,6 +204,7 @@ export function Team() {
           return (
             <div
               key={u.id}
+              className="team-row"
               style={{
                 display: 'flex',
                 alignItems: 'center',

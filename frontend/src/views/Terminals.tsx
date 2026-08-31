@@ -59,9 +59,10 @@ export function Terminals({ slug }: { slug?: string }) {
         <span style="flex:1" />
       </div>
 
-      <div style="flex:1;display:flex;gap:14px;padding:14px 16px;overflow:hidden;min-height:0">
+      <div class="terms-split" style="flex:1;display:flex;gap:14px;padding:14px 16px;overflow:hidden;min-height:0">
         {/* Project picker */}
         <div
+          class="terms-picker"
           style="width:270px;overflow:auto;border-right:1px solid var(--border,#333);padding-right:10px;display:flex;flex-direction:column;gap:6px"
         >
           <div style="position:relative">

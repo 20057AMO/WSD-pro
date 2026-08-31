@@ -318,7 +318,7 @@ export function OpencodeStudio() {
       ) : (
         <div class="studio-body" style="display:flex;gap:14px;padding:14px 16px;overflow:hidden;flex:1">
           {/* List column */}
-          <div style="width:260px;overflow:auto;border-right:1px solid var(--border,#333);padding-right:10px">
+          <div class="studio-list" style="width:260px;overflow:auto;border-right:1px solid var(--border,#333);padding-right:10px">
             <div style="position:relative;margin-bottom:8px">
               <Search width={12} height={12} class="icon" style="position:absolute;top:7px;inset-inline-start:8px;opacity:.45" />
               <input
