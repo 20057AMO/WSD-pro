@@ -1473,6 +1473,8 @@ button.tag-chip.active {
 }
 .tag-remove:hover { opacity: 1; color: var(--red); }
 
+.project-tags .tag-chip { font-size: 0.65rem; opacity: 0.8; }
+
 /* ── Project tag filter row ── */
 .proj-tag-filter {
   display: flex; flex-wrap: wrap; gap: 6px;

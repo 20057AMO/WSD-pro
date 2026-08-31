@@ -118,7 +118,7 @@ def _create_via_modal(pg, name: str, ports: list[str], cpu: str, mem: str) -> bo
         pg.locator('input[placeholder*="CPU limit"]').fill(cpu)
         pg.locator('input[placeholder*="Memory limit"]').fill(mem)
         if port:
-            pg.locator('input[placeholder*="Ports (required"]').fill(port)
+            pg.locator('input[placeholder*="Ports (optional, defaults to 8000)"]').fill(port)
         pg.locator('button', has_text='Create').first.click()
         try:
             pg.wait_for_url(re.compile(re.escape(f"#/project/{name}")), timeout=20000)

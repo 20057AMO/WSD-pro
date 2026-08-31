@@ -153,14 +153,14 @@ export function Dashboard() {
             <span class="dash-stat-label">Total Projects</span>
           </div>
         </div>
-        <div class="dash-stat-card running" onClick={() => setLocation('/projects')}>
+        <div class="dash-stat-card running" onClick={() => setLocation('/projects?filter=running')}>
           <div class="dash-stat-icon"><Play width={18} height={18} class="icon" /></div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{running}</span>
             <span class="dash-stat-label">Running</span>
           </div>
         </div>
-        <div class="dash-stat-card stopped" onClick={() => setLocation('/projects')}>
+        <div class="dash-stat-card stopped" onClick={() => setLocation('/projects?filter=stopped')}>
           <div class="dash-stat-icon"><Square width={18} height={18} class="icon" /></div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{stopped}</span>
@@ -168,7 +168,7 @@ export function Dashboard() {
           </div>
         </div>
         {crashed > 0 && (
-          <div class="dash-stat-card crashed" onClick={() => setLocation('/projects')}>
+          <div class="dash-stat-card crashed" onClick={() => setLocation('/projects?filter=crashed')}>
             <div class="dash-stat-icon"><TriangleAlert width={18} height={18} class="icon" /></div>
             <div class="dash-stat-info">
               <span class="dash-stat-value">{crashed}</span>

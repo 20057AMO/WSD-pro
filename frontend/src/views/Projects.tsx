@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { FolderSearch, FolderOpen, Copy, Upload, Globe } from 'lucide-preact';
+import { FolderSearch, FolderOpen, Copy, Upload, Globe, Loader2 } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { CrashBadge } from '../components/CrashBadge';
@@ -18,7 +18,7 @@ import { fmtCpu, fmtMem } from '../lib/limits';
 
 type SortKey = 'name' | 'status' | 'created';
 type SortDir = 'asc' | 'desc';
-type FilterStatus = 'all' | 'running' | 'stopped';
+type FilterStatus = 'all' | 'running' | 'stopped' | 'crashed';
 type ViewMode = 'cards' | 'table';
 
 export function Projects() {
@@ -39,6 +39,7 @@ export function Projects() {
   const [createOpen, setCreateOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
+  const selectAllRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [ports, setPorts] = useState('');
@@ -46,6 +47,23 @@ export function Projects() {
   const [createMem, setCreateMem] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Deep-link from dashboard stat cards: ?filter=running|stopped|crashed.
+    // wouter's useHashLocation().navigate() splits hash from query and places
+    // the ?filter= part into window.location.search (never the hash), so read
+    // search first, then fall back to the hash's own query portion (covers
+    // plain <a href="#/projects?filter=…"> deep-links too).
+    let raw = window.location.search;
+    if (!raw) {
+      const hash = window.location.hash;
+      const qIdx = hash.indexOf('?');
+      if (qIdx >= 0) raw = hash.slice(qIdx);
+    }
+    const params = new URLSearchParams(raw);
+    const f = params.get('filter');
+    if (f === 'running' || f === 'stopped' || f === 'crashed') setFilter(f);
+  }, []);
 
   // Deep-link from the dashboard: its empty-state "New Project" button sets
   // ws.openCreate in sessionStorage, then navigates here — we open the modal
@@ -167,7 +185,9 @@ export function Projects() {
 
   const filtered = useMemo(() => {
     let list = projects;
-    if (filter !== 'all') {
+    if (filter === 'crashed') {
+      list = list.filter((p) => p.crash);
+    } else if (filter !== 'all') {
       list = list.filter((p) => filter === 'running' ? p.status === 'running' : p.status !== 'running');
     }
     if (tagFilter) {
@@ -209,6 +229,12 @@ export function Projects() {
     }
   };
 
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selected.size > 0 && !filtered.every(p => selected.has(p.slug));
+    }
+  }, [selected, filtered]);
+
   const bulkAction = async (action: 'start' | 'stop' | 'delete') => {
     const slugs = [...selected];
     if (action === 'delete') {
@@ -216,11 +242,17 @@ export function Projects() {
       setConfirm({ kind: 'bulk-delete', slugs });
       return;
     }
+    const errors: string[] = [];
     for (const slug of slugs) {
       try {
         if (action === 'start') await startProject(slug);
         else if (action === 'stop') await stopProject(slug);
-      } catch { /* continue */ }
+      } catch (err: any) {
+        errors.push(`${slug}: ${err.message || 'failed'}`);
+      }
+    }
+    if (errors.length > 0) {
+      setLoadError(`Failed ${action === 'start' ? 'starting' : 'stopping'} ${errors.length} project(s):\n${errors.join('\n')}`);
     }
     setSelected(new Set());
     await refresh();
@@ -230,8 +262,12 @@ export function Projects() {
     if (!confirmState || confirmBusy) return;
     setConfirmBusy(true);
     try {
+      const errors: string[] = [];
       for (const slug of confirmState.slugs) {
-        try { await deleteProject(slug); } catch { /* continue */ }
+        try { await deleteProject(slug); } catch (err: any) { errors.push(`${slug}: ${err.message || 'failed'}`); }
+      }
+      if (errors.length > 0) {
+        setLoadError(`Failed deleting ${errors.length} project(s):\n${errors.join('\n')}`);
       }
       setSelected(new Set());
       setConfirm(null);
@@ -247,18 +283,11 @@ export function Projects() {
   const handleCreate = async (e: Event) => {
     e.preventDefault();
     if (!name.trim()) return;
-    const parsedPorts = ports
+    let parsedPorts = ports
       .split(',')
       .map((s) => Number(s.trim()))
       .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
-    if (!ports.trim()) {
-      setCreateError('Ports are required (1–65535, comma separated).');
-      return;
-    }
-    if (parsedPorts.length === 0) {
-      setCreateError('Invalid ports — use comma-separated integers between 1 and 65535.');
-      return;
-    }
+    if (parsedPorts.length === 0) parsedPorts = [8000];  // sensible default
     setCreating(true);
     setCreateError(null);
     try {
@@ -303,14 +332,11 @@ export function Projects() {
   const handleDuplicate = async (e: Event) => {
     e.preventDefault();
     if (!dupSrc || !dupName.trim()) return;
-    const parsedPorts = dupPorts
+    let parsedPorts = dupPorts
       .split(',')
       .map((s) => Number(s.trim()))
       .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
-    if (parsedPorts.length === 0) {
-      setDupError('At least one port is required (1–65535), comma separated.');
-      return;
-    }
+    if (parsedPorts.length === 0) parsedPorts = [8000];  // sensible default
     setDuplicating(true);
     setDupError(null);
     try {
@@ -357,6 +383,16 @@ export function Projects() {
     else { setSortKey(key); setSortDir('asc'); }
   };
 
+  const handleSortSelect = (e: any) => {
+    const val = e.target.value as SortKey;
+    if (val !== sortKey) {
+      setSortKey(val);
+      setSortDir('asc');
+    } else {
+      setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
+    }
+  };
+
   const sortIcon = (key: SortKey) => sortKey === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
 
   // Restore a snapshot upload as a brand-new project, then jump to it.
@@ -379,7 +415,7 @@ export function Projects() {
   if (loading) {
     return (
       <div class="view">
-        <div class="dash-loading"><div class="big">⏳</div>Loading…</div>
+        <div class="dash-loading"><Loader2 width={28} height={28} class="icon spin" />Loading…</div>
       </div>
     );
   }
@@ -414,8 +450,9 @@ export function Projects() {
             <option value="all">All</option>
             <option value="running">Running</option>
             <option value="stopped">Stopped</option>
+            <option value="crashed">Crashed</option>
           </select>
-          <select class="modern-input chat-sel" value={sortKey} onChange={(e: any) => setSortKey(e.target.value)}>
+          <select class="modern-input chat-sel" value={sortKey} onChange={handleSortSelect}>
             <option value="created">Sort: Date</option>
             <option value="name">Sort: Name</option>
             <option value="status">Sort: Status</option>
@@ -464,6 +501,9 @@ export function Projects() {
         <div class="empty-state">
           <div class="big-icon"><FolderSearch width={30} height={30} class="icon" /></div>
           {projects.length === 0 ? 'No projects yet. Create your first one!' : 'No projects match your search.'}
+          {projects.length === 0 && (
+            <button class="btn-primary" style="margin-top:12px" onClick={() => setCreateOpen(true)}>+ New Project</button>
+          )}
         </div>
       ) : view === 'cards' ? (
         <div class="projects-grid">
@@ -486,6 +526,11 @@ export function Projects() {
                 {p.crash && <CrashBadge crash={p.crash} />}
               </div>
               <div class="project-desc">{p.description || '—'}</div>
+              <div class="project-tags" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
+                {p.tags && p.tags.map(t => (
+                  <span class="tag-chip" key={t}>{t}</span>
+                ))}
+              </div>
               <div class="project-meta">
                 <span class="meta-chip">{p.slug}</span>
                 {p.hostPorts && Object.entries(p.hostPorts).map(([priv, pub]) => (
@@ -517,7 +562,7 @@ export function Projects() {
             <thead>
               <tr>
                 <th class="proj-th-check">
-                  <input type="checkbox" checked={filtered.length > 0 && filtered.every((p) => selected.has(p.slug))} onChange={selectAll} />
+                  <input type="checkbox" ref={selectAllRef} checked={filtered.length > 0 && filtered.every((p) => selected.has(p.slug))} onChange={selectAll} />
                 </th>
                 <th class="proj-th-sortable" onClick={() => toggleSort('name')}>Name{sortIcon('name')}</th>
                 <th>Status</th>
@@ -544,6 +589,7 @@ export function Projects() {
                   {p.serve?.enabled && p.serve.port && (
                     <span class="meta-chip serve" title="Static site"><Globe width={11} height={11} class="icon" /> site :{p.serve.port}</span>
                   )}
+                  {p.tags && p.tags.length > 0 && <span class="dim" style="margin-left:4px;font-size:0.7rem">{p.tags.join(', ')}</span>}
                 </td>
                   <td class="proj-td-date">{p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}</td>
                   <td onClick={(e) => e.stopPropagation()}>
@@ -586,7 +632,7 @@ export function Projects() {
               <input
                 class="modern-input"
                 style="margin-top:10px"
-                placeholder="Ports (required, comma separated)"
+                placeholder="Ports (optional, defaults to 8000)"
                 value={ports}
                 onInput={(e: any) => setPorts(e.target.value)}
               />
@@ -643,14 +689,14 @@ export function Projects() {
               <input
                 class="modern-input"
                 style="margin-top:10px"
-                placeholder="Ports (required, from the source project)"
+                placeholder="Ports (optional, defaults to 8000)"
                 value={dupPorts}
                 onInput={(e: any) => setDupPorts(e.target.value)}
               />
               {dupError && <div class="login-error" style="margin-top:10px">{dupError}</div>}
               <div style="display:flex;gap:10px;margin-top:14px;justify-content:flex-end">
                 <button type="button" class="btn-ghost sm" onClick={() => setDupSrc(null)} disabled={duplicating}>Cancel</button>
-                <button type="submit" class="btn-primary" disabled={duplicating || !dupName.trim() || !dupPorts.split(',').some((s) => { const n = Number(s.trim()); return Number.isInteger(n) && n > 0 && n <= 65535; })}>
+                <button type="submit" class="btn-primary" disabled={duplicating || !dupName.trim()}>
                   {duplicating ? 'Duplicating…' : 'Duplicate'}
                 </button>
               </div>
