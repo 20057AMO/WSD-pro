@@ -1143,6 +1143,9 @@ textarea.agent-prompt-input {
   .studio-body { flex-direction: column !important; }
   .studio-list { width: 100% !important; max-height: 200px; border-right: none !important; }
   .team-row { flex-wrap: wrap; }
+  .danger-zone .kv { flex-wrap: wrap; }
+  .danger-zone .kv input { flex: 1 1 100%; width: 100% !important; }
+  .agents-sidebar { padding-right: 12px; }
   .empty-state { box-sizing: border-box; max-width: 100%; }
 }
 
