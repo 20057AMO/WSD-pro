@@ -11,6 +11,7 @@ import {
   ChevronRight,
   RefreshCw,
   HardDrive,
+  Globe,
 } from 'lucide-preact';
 import { CrashBadge } from '../components/CrashBadge';
 import {
@@ -111,7 +112,9 @@ export function Dashboard() {
 
   const openPreview = (e: MouseEvent, p: Project) => {
     e.stopPropagation();
-    if (p.status === 'running' && p.hostPorts && Object.keys(p.hostPorts).length > 0) {
+    if (p.status === 'running' && p.serve?.enabled && p.serve.hostPort) {
+      window.open(`http://${window.location.hostname}:${p.serve.hostPort}`, '_blank');
+    } else if (p.status === 'running' && p.hostPorts && Object.keys(p.hostPorts).length > 0) {
       const hostPort = Object.values(p.hostPorts)[0];
       window.open(`http://${window.location.hostname}:${hostPort}`, '_blank');
     } else {
@@ -223,7 +226,10 @@ export function Dashboard() {
                 ))}
                 {p.limits?.cpu && <span class="meta-chip" title="CPU limit">CPU {fmtCpu(p.limits.cpu)}</span>}
                 {p.limits?.memory && <span class="meta-chip" title="Memory limit">RAM {fmtMem(p.limits.memory)}</span>}
-                {(!p.hostPorts || Object.keys(p.hostPorts).length === 0) && !p.limits?.cpu && !p.limits?.memory && <span class="meta-chip">{p.slug}</span>}
+                {p.serve?.enabled && p.serve.port && (
+                  <span class="meta-chip serve" title="Static site"><Globe width={11} height={11} class="icon" /> site :{p.serve.port}</span>
+                )}
+                {(!p.hostPorts || Object.keys(p.hostPorts).length === 0) && !p.limits?.cpu && !p.limits?.memory && !p.serve?.enabled && <span class="meta-chip">{p.slug}</span>}
               </div>
               <div class="card-footer">
                 <button class="btn-ghost sm" disabled={acting === p.slug} onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>

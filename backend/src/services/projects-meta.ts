@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 
 import type { ProjectLimits } from './project-limits';
+import type { ServeConfig } from './serve-core';
 
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const META_DIR = path.join(DATA_DIR, 'projects');
@@ -77,6 +78,8 @@ export interface ProjectMeta {
   crash?: CrashInfo;
   /** internal crash-detector bookkeeping (never surfaced). */
   crashWatch?: CrashWatch;
+  /** static-site serve toggle (enabled/port/pid) — see services/serve-core.ts. */
+  serve?: ServeConfig;
 }
 
 function metaFile(slug: string): string {

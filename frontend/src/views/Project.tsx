@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { ExternalLink, Download, TriangleAlert } from 'lucide-preact';
+import { ExternalLink, Download, TriangleAlert, Globe, Copy, Loader2 } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   getProject,
@@ -30,6 +30,8 @@ import {
   wsUrl,
   exportProjectSnapshot,
   crashTitle,
+  startServe,
+  stopServe,
 } from '../api';
 import type {
   Project,
@@ -293,15 +295,19 @@ export function Project({ params }: { params: { slug: string } }) {
 
   const host = window.location.hostname;
   const portLinks = project?.hostPorts
-    ? Object.entries(project.hostPorts).map(([priv, pub]) => (
-        <div key={priv} class="port-link-row">
-          <a class="port-link" href={`http://${host}:${pub}`} target="_blank" rel="noreferrer">
-            <span class="p-label">container {priv}</span>
-            <span class="p-val">{host}:{pub}</span>
-          </a>
-          <button class="btn-ghost sm" title="Copy URL" onClick={() => copy(`http://${host}:${pub}`)}>Copy</button>
-        </div>
-      ))
+    ? Object.entries(project.hostPorts).map(([priv, pub]) => {
+        const served = project?.serve?.enabled && Number(project.serve.port) === Number(priv);
+        return (
+          <div key={priv} class="port-link-row">
+            <a class="port-link" href={`http://${host}:${pub}`} target="_blank" rel="noreferrer">
+              <span class="p-label">container {priv}</span>
+              <span class="p-val">{host}:{pub}</span>
+            </a>
+            {served && <span class="served-badge"><Globe width={11} height={11} class="icon" /> Served</span>}
+            <button class="btn-ghost sm" title="Copy URL" onClick={() => copy(`http://${host}:${pub}`)}>Copy</button>
+          </div>
+        );
+      })
     : [];
 
   return (
@@ -388,7 +394,7 @@ export function Project({ params }: { params: { slug: string } }) {
         ))}
       </div>
 
-      {tab === 'overview' && <OverviewPanel slug={slug} project={project} liveStats={liveStats} onChanged={load} onError={setError} onAskAi={() => setTab('chat')} />}
+      {tab === 'overview' && <OverviewPanel slug={slug} project={project} liveStats={liveStats} readOnly={readOnly} onChanged={load} onError={setError} onAskAi={() => setTab('chat')} />}
       {tab === 'chat' && <ProjectChat slug={slug} />}
       {tab === 'files' && <FilesPanel slug={slug} />}
       {tab === 'logs' && <LogsPanel slug={slug} />}
@@ -416,6 +422,7 @@ function OverviewPanel({
   slug,
   project,
   liveStats,
+  readOnly,
   onChanged,
   onError,
   onAskAi,
@@ -423,6 +430,7 @@ function OverviewPanel({
   slug: string;
   project: Project | null;
   liveStats: ProjectStats | null;
+  readOnly: boolean;
   onChanged: () => void;
   onError: (msg: string) => void;
   onAskAi: () => void;
@@ -447,6 +455,10 @@ function OverviewPanel({
   const [portsMsg, setPortsMsg] = useState<string | null>(null);
   const [savingPorts, setSavingPorts] = useState(false);
   const portsInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [servePort, setServePort] = useState<number | undefined>();
+  const [serving, setServing] = useState(false);
+  const [serveCopied, setServeCopied] = useState(false);
 
   const [cpuText, setCpuText] = useState('');
   const [memText, setMemText] = useState('');
@@ -617,6 +629,39 @@ function OverviewPanel({
     } finally {
       setSavingPorts(false);
     }
+  };
+
+  const toggleServe = async () => {
+    if (serving) return;
+    setServing(true);
+    try {
+      const sel = servePort ?? project?.serve?.port ?? project?.ports?.[0];
+      if (project?.serve?.enabled) {
+        const r = await stopServe(slug);
+        setServePort(r.serve.port);
+      } else {
+        const r = await startServe(slug, sel);
+        setServePort(r.serve.port);
+      }
+      onChanged();
+    } catch (err: any) {
+      onError(err.message);
+    } finally {
+      setServing(false);
+    }
+  };
+
+  // The backend serve.url embeds `localhost` — rebuild it from the real browser hostname so remote
+  // deployments link the viewer's own host (hostPort is the published binding, port the fallback).
+  const serveUrl = project?.serve?.enabled
+    ? `http://${window.location.hostname}:${project.serve.hostPort ?? project.serve.port ?? ''}`
+    : '';
+
+  const copyServeUrl = async () => {
+    if (!serveUrl) return;
+    await copy(serveUrl);
+    setServeCopied(true);
+    setTimeout(() => setServeCopied(false), 2000);
   };
 
   const saveLimits = async () => {
@@ -934,6 +979,58 @@ function OverviewPanel({
               <span class="dim" style="color: var(--text-3); font-size:0.74rem">{limitsMsg}</span>
             )}
           </div>
+          {project && project.ports && project.ports.length > 0 && (
+            <>
+            <div class="panel-title" style="margin-top:22px">Static site</div>
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+              <select
+                class="modern-input mono"
+                style="max-width:120px"
+                value={project.serve?.enabled ? project.serve.port : servePort ?? project.serve?.port ?? project.ports[0]}
+                disabled={project.serve?.enabled}
+                onChange={(e: any) => setServePort(Number(e.target.value))}
+              >
+                {project.ports.map((p) => (
+                  <option key={p} value={p}>:{p}</option>
+                ))}
+              </select>
+              <span
+                class={`serve-dot ${project.serve?.active ? 'on' : project.serve?.enabled && project.serve?.error ? 'err' : ''}`}
+                title={project.serve?.enabled ? (project.serve?.active ? 'Serving' : project.serve?.error ? 'Serve error' : 'Enabled') : 'Not serving'}
+              />
+              {project.serve?.enabled && (
+                <>
+                  {serveUrl && (
+                    <a class="port-link" style="flex:1; min-width:0" href={serveUrl} target="_blank" rel="noreferrer">
+                      <span class="p-val">{serveUrl}</span>
+                    </a>
+                  )}
+                  <button class="btn-ghost sm" title="Copy URL" onClick={copyServeUrl}>
+                    <Copy width={12} height={12} class="icon" />{serveCopied ? 'Copied' : 'Copy'}
+                  </button>
+                </>
+              )}
+            </div>
+            {readOnly ? (
+              project.serve?.enabled && (
+                <div class="dim" style="font-size:0.74rem; margin-top:6px">Serving on :{project.serve.port}</div>
+              )
+            ) : (
+              <div style="display:flex; gap:8px; margin-top:10px; align-items:center">
+                <button class="btn-ghost sm" onClick={toggleServe} disabled={serving || project.status !== 'running'}>
+                  {serving
+                    ? <Loader2 width={12} height={12} class="icon spin" />
+                    : project.serve?.enabled
+                      ? 'Stop serving'
+                      : 'Serve static site'}
+                </button>
+                {project.status !== 'running' && (
+                  <span class="dim" style="color: var(--text-3); font-size:0.74rem">Start the project first.</span>
+                )}
+              </div>
+            )}
+            </>
+          )}
           <div style="display:flex; gap:8px; margin-top:10px; align-items:center">
             <button class="btn-primary sm" onClick={saveEnv}>Save env</button>
             <button class="btn-ghost sm" onClick={requestRecreate} disabled={recreating}>

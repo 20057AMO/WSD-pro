@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { FolderSearch, FolderOpen, Copy, Upload } from 'lucide-preact';
+import { FolderSearch, FolderOpen, Copy, Upload, Globe } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { CrashBadge } from '../components/CrashBadge';
@@ -342,7 +342,9 @@ export function Projects() {
 
   const openProjectCard = (e: MouseEvent, p: Project) => {
     e.stopPropagation();
-    if (p.status === 'running' && p.hostPorts && Object.keys(p.hostPorts).length > 0) {
+    if (p.status === 'running' && p.serve?.enabled && p.serve.hostPort) {
+      window.open(`http://${window.location.hostname}:${p.serve.hostPort}`, '_blank');
+    } else if (p.status === 'running' && p.hostPorts && Object.keys(p.hostPorts).length > 0) {
       const hostPort = Object.values(p.hostPorts)[0];
       window.open(`http://${window.location.hostname}:${hostPort}`, '_blank');
     } else {
@@ -491,6 +493,9 @@ export function Projects() {
                 ))}
                 {p.limits?.cpu && <span class="meta-chip" title="CPU limit">CPU {fmtCpu(p.limits.cpu)}</span>}
                 {p.limits?.memory && <span class="meta-chip" title="Memory limit">RAM {fmtMem(p.limits.memory)}</span>}
+                {p.serve?.enabled && p.serve.port && (
+                  <span class="meta-chip serve" title="Static site"><Globe width={11} height={11} class="icon" /> site :{p.serve.port}</span>
+                )}
               </div>
               <div class="card-footer">
                 <button class="btn-ghost sm" onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>
@@ -536,6 +541,9 @@ export function Projects() {
                   ))}
                   {p.limits?.cpu && <span class="meta-chip" title="CPU limit">CPU {fmtCpu(p.limits.cpu)}</span>}
                   {p.limits?.memory && <span class="meta-chip" title="Memory limit">RAM {fmtMem(p.limits.memory)}</span>}
+                  {p.serve?.enabled && p.serve.port && (
+                    <span class="meta-chip serve" title="Static site"><Globe width={11} height={11} class="icon" /> site :{p.serve.port}</span>
+                  )}
                 </td>
                   <td class="proj-td-date">{p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}</td>
                   <td onClick={(e) => e.stopPropagation()}>

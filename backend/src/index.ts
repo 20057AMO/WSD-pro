@@ -71,6 +71,8 @@ import {
 } from './services/webhooks-store';
 import { sendWebhook } from './services/webhook-sender';
 import { startAlertsAutomation } from './services/project-alerts';
+import { serveStatus, startServeProcess, stopServeProcess } from './services/project-serve';
+import { sanitizeServeConfig } from './services/serve-core';
 import { getStorageMetrics, invalidateStorageCache } from './services/storage-metrics';
 import {
   listSessions,
@@ -1749,6 +1751,47 @@ app.put('/api/projects/:slug/limits', requireProjectAccess('editor'), async (req
     res.json({ limits: result.limits, needsRecreate: result.needsRecreate });
   } catch (err: any) {
     recordAudit('project-limits', false, req.ip);
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// ── Static-site serve (python3 http.server inside the container) ──────
+// Persisted per-project toggle (meta.serve); runs `python3 -m http.server
+// <port> -d /workspace` so static workspace files are reachable over HTTP.
+// Auto re-runs after container start/recreate via ensureServeRunning.
+
+// Read the honest serve state (config + a live probe when running).
+app.get('/api/projects/:slug/serve', requireProjectAccess('viewer'), async (req, res) => {
+  try {
+    res.json({ serve: await serveStatus(req.params.slug) });
+  } catch (err: any) {
+    res.status(err.statusCode || 404).json({ error: err.message });
+  }
+});
+
+// Start serving on a given (or defaulted) published port.
+app.post('/api/projects/:slug/serve', requireProjectAccess('editor'), rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req: any, res) => {
+  try {
+    const meta = loadMeta(req.params.slug);
+    if (!meta) return res.status(404).json({ error: 'Project not found' });
+    const { port } = (req.body as any) || {};
+    const cfg = sanitizeServeConfig({ enabled: true, port }, meta.serve, meta.ports || []);
+    const serve = await startServeProcess(req.params.slug, cfg.port!, String(cfg.port));
+    recordAudit('serve-start', true, req.ip);
+    res.json({ serve });
+  } catch (err: any) {
+    recordAudit('serve-start-failed', false, req.ip);
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Stop serving (keeps config for UX memory, enabled=false).
+app.post('/api/projects/:slug/serve/stop', requireProjectAccess('editor'), rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
+  try {
+    const serve = await stopServeProcess(req.params.slug);
+    recordAudit('serve-stop', true, req.ip);
+    res.json({ serve });
+  } catch (err: any) {
     res.status(err.statusCode || 500).json({ error: err.message });
   }
 });

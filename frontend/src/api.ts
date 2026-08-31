@@ -3,6 +3,15 @@ export interface ProjectLimits {
   memory?: string | null;
 }
 
+export interface ServeState {
+  enabled: boolean;
+  port?: number;
+  hostPort?: string;
+  url?: string;
+  active: boolean;
+  error?: string | null;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -24,6 +33,8 @@ export interface Project {
   tags?: string[];
   /** Last detected container crash — red chip/banner until cleared. */
   crash?: CrashInfo;
+  /** Static-site serve config; config-only on lists (active:false), live probe on detail. */
+  serve?: ServeState;
 }
 
 /** Container-crash record set by the server-side detector. */
@@ -830,6 +841,16 @@ export const setProjectLimits = (slug: string, limits: Partial<ProjectLimits>) =
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(limits),
   });
+export const getServeStatus = (slug: string) =>
+  api<{ serve: ServeState }>(`/api/projects/${slug}/serve`);
+export const startServe = (slug: string, port?: number) =>
+  api<{ serve: ServeState }>(`/api/projects/${slug}/serve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ port }),
+  });
+export const stopServe = (slug: string) =>
+  api<{ serve: ServeState }>(`/api/projects/${slug}/serve/stop`, { method: 'POST' });
 export const cloneProject = (slug: string, url: string) =>
   api<{ target: string; output: string }>(`/api/projects/${slug}/clone`, {
     method: 'POST',

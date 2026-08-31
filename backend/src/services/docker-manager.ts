@@ -33,6 +33,8 @@ import {
   ensureOpencodeSession as ensureOpencodeSessionApi,
   unregisterOpencodeProjectSessions,
 } from './opencode-api';
+import { ensureServeRunning, probeServe } from './project-serve';
+import { deriveServeState, type ServeState } from './serve-core';
 
 const docker = new Docker(); // uses /var/run/docker.sock by default
 
@@ -80,6 +82,8 @@ export interface ProjectInfo {
   tags?: string[];
   /** Last detected crash — set by the crash detector, cleared by start/recreate. */
   crash?: CrashInfo;
+  /** Static-site serve state (config + live probe result). */
+  serve?: ServeState;
 }
 
 function validateProjectSlug(slug: string): string {
@@ -465,6 +469,15 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
   delete savedMeta.crashWatch;
   saveMeta(slug, savedMeta);
 
+  // If the persisted meta enables static-site serving, (re)start the serve
+  // process now that the fresh container is up. Never throws — a failed serve
+  // must not break creation. createProject also serves as the recreate path
+  // (recreateProject routes through it) with the prev-meta merge preserving
+  // `serve`, so a recreate transparently re-runs the server.
+  await ensureServeRunning(slug).catch((e) =>
+    console.warn(`[serve] could not start for '${slug}' during create:`, e?.message || e)
+  );
+
   // Event-driven janitor pass: any orphan that accumulated while the app was
   // running is archived immediately, so code-server's explorer (rooted at
   // /workspaces) shows exactly the Projects-page set right now — not at the
@@ -521,6 +534,9 @@ export async function listProjects(): Promise<ProjectInfo[]> {
       project.members = meta.members;
       project.tags = meta.tags;
       project.crash = meta.crash;
+      // Config-only serve state on the list (no per-project HTTP probe — that
+      // would be N+1 invocations across every project on every list call).
+      project.serve = deriveServeState(meta.serve, meta.ports, null);
     }
 
     projects.push(project);
@@ -586,6 +602,25 @@ export async function getProject(slug: string): Promise<ProjectInfo | null> {
     }
     project.liveLimits = Object.keys(liveLimits).length ? liveLimits : undefined;
 
+    // Serve state on single-project detail: probe the live HTTP endpoint when
+    // the config enables serve AND the container is running, so the UI gets an
+    // honest `active` (the cheap list path is config-only).
+    const serveMeta = meta?.serve;
+    if (serveMeta) {
+      const running = Boolean(data.State?.Running);
+      if (serveMeta.enabled && running) {
+        const hostPort =
+          serveMeta.port !== undefined && meta?.ports?.includes(serveMeta.port)
+            ? serveMeta.port
+            : meta?.ports?.[0];
+        const probe =
+          hostPort !== undefined ? await probeServe(projectSlug, hostPort) : null;
+        project.serve = deriveServeState(serveMeta, meta?.ports, probe);
+      } else {
+        project.serve = deriveServeState(serveMeta, meta?.ports, null);
+      }
+    }
+
     return project;
   } catch {
     return null;
@@ -604,6 +639,11 @@ export async function startProject(slug: string): Promise<ProjectInfo> {
   // detector uses to tell intentional stops apart from crashes.
   clearCrashState(projectSlug);
   touchActivity(projectSlug, 'started');
+  // Re-run the static-site serve process now that the container is back up.
+  // Never throws — a failed serve must not break the start.
+  await ensureServeRunning(projectSlug).catch((e) =>
+    console.warn(`[serve] could not start for '${projectSlug}' during start:`, e?.message || e)
+  );
   const info = await getProject(projectSlug);
   if (!info) throw new HttpError(500, 'Project not found after start');
   info.status = 'running';
