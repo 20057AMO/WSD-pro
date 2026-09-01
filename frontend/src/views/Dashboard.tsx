@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'preact/hooks';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
+  Folder,
+  Archive,
+  Database,
+  Box,
   FolderOpen,
   Loader2,
   Play,
@@ -141,6 +145,13 @@ export function Dashboard() {
         <span class="hero-badge">BETA</span>
         <h1 class="hero-title">Dashboard</h1>
         <p class="hero-sub">Your development environment at a glance.</p>
+        <button 
+          class="btn-primary" 
+          style="margin-top:20px" 
+          onClick={() => { try { sessionStorage.setItem('wsd.openCreate', '1'); } catch { /* ignored */ } setLocation('/projects'); }}
+        >
+          <Play width={16} height={16} class="icon" /> + New Project
+        </button>
       </div>
 
       {loadError && <div class="login-error" style="margin-bottom:16px">{loadError}</div>}
@@ -260,31 +271,63 @@ export function Dashboard() {
           <div class="dim">Loading storage…</div>
         ) : (
           <>
-            <div class="storage-totals">
-              <div class="storage-total"><span>Workspaces</span><b>{fmtBytes(storage.totalWorkspaceBytes)}</b></div>
-              <div class="storage-total"><span>Snapshot archives</span><b>{fmtBytes(storage.totalSnapshotBytes)}</b></div>
-              <div class="storage-total"><span>Data directory</span><b>{fmtBytes(storage.dataDirBytes)}</b></div>
-              <div class="storage-total"><span>Containers (writable)</span><b>{fmtBytes(storage.containerWritableBytes)}</b></div>
+            <div class="storage-metrics-grid">
+              <div class="storage-metric-card">
+                <div class="storage-metric-icon"><Folder width={16} height={16} class="icon" /></div>
+                <div class="storage-metric-info">
+                  <span class="storage-metric-label">Workspaces</span>
+                  <span class="storage-metric-value">{fmtBytes(storage.totalWorkspaceBytes)}</span>
+                </div>
+              </div>
+              <div class="storage-metric-card">
+                <div class="storage-metric-icon"><Archive width={16} height={16} class="icon" /></div>
+                <div class="storage-metric-info">
+                  <span class="storage-metric-label">Snapshot archives</span>
+                  <span class="storage-metric-value">{fmtBytes(storage.totalSnapshotBytes)}</span>
+                </div>
+              </div>
+              <div class="storage-metric-card">
+                <div class="storage-metric-icon"><Database width={16} height={16} class="icon" /></div>
+                <div class="storage-metric-info">
+                  <span class="storage-metric-label">Data directory</span>
+                  <span class="storage-metric-value">{fmtBytes(storage.dataDirBytes)}</span>
+                </div>
+              </div>
+              <div class="storage-metric-card">
+                <div class="storage-metric-icon"><Box width={16} height={16} class="icon" /></div>
+                <div class="storage-metric-info">
+                  <span class="storage-metric-label">Containers (writable)</span>
+                  <span class="storage-metric-value">{fmtBytes(storage.containerWritableBytes)}</span>
+                </div>
+              </div>
             </div>
             {storageTop.length > 0 && (
               <div class="storage-offenders">
                 <div class="dim" style="font-size:0.75rem;margin:12px 0 6px">Largest workspaces</div>
-                {storageTop.map((p) => (
-                  <div class="storage-offender" key={p.slug} onClick={() => setLocation(`/project/${p.slug}`)}>
-                    <span class="storage-offender-name"><HardDrive width={12} height={12} class="icon" /> {p.name}</span>
-                    <span class="storage-offender-size">{fmtBytes(p.workspaceBytes)}</span>
-                  </div>
-                ))}
+                {storageTop.map((p) => {
+                  const pct = storage.totalWorkspaceBytes > 0 ? (p.workspaceBytes / storage.totalWorkspaceBytes) * 100 : 0;
+                  return (
+                    <div class="storage-offender" key={p.slug} onClick={() => setLocation(`/project/${p.slug}`)}>
+                      <div class="storage-offender-left">
+                        <HardDrive width={12} height={12} class="icon" />
+                        <span class="storage-offender-name">{p.name}</span>
+                      </div>
+                      <div class="storage-offender-right">
+                        <span class="storage-offender-size">{fmtBytes(p.workspaceBytes)}</span>
+                        <div class="storage-bar-bg">
+                          <div class="storage-bar-fill" style={`width:${pct}%`}></div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </>
         )}
       </div>
 
-      <div class="section-head">
-        <h2>System</h2>
-      </div>
-      <div class="dash-system">
+      <div class="dash-system-footer">
         <div class="dash-system-item">
           <span>Server</span>
           <span class="dash-system-val">v{info?.version || '…'}</span>

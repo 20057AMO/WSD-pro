@@ -205,9 +205,14 @@ select.modern-input { appearance: none; cursor: pointer; }
   align-items: center;
   gap: 14px;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s, box-shadow 0.15s;
 }
-.dash-stat-card:hover { border-color: var(--text-3); background: var(--panel-2); }
+.dash-stat-card:hover { 
+  border-color: var(--text-3); 
+  background: var(--panel-2); 
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
 .dash-stat-card.running { border-left: 3px solid var(--green); }
 .dash-stat-card.stopped { border-left: 3px solid var(--text-3); }
 .dash-stat-card.crashed { border-left: 3px solid var(--red); background: rgba(248, 81, 73, 0.06); }
@@ -243,7 +248,62 @@ select.modern-input { appearance: none; cursor: pointer; }
   .dash-stats { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* Projects page */
+/* Storage Metrics */
+.storage-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.storage-metric-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.storage-metric-icon {
+  background: var(--panel);
+  border: 1px solid var(--border-2);
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-2);
+}
+.storage-metric-info { display: flex; flex-direction: column; gap: 2px; }
+.storage-metric-label { font-size: 0.7rem; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.storage-metric-value { font-size: 0.9rem; font-weight: 600; color: var(--text); }
+
+.storage-offender {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.storage-offender:hover { border-color: var(--text-3); background: var(--panel-2); }
+.storage-offender-left { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
+.storage-offender-right { display: flex; align-items: center; gap: 12px; }
+.storage-offender-size { font-size: 0.75rem; font-family: var(--mono); color: var(--text-2); min-width: 60px; text-align: right; }
+.storage-bar-bg { width: 100px; height: 4px; background: var(--panel); border-radius: 2px; overflow: hidden; }
+.storage-bar-fill { height: 100%; background: var(--accent); transition: width 0.4s; }
+
+/* System Footer */
+.dash-system-footer {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex; gap: 24px; flex-wrap: wrap;
+  color: var(--text-3);
+}
+.dash-system-footer .dash-system-item { display: flex; align-items: center; gap: 6px; }
+.dash-system-footer .dash-system-item span:first-child { font-size: 0.7rem; text-transform: uppercase; opacity: 0.6; }
+.dash-system-footer .dash-system-val { font-size: 0.75rem; color: var(--text-2); font-weight: 500; }
 .proj-header {
   display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;
 }
@@ -597,7 +657,7 @@ select.modern-input { appearance: none; cursor: pointer; }
 
 /* Overview */
 .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
-.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; margin-top: 20px; }
 .panel-title { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); margin-bottom: 14px; }
 .kv-list { display: flex; flex-direction: column; gap: 10px; }
 .kv { display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; }
