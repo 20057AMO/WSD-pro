@@ -9,6 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import { withFileLock } from './write-queue';
 import type { ProjectLimits } from './project-limits';
 import type { ServeConfig } from './serve-core';
 
@@ -100,11 +101,19 @@ export function loadMeta(slug: string): ProjectMeta | null {
   return null;
 }
 
-export function saveMeta(slug: string, meta: ProjectMeta): void {
+/** Raw (unlocked) write — used inside withFileLock blocks to avoid reentrance. */
+function saveMetaRaw(slug: string, meta: ProjectMeta): void {
   const clean = String(slug ?? '').replace(/[^a-z0-9._-]+/gi, '');
   if (!clean) return;
   fs.mkdirSync(path.dirname(metaFile(clean)), { recursive: true });
   fs.writeFileSync(metaFile(clean), JSON.stringify(meta, null, 2), 'utf8');
+}
+
+/** Per-slug write lock — prevents lost concurrent updates on meta.json. */
+export function saveMeta(slug: string, meta: ProjectMeta): void {
+  const clean = String(slug ?? '').replace(/[^a-z0-9._-]+/gi, '');
+  if (!clean) return;
+  withFileLock(`meta:${clean}`, () => saveMetaRaw(clean, meta));
 }
 
 export function deleteMeta(slug: string): void {
@@ -129,19 +138,23 @@ export function listMetaSlugs(): string[] {
 
 export function touchActivity(slug: string, action: string): ProjectMeta | null {
   const clean = String(slug ?? '');
-  const meta = loadMeta(clean) || { activity: [] };
-  meta.activity = [...(meta.activity || []), { action, at: new Date().toISOString() }].slice(-200);
-  saveMeta(clean, meta);
-  return meta;
+  return withFileLock(`meta:${clean}`, () => {
+    const meta = loadMeta(clean) || { activity: [] };
+    meta.activity = [...(meta.activity || []), { action, at: new Date().toISOString() }].slice(-200);
+    saveMetaRaw(clean, meta);
+    return meta;
+  });
 }
 
 // ── Crash-detection state (requestedStop / crash / crashWatch) ──────────
 
 /** Record that the user explicitly asked to stop this container (pre-stop). */
 export function markRequestedStop(slug: string): void {
-  const meta = loadMeta(slug) || { activity: [] };
-  meta.requestedStop = true;
-  saveMeta(slug, meta);
+  withFileLock(`meta:${slug}`, () => {
+    const meta = loadMeta(slug) || { activity: [] };
+    meta.requestedStop = true;
+    saveMetaRaw(slug, meta);
+  });
 }
 
 export function getCrashWatch(slug: string): CrashWatch | null {
@@ -149,20 +162,24 @@ export function getCrashWatch(slug: string): CrashWatch | null {
 }
 
 export function setCrashWatch(slug: string, watch: CrashWatch | undefined): void {
-  const meta = loadMeta(slug);
-  if (!meta) return;
-  if (watch) meta.crashWatch = watch;
-  else delete meta.crashWatch;
-  saveMeta(slug, meta);
+  withFileLock(`meta:${slug}`, () => {
+    const meta = loadMeta(slug);
+    if (!meta) return;
+    if (watch) meta.crashWatch = watch;
+    else delete meta.crashWatch;
+    saveMetaRaw(slug, meta);
+  });
 }
 
 /** Persist a detected crash (single-fire by design — see project-alerts). */
 export function setCrashState(slug: string, crash: CrashInfo): void {
-  const meta = loadMeta(slug);
-  if (!meta) return;
-  meta.crash = crash;
-  meta.activity = [...(meta.activity || []), { action: 'crashed', at: new Date().toISOString() }].slice(-200);
-  saveMeta(slug, meta);
+  withFileLock(`meta:${slug}`, () => {
+    const meta = loadMeta(slug);
+    if (!meta) return;
+    meta.crash = crash;
+    meta.activity = [...(meta.activity || []), { action: 'crashed', at: new Date().toISOString() }].slice(-200);
+    saveMetaRaw(slug, meta);
+  });
 }
 
 /**
@@ -170,10 +187,12 @@ export function setCrashState(slug: string, crash: CrashInfo): void {
  * `crashWatch` is re-seeded by the detector on its next inspect pass.
  */
 export function clearCrashState(slug: string): void {
-  const meta = loadMeta(slug);
-  if (!meta) return;
-  delete meta.crash;
-  delete meta.requestedStop;
-  delete meta.crashWatch;
-  saveMeta(slug, meta);
+  withFileLock(`meta:${slug}`, () => {
+    const meta = loadMeta(slug);
+    if (!meta) return;
+    delete meta.crash;
+    delete meta.requestedStop;
+    delete meta.crashWatch;
+    saveMetaRaw(slug, meta);
+  });
 }

@@ -11,6 +11,9 @@
 import fs from 'fs';
 import path from 'path';
 
+import { withFileLock } from './write-queue';
+import { invalidateProjectContext } from './project-context';
+
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const META_DIR = path.join(DATA_DIR, 'projects');
 
@@ -74,19 +77,22 @@ export function loadNotes(slug: string): ProjectNotes {
 
 export function saveNotes(slug: string, input: unknown): ProjectNotes {
   const clean = cleanSlug(slug);
-  if (!input || typeof input !== 'object' || !Array.isArray((input as Record<string, unknown>).items)) {
-    throw new Error('Body must be { items: [...] }');
-  }
-  const rawItems = (input as Record<string, unknown>).items as unknown[];
-  if (rawItems.length > MAX_ITEMS) throw new Error(`Too many notes (max ${MAX_ITEMS})`);
-  const items: NoteItem[] = [];
-  for (const raw of rawItems) {
-    const item = normalizeItem(raw);
-    if (item) items.push(item);
-  }
-  fs.mkdirSync(path.dirname(notesFile(clean)), { recursive: true });
-  fs.writeFileSync(notesFile(clean), JSON.stringify({ items }, null, 2), 'utf8');
-  return { items };
+  return withFileLock(`notes:${clean}`, () => {
+    if (!input || typeof input !== 'object' || !Array.isArray((input as Record<string, unknown>).items)) {
+      throw new Error('Body must be { items: [...] }');
+    }
+    const rawItems = (input as Record<string, unknown>).items as unknown[];
+    if (rawItems.length > MAX_ITEMS) throw new Error(`Too many notes (max ${MAX_ITEMS})`);
+    const items: NoteItem[] = [];
+    for (const raw of rawItems) {
+      const item = normalizeItem(raw);
+      if (item) items.push(item);
+    }
+    fs.mkdirSync(path.dirname(notesFile(clean)), { recursive: true });
+    fs.writeFileSync(notesFile(clean), JSON.stringify({ items }, null, 2), 'utf8');
+    invalidateProjectContext(clean);
+    return { items };
+  });
 }
 
 /**

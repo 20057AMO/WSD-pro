@@ -12,6 +12,9 @@
 import fs from 'fs';
 import path from 'path';
 
+import { withFileLock } from './write-queue';
+import { invalidateProjectContext } from './project-context';
+
 const DATA_DIR = process.env.WSD_DATA_DIR || path.join(__dirname, '..', '..', 'data');
 const META_DIR = path.join(DATA_DIR, 'projects');
 const WORKSPACES_ROOT = process.env.WSD_PROJECTS_DIR || '/workspaces';
@@ -141,33 +144,36 @@ export function loadCanvas(slug: unknown): ProjectCanvas {
 
 export function saveCanvas(slug: unknown, input: unknown): ProjectCanvas {
   const clean = cleanSlug(slug);
-  if (!input || typeof input !== 'object') {
-    throw new Error('Body must be { nodes: [...], edges: [...] }');
-  }
-  const r = input as Record<string, unknown>;
-  if (!Array.isArray(r.nodes) || !Array.isArray(r.edges)) {
-    throw new Error('Body must be { nodes: [...], edges: [...] }');
-  }
-  const rawNodes = r.nodes as unknown[];
-  const rawEdges = r.edges as unknown[];
-  if (rawNodes.length > MAX_NODES) throw new Error(`Too many canvas nodes (max ${MAX_NODES})`);
-  if (rawEdges.length > MAX_EDGES) throw new Error(`Too many canvas edges (max ${MAX_EDGES})`);
-  const nodes: CanvasNode[] = [];
-  for (const raw of rawNodes) {
-    const n = normalizeNode(raw);
-    if (n) nodes.push(n);
-  }
-  const ids = new Set(nodes.map((n) => n.id));
-  const edges: CanvasEdge[] = [];
-  for (const raw of rawEdges) {
-    const e = normalizeEdge(raw, ids);
-    if (e) edges.push(e);
-  }
-  const doc: ProjectCanvas = { version: 1, nodes, edges, updatedAt: new Date().toISOString() };
-  fs.mkdirSync(path.dirname(canvasFile(clean)), { recursive: true });
-  fs.writeFileSync(canvasFile(clean), JSON.stringify(doc, null, 2), 'utf8');
-  refreshCanvasMirror(clean);
-  return doc;
+  return withFileLock(`canvas:${clean}`, () => {
+    if (!input || typeof input !== 'object') {
+      throw new Error('Body must be { nodes: [...], edges: [...] }');
+    }
+    const r = input as Record<string, unknown>;
+    if (!Array.isArray(r.nodes) || !Array.isArray(r.edges)) {
+      throw new Error('Body must be { nodes: [...], edges: [...] }');
+    }
+    const rawNodes = r.nodes as unknown[];
+    const rawEdges = r.edges as unknown[];
+    if (rawNodes.length > MAX_NODES) throw new Error(`Too many canvas nodes (max ${MAX_NODES})`);
+    if (rawEdges.length > MAX_EDGES) throw new Error(`Too many canvas edges (max ${MAX_EDGES})`);
+    const nodes: CanvasNode[] = [];
+    for (const raw of rawNodes) {
+      const n = normalizeNode(raw);
+      if (n) nodes.push(n);
+    }
+    const ids = new Set(nodes.map((n) => n.id));
+    const edges: CanvasEdge[] = [];
+    for (const raw of rawEdges) {
+      const e = normalizeEdge(raw, ids);
+      if (e) edges.push(e);
+    }
+    const doc: ProjectCanvas = { version: 1, nodes, edges, updatedAt: new Date().toISOString() };
+    fs.mkdirSync(path.dirname(canvasFile(clean)), { recursive: true });
+    fs.writeFileSync(canvasFile(clean), JSON.stringify(doc, null, 2), 'utf8');
+    refreshCanvasMirror(clean);
+    invalidateProjectContext(clean);
+    return doc;
+  });
 }
 
 /**

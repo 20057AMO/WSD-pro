@@ -7,6 +7,8 @@
 import fs from 'fs';
 import path from 'path';
 
+import { withFileLock } from './write-queue';
+
 const DATA_DIR = process.env.WSD_DATA_DIR || '/app/data';
 const AUDIT_FILE = path.join(DATA_DIR, 'audit.json');
 const MAX_ENTRIES = 100;
@@ -79,15 +81,17 @@ function loadEntries(): AuditEntry[] {
 
 /** Record an event; failures to persist are non-fatal by design. */
 export function recordAudit(event: AuditEvent, ok: boolean, ip?: string): void {
-  try {
-    const entries = loadEntries();
-    entries.push({ ts: new Date().toISOString(), event, ok, ...(ip ? { ip } : {}) });
-    const trimmed = entries.slice(-MAX_ENTRIES);
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(AUDIT_FILE, JSON.stringify(trimmed, null, 2), { encoding: 'utf8', mode: 0o600 });
-  } catch {
-    /* auditing must never break the request flow */
-  }
+  withFileLock('audit', () => {
+    try {
+      const entries = loadEntries();
+      entries.push({ ts: new Date().toISOString(), event, ok, ...(ip ? { ip } : {}) });
+      const trimmed = entries.slice(-MAX_ENTRIES);
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+      fs.writeFileSync(AUDIT_FILE, JSON.stringify(trimmed, null, 2), { encoding: 'utf8', mode: 0o600 });
+    } catch {
+      /* auditing must never break the request flow */
+    }
+  });
 }
 
 /** Most recent entries first. */
