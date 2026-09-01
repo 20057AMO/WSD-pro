@@ -2,7 +2,7 @@
  * project-context.ts
  * Madar — Deep "project awareness" block injected into the chat system prompt.
  *
- *   - project === 'all'  → brief summary of every project.
+ *   - project === 'all'  → brief summary of every project (short-TTL cache).
  *   - project === slug   → full context: metadata + WSD_PROJECT.md goals +
  *                          key/entry files + small source files (fully) +
  *                          code signatures + recent logs + workspace tree.
@@ -10,12 +10,66 @@
  * Sections are priority-ordered (goals → key files → source files → signatures
  * → logs → tree) so a budget cap always keeps the most useful information.
  * A cheap full-scan signature cache avoids rebuilding when nothing changed.
+ *
+ * Cache invalidation: `invalidateProjectContext(slug)` must be called after
+ * any file write/delete/rename, notes save, or canvas save so the context
+ * is rebuilt on the next prompt without waiting for TTL expiry.
  */
 import fs from 'fs';
 import path from 'path';
-import { listProjects, getProject, projectLogs, WORKSPACES_ROOT, type ProjectInfo } from './docker-manager';
+import type { ProjectInfo } from './docker-manager';
 import { formatNotesForContext, noteCounts, notesSignature } from './project-notes';
 import { formatCanvasForContext, canvasSignature as canvasSig, canvasNodeCount } from './project-canvas';
+import {
+  computeWorkspaceSignature,
+  contextCacheKey,
+  ProjectContextCache,
+  BriefCache,
+  buildContextBlock,
+  isCanvasMirrorFile,
+} from './project-context-core';
+
+// Host path where project workspaces live (mirrors docker-manager's constant,
+// read from env so this module stays importable offline without pulling the
+// whole docker graph — see the lazy adapter below).
+const WORKSPACES_ROOT = process.env.WSD_PROJECTS_DIR || '/workspaces';
+
+/**
+ * Docker-backed project source. This module statically imports ONLY leaf
+ * services (notes/canvas). The Docker graph (docker-manager / projects-cache)
+ * is REQUIRED LAZILY inside `currentDocker()` so that `node --test` can import
+ * this module offline (Node's native TS loader can't resolve docker-manager's
+ * extensionless transitive imports). Tests inject a stub via
+ * `setContextDockerSource()`; production uses the real `getCachedProjects()`
+ * (Phase B1 list cache) + `getProject` / `projectLogs`.
+ */
+export interface ProjectContextDockerSource {
+  listProjects(): Promise<ProjectInfo[]>;
+  getProject(slug: string): Promise<ProjectInfo | null>;
+  projectLogs(slug: string, lines: number): Promise<string>;
+}
+
+let dockerSource: ProjectContextDockerSource | null = null;
+
+function currentDocker(): ProjectContextDockerSource {
+  if (dockerSource) return dockerSource;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const dm = require('./docker-manager') as typeof import('./docker-manager');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const pc = require('./projects-cache') as typeof import('./projects-cache');
+  dockerSource = {
+    listProjects: () => pc.getCachedProjects(),
+    getProject: (slug) => dm.getProject(slug),
+    projectLogs: (slug, lines) => dm.projectLogs(slug, lines),
+  };
+  return dockerSource;
+}
+
+/** Replace the docker-backed source (used by offline tests to stub projects).
+ *  Pass `null` to restore the production lazy binding. */
+export function setContextDockerSource(src: ProjectContextDockerSource | null): void {
+  dockerSource = src;
+}
 
 export const DEFAULT_MAX_CHARS = 24000;
 const BRIEF_MAX_CHARS = 4000;
@@ -174,6 +228,9 @@ function scanWorkspace(dir: string): ScannedFile[] {
         if (IGNORED_DIRS.has(e.name)) continue;
         if (depth < MAX_SCAN_DEPTH) stack.push({ rel: child, depth: depth + 1 });
       } else if (e.isFile()) {
+        // WSD_CANVAS.md is a derived mirror of canvas.json — it is already
+        // rendered as the [Planning canvas] block, never scanned or signed.
+        if (isCanvasMirrorFile(e.name)) continue;
         const abs = path.join(dir, child);
         let stat: fs.Stats;
         try {
@@ -258,14 +315,8 @@ function extractSignatures(file: ScannedFile, maxLines: number): string[] {
   return lines;
 }
 
-/** Brief summary of every project (for the 'all' scope). */
-export async function listProjectsBrief(maxChars: number = BRIEF_MAX_CHARS): Promise<ProjectContextResult> {
-  let projects: ProjectInfo[];
-  try {
-    projects = await listProjects();
-  } catch {
-    projects = [];
-  }
+/** Build the brief block text from a project list (pure — shared with cache). */
+function buildBriefText(projects: ProjectInfo[]): string {
   const lines = projects.map((p) => {
     const ports =
       p.hostPorts && Object.keys(p.hostPorts).length
@@ -282,34 +333,62 @@ export async function listProjectsBrief(maxChars: number = BRIEF_MAX_CHARS): Pro
       boardNodes > 0 ? ` — board: ${boardNodes} node${boardNodes === 1 ? '' : 's'}` : '';
     return `- ${p.name} [${p.slug}] — ${p.status}${desc}${ports}${notes}${board}`;
   });
-  const text = lines.length
+  return lines.length
     ? `[Project context — all projects]\n${lines.join('\n')}`
     : '[Project context — all projects]\n(no projects found yet)';
-  const { text: cappedText, truncated } = capText(text, maxChars);
-  return { slug: 'all', text: cappedText, truncated };
 }
 
-interface ContextCacheEntry {
-  sig: string;
-  text: string;
-  truncated: boolean;
-  at: number;
+/**
+ * Brief summary of every project (for the 'all' scope).
+ *
+ * Cached for `WSD_BRIEF_TTL_MS` (default 15s, min 1s) so repeated 'all'-scope
+ * prompts don't fan out to `docker listContainers` on every call. When the
+ * projects-cache module is available (Phase B1) we reuse its snapshot instead
+ * of hitting Docker directly — it refreshes on a far shorter TTL and is
+ * invalidated at lifecycle points, so brief data is rarely stale.
+ */
+export async function listProjectsBrief(maxChars: number = BRIEF_MAX_CHARS): Promise<ProjectContextResult> {
+  const raw = await briefCache.get(async () => {
+    let projects: ProjectInfo[];
+    try {
+      projects = await currentDocker().listProjects();
+    } catch {
+      projects = [];
+    }
+    return buildBriefText(projects);
+  });
+  const { text, truncated } = capText(raw, maxChars);
+  return { slug: 'all', text, truncated };
 }
 
-const ctxCache = new Map<string, ContextCacheEntry>();
-const CTX_CACHE_MAX = 20;
-const CTX_CACHE_TTL_MS = 60_000;
+export const CTX_CACHE_MAX = 40;
+const CTX_CACHE_TTL_MS = Math.max(1000, Number(process.env.WSD_CTX_CACHE_TTL_MS) || 5 * 60_000);
 
-function computeSig(files: ScannedFile[]): string {
-  const parts: string[] = [];
-  for (const f of files) parts.push(`${f.rel}:${f.size}:${Math.round(f.mtimeMs)}`);
-  return parts.join('|');
-}
+const ctxCache: ProjectContextCache = new ProjectContextCache(CTX_CACHE_MAX, CTX_CACHE_TTL_MS);
+
+/** Short-TTL cache for the 'all'-scope brief so repeated prompts don't re-query
+ *  Docker. A single slot is enough (only one 'all' scope exists). */
+const BRIEF_CACHE_TTL_MS = Math.max(1000, Number(process.env.WSD_BRIEF_TTL_MS) || 15_000);
+const briefCache: BriefCache = new BriefCache(BRIEF_CACHE_TTL_MS);
 
 /** Cache key = workspace signature + notes signature + canvas signature, so
- * note/canvas edits invalidate the cached context. */
+ *  note/canvas edits (which bump their own signatures) invalidate the cached
+ *  context without explicit bookkeeping. */
 function cacheKey(slug: string, sig: string): string {
-  return `${slug}::${sig}::${notesSignature(slug)}::${canvasSig(slug)}`;
+  return contextCacheKey(slug, sig, notesSignature(slug), canvasSig(slug));
+}
+
+/** Drop a project's cached context so the next prompt rebuilds it. Called by
+ *  file-write / notes-save / canvas-save paths so edits invalidate instantly
+ *  while idle workspaces stay warm on their 5min TTL. The 'all'-scope brief
+ *  aggregates per-project notes/canvas counts, so ANY project edit must also
+ *  drop the stale brief slot — it rebuilds on the next 'all' prompt (cheap:
+ *  the Phase B1 projects-cache snapshot, not a fresh Docker list). */
+export function invalidateProjectContext(slug: string): void {
+  const clean = String(slug ?? '').trim();
+  if (!clean) return;
+  ctxCache.invalidateProject(clean);
+  briefCache.invalidate();
 }
 
 /** Full context block for one project. */
@@ -321,30 +400,27 @@ export async function getProjectContext(
   const dir = safeWorkspaceDir(clean);
   const exists = fs.existsSync(dir);
 
-  // Developer notes survive workspace loss — always computed, shown either way.
-  const notesText = formatNotesForContext(clean);
-  const canvasText = formatCanvasForContext(clean);
-
   if (exists) {
     const files = scanWorkspace(dir);
-    const sig = computeSig(files);
+    const sig = computeWorkspaceSignature(files);
     const key = cacheKey(clean, sig);
     const now = Date.now();
-    const cached = ctxCache.get(key);
-    if (cached && now - cached.at < CTX_CACHE_TTL_MS) {
+    const cached = ctxCache.get(key, now);
+    if (cached) {
+      // Cache hit — notes/canvas are folded into the sig-keyed text, so we
+      // return without re-formatting either (they were computed at build).
       return { slug: clean, text: cached.text, truncated: cached.truncated };
     }
 
-    const info = await getProject(clean).catch(() => null);
+    const info = await currentDocker().getProject(clean).catch(() => null);
     const built = await buildFullContext(clean, dir, files, info, maxChars);
-    if (ctxCache.size >= CTX_CACHE_MAX) {
-      const oldest = ctxCache.keys().next().value;
-      if (oldest !== undefined) ctxCache.delete(oldest);
-    }
-    ctxCache.set(key, { sig, text: built.text, truncated: built.truncated, at: now });
+    ctxCache.set(key, { sig, text: built.text, truncated: built.truncated }, now);
     return { slug: clean, text: built.text, truncated: built.truncated };
   }
 
+  // Workspace gone — developer notes survive workspace loss. Canvas too.
+  const notesText = formatNotesForContext(clean);
+  const canvasText = formatCanvasForContext(clean);
   return {
     slug: clean,
     text:
@@ -373,6 +449,27 @@ async function buildFullContext(
           .map(([priv, pub]) => `${pub} → container ${priv}`)
           .join(', ')}`
       );
+    }
+    // Live runtime state so agents know the machine's constraints/hazards.
+    const liveLimits = info.liveLimits ?? info.limits;
+    if (liveLimits && (liveLimits.cpu || liveLimits.memory)) {
+      const bits: string[] = [];
+      if (liveLimits.cpu) bits.push(`CPU ${liveLimits.cpu}`);
+      if (liveLimits.memory) bits.push(`RAM ${liveLimits.memory}`);
+      parts.push(`Resource limits: ${bits.join(' / ')} (OOM-capped at the RAM cap)`);
+    }
+    if (info.crash) {
+      const why =
+        info.crash.reason === 'oom'
+          ? 'out-of-memory kill'
+          : info.crash.reason === 'restart'
+            ? `silent auto-restart (restarts=${info.crash.restarted ?? '?'})`
+            : `non-zero exit (exit=${info.crash.exitCode ?? '?'})`;
+      parts.push(`Crashed: ${why} at ${info.crash.at}`);
+    }
+    if (info.serve?.enabled) {
+      const serveUrl = info.serve.url || (info.serve.hostPort ? `http://<host>:${info.serve.hostPort}` : '');
+      parts.push(`Serving static site: ${info.serve.active ? (serveUrl || 'active') : `configured:${info.serve.port} (${info.serve.error ?? 'not answering'})`}`);
     }
   } else {
     parts.push('(container metadata unavailable — workspace present on disk)');
@@ -451,7 +548,7 @@ async function buildFullContext(
   // 5) Recent container logs when running.
   if (info?.status === 'running') {
     try {
-      const logs = (await projectLogs(clean, MAX_LOG_LINES))
+      const logs = (await currentDocker().projectLogs(clean, MAX_LOG_LINES))
         .split('\n')
         .filter((l) => l.trim())
         .slice(-MAX_LOG_LINES)
@@ -470,7 +567,6 @@ async function buildFullContext(
     parts.push(`\n## Workspace layout\n${treeText}`);
   }
 
-  const joined = parts.join('\n\n');
-  const { text, truncated } = capText(joined, maxChars);
+  const { text, truncated } = buildContextBlock(parts, maxChars);
   return { text, truncated };
 }

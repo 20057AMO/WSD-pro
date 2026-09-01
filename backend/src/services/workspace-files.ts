@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { HttpError, WORKSPACES_ROOT } from './docker-manager';
-import { IGNORED_DIRS } from './project-context';
+import { IGNORED_DIRS, invalidateProjectContext } from './project-context';
 
 const MAX_PREVIEW_CHARS = 200 * 1024;
 
@@ -206,6 +206,7 @@ export function deleteWorkspacePath(slug: string, rel: string): { ok: boolean; t
   const type = stat.isDirectory() ? 'dir' : 'file';
   if (type === 'dir') fs.rmSync(target, { recursive: true, force: true });
   else fs.unlinkSync(target);
+  invalidateProjectContext(slug);
   return { ok: true, type };
 }
 
@@ -232,6 +233,7 @@ export function writeWorkspaceFile(
   } catch (err: any) {
     throw new HttpError(500, err?.message || 'Failed to write file');
   }
+  invalidateProjectContext(slug);
   return { ok: true, path: rel, bytes: Buffer.byteLength(content, 'utf8') };
 }
 
@@ -251,5 +253,6 @@ export function renameWorkspacePath(slug: string, from: string, to: string): { o
   } catch (err: any) {
     throw new HttpError(500, err?.message || 'Rename failed');
   }
+  invalidateProjectContext(slug);
   return { ok: true };
 }
