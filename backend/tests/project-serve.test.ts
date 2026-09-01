@@ -1,7 +1,7 @@
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import jwt from 'jsonwebtoken';
-import { execFileSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { uniqueId, req, reqAuth, initTestAuth, JWT_SECRET, authHeaders } from './helpers.ts';
 
 /**
@@ -93,6 +93,15 @@ describe('Project static-site serve (python3 http.server)', () => {
   let editorUser: any;
 
   before(async () => {
+    // Clear any orphaned wsd.managed containers from crashed runs so a stale
+    // holder can never grab the published port the serve probes. `2>NUL`
+    // silences the "no such container" noise on Windows (2>/dev/null on Linux).
+    try {
+      execSync('docker rm -f $(docker ps -aq --filter label=wsd.managed=true) 2>NUL', {
+        timeout: 15000,
+        stdio: 'pipe',
+      });
+    } catch { /* no orphan containers */ }
     await initTestAuth();
 
     p1 = uniqueId('srv-a');

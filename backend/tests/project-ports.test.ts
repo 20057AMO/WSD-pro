@@ -2,6 +2,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert';
 import zlib from 'node:zlib';
 import jwt from 'jsonwebtoken';
+import { execSync } from 'child_process';
 import { uniqueId, req, reqAuth, initTestAuth, JWT_SECRET, authHeaders, API_URL } from './helpers.ts';
 
 /**
@@ -76,6 +77,15 @@ describe('Project published-ports editing', () => {
   let editorUser: any;
 
   before(async () => {
+    // Clear any orphaned wsd.managed containers from crashed runs so a stale
+    // live binding can never poison a port-claim assertion. `2>NUL` silences
+    // the "no such container" noise on Windows; use `2>/dev/null` on Linux.
+    try {
+      execSync('docker rm -f $(docker ps -aq --filter label=wsd.managed=true) 2>NUL', {
+        timeout: 15000,
+        stdio: 'pipe',
+      });
+    } catch { /* no orphan containers */ }
     await initTestAuth();
 
     p1 = uniqueId('ports-a');
