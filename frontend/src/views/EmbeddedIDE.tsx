@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { ArrowLeft, FolderOpen, RefreshCw } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
-import { getIdeStatus, listProjects, type Project } from '../api';
+import { getIdeStatus, listProjects, requestIdeSession, type Project } from '../api';
 import { VSCodeIcon } from '../components/brand-icons';
+import { useDocumentVisible } from '../lib/visibility';
 
 const FOLDER_KEY = 'wsd.ide.folder';
+const BASE_INTERVAL = 8000;
+const HIDDEN_INTERVAL = 30000;
+const MAX_BACKOFF = 32000;
 
 function readSavedFolder(): string {
   try {
@@ -18,13 +22,15 @@ function readSavedFolder(): string {
 export function EmbeddedIDE() {
   const [loc, setLocation] = useHashLocation();
   const [running, setRunning] = useState<boolean | null>(null);
-  const [port, setPort] = useState(8100);
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [folder, setFolder] = useState(readSavedFolder);
   const folderRef = useRef(folder);
   const [frameKey, setFrameKey] = useState(0);
   const [frameReady, setFrameReady] = useState(false);
+  // The iframe only starts once we KNOW the wsd.ide cookie is set — otherwise
+  // it races the async mint and lands on the proxy's 401 page with no retry.
+  const [sessionReady, setSessionReady] = useState(false);
 
   // Apply a folder change: persist it and (optionally) reload the iframe.
   const applyFolder = (f: string, reload: boolean) => {
@@ -61,56 +67,73 @@ export function EmbeddedIDE() {
     };
   }, []);
 
-  // Warm the connection to code-server before the iframe even mounts
-  // (saves DNS + TCP round-trips on first paint).
+  const visible = useDocumentVisible();
+
+  // Mint the proxy cookie on mount and keep it alive every 25 min (below the
+  // 1-hour HttpOnly expiry). Also refresh when the tab becomes visible again.
+  // The iframe is gated on the FIRST successful mint (sessionReady).
   useEffect(() => {
-    try {
-      const l = document.createElement('link');
-      l.rel = 'preconnect';
-      l.href = `${window.location.protocol}//${window.location.hostname}:8100`;
-      document.head.appendChild(l);
-      return () => {
-        l.remove();
-      };
-    } catch {
-      /* ignore */
-    }
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const refresh = () => {
+      requestIdeSession().then(() => setSessionReady(true)).catch(() => {});
+    };
+    refresh();
+    timer = setInterval(refresh, 25 * 60 * 1000);
+    return () => { if (timer) clearInterval(timer); };
   }, []);
+
+  // Re-mint when the tab becomes visible after being hidden.
+  useEffect(() => {
+    if (visible) requestIdeSession().catch(() => {});
+  }, [visible]);
+  const retryCountRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
     const load = () =>
       getIdeStatus()
         .then((s) => {
           if (cancelled) return;
           setRunning(s.ide.running);
-          setPort(s.ide.port);
           setLoading(false);
+          retryCountRef.current = 0;
+          scheduleNext();
         })
         .catch(() => {
           if (!cancelled) {
             setRunning(false);
             setLoading(false);
           }
+          retryCountRef.current = Math.min(retryCountRef.current + 1, 4);
+          scheduleNext();
         });
+
+    const scheduleNext = () => {
+      if (timer) clearInterval(timer);
+      if (cancelled) return;
+      if (!visible) {
+        timer = setInterval(load, HIDDEN_INTERVAL);
+      } else {
+        const delay = Math.min(BASE_INTERVAL * Math.pow(2, retryCountRef.current), MAX_BACKOFF);
+        timer = setInterval(load, delay);
+      }
+    };
+
     load();
-    const t = setInterval(load, 8000);
     return () => {
       cancelled = true;
-      clearInterval(t);
+      if (timer) clearInterval(timer);
     };
-  }, []);
+  }, [visible]);
 
   // Reset the loading overlay whenever a new frame mounts.
   useEffect(() => {
     setFrameReady(false);
   }, [frameKey]);
 
-  const host = window.location.hostname;
-  // Match the page protocol so the iframe is not blocked as mixed content
-  // when the dashboard itself is served over HTTPS.
-  const proto = window.location.protocol === 'https:' ? 'https' : 'http';
-  const ideUrl = `${proto}://${host}:${port}/?folder=${encodeURIComponent(folder)}`;
+  const ideUrl = `/ide/?folder=${encodeURIComponent(folder)}`;
   const pickedSlug = folder.replace('/workspaces/', '');
 
   const pickProject = (slug: string) => {
@@ -154,6 +177,11 @@ export function EmbeddedIDE() {
           <div class="big-icon"><VSCodeIcon width={30} height={30} /></div>
           VS Code is not running. Start a project first.
           <code class="mono" style="display:block;margin-top:8px">docker compose logs app</code>
+        </div>
+      ) : !sessionReady ? (
+        <div class="ide-loading">
+          <RefreshCw width={16} height={16} class="icon spin" />
+          Loading VS Code…
         </div>
       ) : (
         <>

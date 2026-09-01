@@ -533,6 +533,10 @@ export const saveProjectCanvas = (slug: string, doc: ProjectCanvas) =>
   });
 export const getServerInfo = () => api<ServerInfo>('/api/server/info');
 export const getIdeStatus = () => api<{ ide: IdeStatus }>('/api/ide/status');
+
+/** Mint a 1-hour HttpOnly cookie for the authenticated IDE/oc proxy. */
+export const requestIdeSession = () =>
+  api<{ ok: boolean }>('/api/auth/ide-session', { method: 'POST' });
 export const getChatInfo = () => api<ChatConfig>('/api/chat/info');
 export const getChatModels = (provider: ChatProvider) =>
   api<{ models: string[] }>(`/api/chat/models?provider=${provider}`);

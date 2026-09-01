@@ -1,14 +1,17 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { ArrowLeft, SquareTerminal, FolderOpen, RefreshCw } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
-import { getOpencodeStatus, openOpencodeProject, listProjects, type Project } from '../api';
+import { getOpencodeStatus, openOpencodeProject, listProjects, requestIdeSession, type Project } from '../api';
+import { useDocumentVisible } from '../lib/visibility';
 
 const PROJECT_KEY = 'wsd.opencode.project';
+const BASE_INTERVAL = 5000;
+const HIDDEN_INTERVAL = 30000;
+const MAX_BACKOFF = 30000;
 
 export function Opencode() {
   const [loc, setLocation] = useHashLocation();
   const [running, setRunning] = useState<boolean | null>(null);
-  const [port, setPort] = useState(4096);
   const [projects, setProjects] = useState<Project[]>([]);
   const [picked, setPicked] = useState('');
   const pickedRef = useRef('');
@@ -16,46 +19,70 @@ export function Opencode() {
   const [frameKey, setFrameKey] = useState(0);
   const [frameReady, setFrameReady] = useState(false);
   const [openErr, setOpenErr] = useState<string | null>(null);
+  // The iframe only starts once we KNOW the wsd.ide cookie is set — otherwise
+  // it races the async mint and lands on the proxy's 401 page with no retry.
+  const [sessionReady, setSessionReady] = useState(false);
 
-  // Warm the connection to the opencode web server before the iframe mounts
-  // (saves DNS + TCP round-trips on first paint).
+  const visible = useDocumentVisible();
+
+  // Mint the proxy cookie on mount and keep it alive every 25 min (below the
+  // 1-hour HttpOnly expiry). Also refresh when the tab becomes visible again.
+  // The iframe is gated on the FIRST successful mint (sessionReady).
   useEffect(() => {
-    try {
-      const l = document.createElement('link');
-      l.rel = 'preconnect';
-      l.href = `${window.location.protocol}//${window.location.hostname}:4096`;
-      document.head.appendChild(l);
-      return () => {
-        l.remove();
-      };
-    } catch {
-      /* ignore */
-    }
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const refresh = () => {
+      requestIdeSession().then(() => setSessionReady(true)).catch(() => {});
+    };
+    refresh();
+    timer = setInterval(refresh, 25 * 60 * 1000);
+    return () => { if (timer) clearInterval(timer); };
   }, []);
+
+  // Re-mint when the tab becomes visible after being hidden.
+  useEffect(() => {
+    if (visible) requestIdeSession().catch(() => {});
+  }, [visible]);
+  const retryCountRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
     const load = () =>
       getOpencodeStatus()
         .then((s) => {
           if (cancelled) return;
           setRunning(s.running);
-          setPort(s.port);
+          retryCountRef.current = 0; // reset backoff on success
+          scheduleNext();
         })
         .catch(() => {
           if (!cancelled) setRunning(false);
+          retryCountRef.current = Math.min(retryCountRef.current + 1, 4);
+          scheduleNext();
         });
+
+    const scheduleNext = () => {
+      if (timer) clearInterval(timer);
+      if (cancelled) return;
+      if (!visible) {
+        // When hidden, poll at 30s regardless of backoff
+        timer = setInterval(load, HIDDEN_INTERVAL);
+      } else {
+        // Exponential backoff: 5s, 10s, 20s, 30s cap
+        const delay = Math.min(BASE_INTERVAL * Math.pow(2, retryCountRef.current), MAX_BACKOFF);
+        timer = setInterval(load, delay);
+      }
+    };
+
     load();
-    const t = setInterval(load, 5000);
     return () => {
       cancelled = true;
-      clearInterval(t);
+      if (timer) clearInterval(timer);
     };
-  }, []);
+  }, [visible]);
 
-  const host = window.location.hostname;
-  const proto = window.location.protocol === 'https:' ? 'https' : 'http';
-  const url = `${proto}://${host}:${port}`;
+  const url = '/oc/';
 
   useEffect(() => {
     let cancelled = false;
@@ -152,6 +179,11 @@ export function Opencode() {
           <div class="big-icon"><SquareTerminal width={30} height={30} class="icon" /></div>
           opencode is not available right now. Check the container log:
           <code class="mono" style="display:block;margin-top:8px">docker compose logs app</code>
+        </div>
+      ) : !sessionReady ? (
+        <div class="ide-loading">
+          <RefreshCw width={16} height={16} class="icon spin" />
+          Loading opencode…
         </div>
       ) : (
         <>

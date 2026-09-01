@@ -25,7 +25,7 @@ import {
   relockProviders,
   clearProvidersUnlock,
   UNLOCK_KEY,
-  getOpencodeStatus,
+  requestIdeSession,
 } from './api';
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -108,6 +108,25 @@ function navigate(href: string): void {
 }
 
 /**
+ * Sidebar opencode button: opens the proxied /oc/ UI in a new tab. The
+ * authenticated proxy needs the `wsd.ide` Cookie, so mint it first.
+ */
+const OpenCodeNav = ({ onOpen }: { onOpen: () => void }) => {
+  const open = () => {
+    onOpen();
+    requestIdeSession()
+      .catch(() => {})
+      .finally(() => window.open('/oc/', '_blank', 'noopener'));
+  };
+  return (
+    <button class="nav-btn" onClick={open}>
+      <OpencodeIcon width={16} height={16} class="icon" />
+      <span>opencode</span>
+    </button>
+  );
+};
+
+/**
  * Visible only while the Providers page is unlocked: shows the remaining
  * unlock time and offers an instant re-lock. Syncs across tabs via the
  * storage event on the unlock key.
@@ -173,17 +192,6 @@ function ProvidersUnlockBadge() {
 
 function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user } = useAuth();
-  const [ocPort, setOcPort] = useState(4096);
-
-  useEffect(() => {
-    getOpencodeStatus()
-      .then((s) => {
-        if (s?.port) setOcPort(s.port);
-      })
-      .catch(() => {});
-  }, []);
-
-  const toolBase = `${window.location.protocol === 'https:' ? 'https' : 'http'}://${window.location.hostname}`;
   return (
     <aside class={`sidebar${open ? ' open' : ''}`}>
       <div class="sidebar-brand" onClick={() => { navigate('/'); onClose(); }}>
@@ -199,7 +207,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         <NavButton href="/planner" label="Planner" icon={PencilRuler} />
         <NavButton href="/terminals" label="Terminals" icon={SquareTerminal} />
         <NavButton href="/agents" label="Agents" icon={Bot} />
-        <NavButton label="opencode" icon={OpencodeIcon} newTabUrl={`${toolBase}:${ocPort}/`} />
+        <OpenCodeNav onOpen={() => { onClose(); }} />
         <NavButton href="/opencode-studio" label="OC Studio" icon={OpencodeIcon} />
         <NavButton href="/providers" label="Providers" icon={KeyRound} />
         {user?.role === 'admin' && <NavButton href="/team" label="Team" icon={Users} />}

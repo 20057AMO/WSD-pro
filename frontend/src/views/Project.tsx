@@ -52,6 +52,7 @@ import { ProjectCanvas } from '../components/ProjectCanvas';
 import { CrashBadge } from '../components/CrashBadge';
 import { useAuth } from '../auth';
 import { usePresence } from '../usePresence';
+import { useDocumentVisible } from '../lib/visibility';
 
 type Tab = 'overview' | 'chat' | 'files' | 'logs' | 'notes' | 'scripts' | 'team' | 'snapshots' | 'canvas';
 
@@ -116,6 +117,10 @@ export function Project({ params }: { params: { slug: string } }) {
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [ideNotice, setIdeNotice] = useState<string | null>(null);
   const onlineUsers = usePresence(slug);
+
+  const visible = useDocumentVisible();
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
 
   // Deep-linkable tabs via `?tab=<name>`. wouter's hash router relocates the
   // query into the real window.location.search, so match that first.
@@ -191,6 +196,7 @@ export function Project({ params }: { params: { slug: string } }) {
     const startPolling = () => {
       if (timer) return;
       const tick = async () => {
+        if (!visibleRef.current) return; // skip when hidden
         try {
           const { project } = await getProject(slug);
           if (!closed) { setProject(project); setError(null); }
@@ -208,6 +214,16 @@ export function Project({ params }: { params: { slug: string } }) {
       try { socket?.close(); } catch { /* ignore */ }
     };
   }, [slug]);
+
+  // When the tab becomes visible again, tick once immediately to catch up
+  // on any state changes that happened while hidden.
+  const prevVisible = useRef(visible);
+  useEffect(() => {
+    if (visible && !prevVisible.current) {
+      load();
+    }
+    prevVisible.current = visible;
+  }, [visible]);
 
   useEffect(() => {
     getProjectSubdir(slug)
@@ -477,6 +493,10 @@ function OverviewPanel({
   const [deleting, setDeleting] = useState(false);
   const [confirmRecreate, setConfirmRecreate] = useState(false);
 
+  const visible = useDocumentVisible();
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+
   // Prefer liveStats from WebSocket; fall back to polling
   const effectiveStats = liveStats || stats;
 
@@ -486,12 +506,14 @@ function OverviewPanel({
       return;
     }
     let cancelled = false;
-    const poll = () =>
+    const poll = () => {
+      if (!visibleRef.current) return; // skip when hidden
       getProjectStats(slug)
         .then(({ stats: s }) => {
           if (!cancelled) setStats(s);
         })
         .catch(() => {});
+    };
     poll();
     const t = setInterval(poll, 5000);
     return () => {
@@ -500,25 +522,49 @@ function OverviewPanel({
     };
   }, [slug, project?.status, liveStats]);
 
+  // Port-health check: 15s interval with overlap guard.
+  // A changing hostPorts dependency re-runs this effect; an in-flight
+  // ref prevents the previous poll from stacking.
+  const portCheckInflight = useRef(0);
   useEffect(() => {
     if (!project?.hostPorts || Object.keys(project.hostPorts).length === 0) {
       setChecks(null);
       return;
     }
     let cancelled = false;
-    const poll = () =>
+    const seq = ++portCheckInflight.current;
+    const poll = () => {
+      if (!visibleRef.current) return; // skip when hidden
+      if (seq !== portCheckInflight.current) return; // superseded
       checkProjectPorts(slug)
         .then(({ checks: c }) => {
-          if (!cancelled) setChecks(c);
+          if (!cancelled && seq === portCheckInflight.current) setChecks(c);
         })
         .catch(() => {});
+    };
     poll();
     const t = setInterval(poll, 15000);
     return () => {
       cancelled = true;
+      portCheckInflight.current++; // invalidate any in-flight
       clearInterval(t);
     };
   }, [slug, project?.hostPorts]);
+
+  // When the tab becomes visible again, tick once immediately to catch up
+  // on runtime stats + port health that may have changed while hidden.
+  const prevVisible = useRef(visible);
+  useEffect(() => {
+    if (visible && !prevVisible.current) {
+      if (project?.status === 'running' && !liveStats) {
+        getProjectStats(slug).then(({ stats: s }) => setStats(s)).catch(() => {});
+      }
+      if (project?.hostPorts && Object.keys(project.hostPorts).length > 0) {
+        checkProjectPorts(slug).then(({ checks: c }) => setChecks(c)).catch(() => {});
+      }
+    }
+    prevVisible.current = visible;
+  }, [visible]);
 
   useEffect(() => {
     let cancelled = false;

@@ -15,6 +15,7 @@ import {
   type Project,
 } from '../api';
 import { fmtCpu, fmtMem } from '../lib/limits';
+import { useDocumentVisible } from '../lib/visibility';
 
 type SortKey = 'name' | 'status' | 'created';
 type SortDir = 'asc' | 'desc';
@@ -105,6 +106,10 @@ export function Projects() {
     }
   };
 
+  const visible = useDocumentVisible();
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+
   useEffect(() => {
     let closed = false;
     let timer: number | null = null;
@@ -155,6 +160,7 @@ export function Projects() {
     const startPolling = () => {
       if (timer) return;
       const tick = async () => {
+        if (!visibleRef.current) return; // skip when hidden
         try {
           const p = await listProjects();
           if (!closed) { setProjects(p.projects); setLoadError(null); }
@@ -172,6 +178,18 @@ export function Projects() {
       try { socket?.close(); } catch { /* ignore */ }
     };
   }, []);
+
+  // When the tab becomes visible, tick once immediately to catch up
+  const prevVisible = useRef(visible);
+  useEffect(() => {
+    if (visible && !prevVisible.current) {
+      listProjects().then((p) => {
+        setProjects(p.projects);
+        setLoadError(null);
+      }).catch(() => {});
+    }
+    prevVisible.current = visible;
+  }, [visible]);
 
   const running = projects.filter((p) => p.status === 'running').length;
   const stopped = projects.filter((p) => p.status === 'stopped' || p.status === 'created').length;

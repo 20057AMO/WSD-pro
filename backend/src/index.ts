@@ -8,6 +8,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs';
@@ -16,7 +17,6 @@ import multer from 'multer';
 
 import {
   createProject,
-  listProjects,
   getProject,
   startProject,
   stopProject,
@@ -74,6 +74,7 @@ import { startAlertsAutomation } from './services/project-alerts';
 import { serveStatus, startServeProcess, stopServeProcess } from './services/project-serve';
 import { sanitizeServeConfig } from './services/serve-core';
 import { getStorageMetrics, invalidateStorageCache } from './services/storage-metrics';
+import { getCachedProjects, invalidateProjectsCache } from './services/projects-cache';
 import { cleanupStorage } from './services/storage-cleanup';
 import {
   listSessions,
@@ -108,11 +109,15 @@ import {
   disableTotp,
   verifyTotpCode,
   verifyPending2faToken,
+  signIdeToken,
+  IDE_TOKEN_TTL_SEC,
 } from './services/user-store';
+import { createAppProxies, proxyHttp, attachProxyUpgrades, IDE_COOKIE } from './services/app-proxy';
 import { otpauthUri } from './services/totp';
 import { buildBackup, restoreFromBackup } from './services/settings-export';
 import { recordAudit, listAudit } from './services/audit-store';
-import { authMiddleware, requireAdmin, requireRole, requireProjectAccess } from './middleware/auth';
+import { checkUserWrite, sweepUserWriteBuckets } from './services/user-write-limiter';
+import { authMiddleware, requireAdmin, requireRole, requireProjectAccess, checkProjectAccess } from './middleware/auth';
 import { attachWebSockets } from './ws/ws-server';
 import { getPresence } from './ws/ws-presence';
 
@@ -163,6 +168,17 @@ if (corsOrigins.length > 0) {
     })
   );
 }
+
+// ── Authenticated reverse proxy for /ide (code-server) and /oc (opencode) ──
+// Created up-front so the HTTP handlers can be mounted here — BEFORE
+// express.json() (so proxied POST bodies are never drained by the body parser)
+// and before the SPA catch-all. WebSocket upgrades for these paths are wired
+// onto the http server in attachProxyUpgrades() at the bottom (before the /ws
+// hub, whose upgrade handler destroys any non-/ws socket).
+const appProxies = createAppProxies();
+app.use('/ide', proxyHttp(appProxies)[0]);
+app.use('/oc', proxyHttp(appProxies)[1]);
+
 app.use(express.json({ limit: '10mb' }));
 
 // ── Rate limiting (simple in-memory, per IP, per scope) ───────
@@ -186,6 +202,19 @@ const RATE_MAX = rateCeil('WSD_RATE_MAX', 240, 4000); // req/min global
 const RATE_STRICT_MAX = rateCeil('WSD_RATE_STRICT_MAX', 10, 400); // dangerous endpoints
 const RATE_AUTH_MAX = 10; // password-verification endpoints (brute-force guard)
 const RATE_USER_ADMIN_MAX = rateCeil('WSD_RATE_USER_ADMIN_MAX', 20, 2000); // admin user provisioning
+const RATE_USER_WRITE_MAX = 120; // per-user write budget (write-heavy endpoints)
+
+// Per-user write limiter — keyed on the authenticated user id (falling back to
+// the shared IP when no user is present). For NAT-shared deployments a single
+// runaway agent can't starve every other user behind the same public IP.
+const userWriteLimiter = (req: any, res: any, next: any) => {
+  const retryAfter = checkUserWrite(req?.user?.id, req?.ip, RATE_WINDOW, RATE_USER_WRITE_MAX);
+  if (retryAfter > 0) {
+    res.set('Retry-After', String(retryAfter));
+    return res.status(429).json({ error: 'Too many requests. Try again later.' });
+  }
+  next();
+};
 
 function rateLimit(scope: string, windowMs: number, max: number) {
   return (req: any, res: any, next: any) => {
@@ -212,6 +241,7 @@ setInterval(() => {
   for (const [key, entry] of rateBuckets) {
     if (entry.resetAt <= now) rateBuckets.delete(key);
   }
+  sweepUserWriteBuckets();
 }, 120_000);
 
 // ── Health check (exempt from rate limiting) ─────────────────
@@ -265,11 +295,11 @@ app.get('/api/auth/status', (req: any, res) => {
   res.json({ hasUser: true, user });
 });
 
-app.post('/api/auth/setup', authLimiter, (req, res) => {
+app.post('/api/auth/setup', authLimiter, async (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
-    const result = setup(String(username), String(password));
+    const result = await setup(String(username), String(password));
     recordAudit('setup', true, req.ip);
     res.status(201).json(result);
   } catch (err: any) {
@@ -277,11 +307,11 @@ app.post('/api/auth/setup', authLimiter, (req, res) => {
   }
 });
 
-app.post('/api/auth/login', authLimiter, (req, res) => {
+app.post('/api/auth/login', authLimiter, async (req, res) => {
   try {
     const { username, password } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
-    const result = login(String(username), String(password));
+    const result = await login(String(username), String(password));
     if ('requires2fa' in result) {
       // TOTP is enabled for THIS user — no session until the code verifies.
       // Record the accepted-password step so a correct password that stops at
@@ -364,12 +394,12 @@ app.post('/api/auth/2fa/enable', authLimiter, (req: any, res) => {
 });
 
 // Turning 2FA off is dangerous → account-password re-auth required.
-app.post('/api/auth/2fa/disable', authLimiter, (req: any, res) => {
+app.post('/api/auth/2fa/disable', authLimiter, async (req: any, res) => {
   const userId = req.user?.id;
   if (!userId) return res.status(401).json({ error: 'Authentication required.' });
   const { accountPassword } = req.body || {};
   if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
-  if (!verifyAccountPassword(String(accountPassword), userId)) {
+  if (!(await verifyAccountPassword(String(accountPassword), userId))) {
     recordAudit('2fa-disabled-failed', false, req.ip);
     return res.status(401).json({ error: 'Account password is incorrect.' });
   }
@@ -378,13 +408,13 @@ app.post('/api/auth/2fa/disable', authLimiter, (req: any, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/auth/change-password', authLimiter, (req: any, res) => {
+app.post('/api/auth/change-password', authLimiter, async (req: any, res) => {
   try {
     const { currentPassword, newPassword } = req.body || {};
     if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required.' });
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ error: 'Authentication required.' });
-    const { token } = changePassword(String(currentPassword), String(newPassword), userId);
+    const { token } = await changePassword(String(currentPassword), String(newPassword), userId);
     recordAudit('password-change', true, req.ip);
     res.json({ ok: true, token });
   } catch (err: any) {
@@ -394,11 +424,11 @@ app.post('/api/auth/change-password', authLimiter, (req: any, res) => {
 });
 
 // Logout everywhere: invalidate every issued session token.
-app.post('/api/auth/logout-all', authLimiter, (req: any, res) => {
+app.post('/api/auth/logout-all', authLimiter, async (req: any, res) => {
   try {
     const { accountPassword } = req.body || {};
     if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
-    revokeAllSessions(String(accountPassword));
+    await revokeAllSessions(String(accountPassword));
     recordAudit('logout-all', true, req.ip);
     res.json({ ok: true });
   } catch (err: any) {
@@ -407,15 +437,37 @@ app.post('/api/auth/logout-all', authLimiter, (req: any, res) => {
   }
 });
 
-// ── Providers lock (optional second-layer password) ───────────
+// ── IDE / opencode proxy session (cookie) ──────────────────────
+// iframes can't send an Authorization header, so the SPA asks for a SHORT-LIVED
+// scoped token here; we hand it back as an HttpOnly `wsd.ide` cookie
+// (SameSite=Lax, Path=/) that the /ide and /oc reverse proxies validate. The
+// token is scope:`ide` → the generic verifyToken() rejects it, so it can NEVER
+// authenticate /api/* (only verifyIdeToken accepts it). Dedicated limiter keeps
+// session-minting from draining the auth brute-force budget.
+const ideSessionLimiter = rateLimit('ide-session', RATE_WINDOW, 30);
 
+app.post('/api/auth/ide-session', ideSessionLimiter, (req: any, res) => {
+  const userId = req.user?.id;
+  if (!userId) return res.status(401).json({ error: 'Authentication required.' });
+  try {
+    const { token, expiresInSec } = signIdeToken(userId);
+    res.setHeader('Set-Cookie', [
+      `${IDE_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${expiresInSec}`,
+    ]);
+    res.json({ ok: true, expiresInSec });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ── Providers lock (optional second-layer password) ───────────
 app.get('/api/providers-lock', (_req, res) => {
   res.json({ enabled: hasProvidersPassword() });
 });
 
 // Unlock verifies a password — brute-force guard (dedicated unlock limiter +
 // progressive cooldown) + audit trail apply here.
-app.post('/api/providers/unlock', unlockLimiter, (req: any, res) => {
+app.post('/api/providers/unlock', unlockLimiter, async (req: any, res) => {
   const ip = String(req.ip || 'unknown');
   const cd = unlockCooldownRemainingSec(ip);
   if (cd > 0) {
@@ -424,7 +476,7 @@ app.post('/api/providers/unlock', unlockLimiter, (req: any, res) => {
   }
   const { password } = req.body || {};
   if (!hasProvidersPassword()) return res.json({ ok: true, unlocked: true });
-  const result = issueUnlockToken(String(password || ''), String(req.user?.jti || ''));
+  const result = await issueUnlockToken(String(password || ''), String(req.user?.jti || ''));
   if (!result) {
     const st = unlockFails.get(ip) || { count: 0, until: 0 };
     st.count += 1;
@@ -455,15 +507,15 @@ app.post('/api/providers/relock', (req: any, res) => {
 // Set or change the providers lock password — requires account re-auth.
 // On success the response carries a ready-to-use unlock token so the
 // current session does not get locked out of the page it just protected.
-app.post('/api/auth/providers-password', authLimiter, (req: any, res) => {
+app.post('/api/auth/providers-password', authLimiter, async (req: any, res) => {
   try {
     const { accountPassword, newPassword } = req.body || {};
     if (!accountPassword || !newPassword) {
       return res.status(400).json({ error: 'Account password and new providers password are required.' });
     }
-    setProvidersPassword(String(accountPassword), String(newPassword), req.user?.id);
+    await setProvidersPassword(String(accountPassword), String(newPassword), req.user?.id);
     recordAudit('providers-lock-change', true, req.ip);
-    const unlock = issueUnlockToken(String(newPassword), String(req.user?.jti || ''));
+    const unlock = await issueUnlockToken(String(newPassword), String(req.user?.jti || ''));
     res.json({
       ok: true,
       enabled: true,
@@ -476,11 +528,11 @@ app.post('/api/auth/providers-password', authLimiter, (req: any, res) => {
 });
 
 // Remove the providers lock entirely — requires account re-auth.
-app.delete('/api/auth/providers-password', authLimiter, (req: any, res) => {
+app.delete('/api/auth/providers-password', authLimiter, async (req: any, res) => {
   try {
     const { accountPassword } = req.body || {};
     if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
-    removeProvidersPassword(String(accountPassword), req.user?.id);
+    await removeProvidersPassword(String(accountPassword), req.user?.id);
     recordAudit('providers-lock-change', true, req.ip);
     res.json({ ok: true, enabled: false });
   } catch (err: any) {
@@ -492,9 +544,9 @@ app.delete('/api/auth/providers-password', authLimiter, (req: any, res) => {
 // ── Settings backup (export / import) ─────────────────────────
 // Both operations require account re-auth. Exports never contain API keys.
 
-app.post('/api/settings/export', authLimiter, (req: any, res) => {
+app.post('/api/settings/export', authLimiter, async (req: any, res) => {
   const accountPassword = String((req.body?.accountPassword) || '');
-  if (!verifyAccountPassword(accountPassword, req.user?.id)) {
+  if (!(await verifyAccountPassword(accountPassword, req.user?.id))) {
     return res.status(401).json({ error: 'Account password is incorrect.' });
   }
   try {
@@ -514,7 +566,7 @@ app.post('/api/settings/import', authLimiter, async (req: any, res) => {
   try {
     const { accountPassword, backup } = req.body || {};
     if (!accountPassword) return res.status(400).json({ error: 'Account password is required.' });
-    if (!verifyAccountPassword(String(accountPassword), req.user?.id)) {
+    if (!(await verifyAccountPassword(String(accountPassword), req.user?.id))) {
       return res.status(401).json({ error: 'Account password is incorrect.' });
     }
     const result = restoreFromBackup(backup);
@@ -531,11 +583,11 @@ app.get('/api/users', (req: any, res) => {
   res.json(listUsers());
 });
 
-app.post('/api/users', requireAdmin, userAdminLimiter, (req: any, res) => {
+app.post('/api/users', requireAdmin, userAdminLimiter, async (req: any, res) => {
   try {
     const { username, password, role } = req.body || {};
     if (!username || !password) return res.status(400).json({ error: 'Username and password are required.' });
-    const result = createUser(String(username), String(password), (role as any) || 'editor', req.user?.id);
+    const result = await createUser(String(username), String(password), (role as any) || 'editor', req.user?.id);
     recordAudit('user-created', true, req.ip);
     res.status(201).json(result);
   } catch (err: any) {
@@ -641,7 +693,7 @@ app.get('/api/chat/sessions', (_req, res) => {
   res.json({ sessions: listSessions(project) });
 });
 
-app.post('/api/chat/sessions', (req, res) => {
+app.post('/api/chat/sessions', userWriteLimiter, (req, res) => {
   const { name, project } = req.body || {};
   res.status(201).json({ session: createSession({ project, name }) });
 });
@@ -931,14 +983,12 @@ app.put('/api/agents/:id/sessions/:chatId', (req, res) => {
 
 // ── Projects API ─────────────────────────────────────────────
 
-// List all projects
+// List all projects — served from the TTL cache + singleflight wrapper
+// (services/projects-cache.ts) so Dashboard polls never fan out to raw Docker
+// listContainers + per-project meta/canvas file I/O per request.
 app.get('/api/projects', async (_req, res) => {
   try {
-    const projects = await listProjects();
-    for (const p of projects) {
-      (p as any).canvasEditedAt = canvas.loadCanvas(p.slug).updatedAt;
-    }
-    res.json({ projects });
+    res.json({ projects: await getCachedProjects() });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -992,6 +1042,7 @@ app.post('/api/projects', async (req: any, res) => {
       saveMeta(project.slug, meta);
     }
     invalidateStorageCache();
+    invalidateProjectsCache();
     res.status(201).json({ project });
   } catch (err: any) {
     res.status(err.statusCode || 500).json({ error: err.message });
@@ -1037,6 +1088,7 @@ app.post('/api/projects/:slug/duplicate', requireProjectAccess('editor'), async 
       saveMeta(project.slug, meta);
     }
     invalidateStorageCache();
+    invalidateProjectsCache();
     res.status(201).json({ project });
   } catch (err: any) {
     res.status(err.statusCode || 500).json({ error: err.message });
@@ -1078,6 +1130,7 @@ app.post('/api/projects/import', requireRole('editor'), upload.single('file'), a
       saveMeta(project.slug, meta);
     }
     invalidateStorageCache();
+    invalidateProjectsCache();
     recordAudit('snapshot-import', true, req.ip);
     res.status(201).json({ project });
   } catch (err: any) {
@@ -1197,7 +1250,7 @@ app.put('/api/projects/:slug/snapshots/config', requireProjectAccess('editor'), 
 });
 
 // Capture a stored snapshot now.
-app.post('/api/projects/:slug/snapshots', requireProjectAccess('editor'), async (req, res) => {
+app.post('/api/projects/:slug/snapshots', requireProjectAccess('editor'), userWriteLimiter, async (req, res) => {
   try {
     const snapshot = await snapAuto.captureSnapshot(req.params.slug);
     recordAudit('snapshot-save', true, req.ip);
@@ -1250,6 +1303,7 @@ app.post('/api/projects/:slug/snapshots/:file/restore', requireProjectAccess('ed
       saveMeta(project.slug, meta);
     }
     invalidateStorageCache();
+    invalidateProjectsCache();
     recordAudit('snapshot-restore', true, req.ip);
     res.status(201).json({ project });
   } catch (err: any) {
@@ -1416,6 +1470,7 @@ app.delete('/api/projects/:slug', requireProjectAccess('admin'), rateLimit('stri
   try {
     await removeProject(req.params.slug);
     invalidateStorageCache();
+    invalidateProjectsCache();
     recordAudit('project-files-deleted', true, req.ip);
     res.json({ ok: true });
   } catch (err: any) {
@@ -1493,9 +1548,16 @@ app.post('/api/webhooks/test', requireAdmin, rateLimit('strict', RATE_WINDOW, RA
 
 // Open a project in opencode (ensures registration + a session exists) so the
 // opencode page's project picker can land the user on the right workspace.
-app.post('/api/opencode/open', async (req, res) => {
+// Require viewer access to the requested slug — a viewer must not be able to
+// force-register/seed a project they cannot see. NOTE: requireProjectAccess()
+// is param-based (req.params.slug) but this route carries the slug in the
+// BODY, so we gate explicitly — the middleware would 400 everyone.
+app.post('/api/opencode/open', async (req: any, res) => {
   try {
     const slug = String(req.body?.slug || '');
+    if (!slug) return res.status(400).json({ error: 'Project slug required' });
+    const { allowed } = checkProjectAccess(req.user.id, req.user.role, slug, 'viewer');
+    if (!allowed) return res.status(403).json({ error: 'Access denied to this project' });
     const info = await getProject(slug);
     if (!info) return res.status(404).json({ error: 'Project not found' });
     ensureOpencodeSession(slug);
@@ -1782,7 +1844,7 @@ app.get('/api/projects/:slug/serve', requireProjectAccess('viewer'), async (req,
 });
 
 // Start serving on a given (or defaulted) published port.
-app.post('/api/projects/:slug/serve', requireProjectAccess('editor'), rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req: any, res) => {
+app.post('/api/projects/:slug/serve', requireProjectAccess('editor'), userWriteLimiter, async (req: any, res) => {
   try {
     const meta = loadMeta(req.params.slug);
     if (!meta) return res.status(404).json({ error: 'Project not found' });
@@ -1798,7 +1860,7 @@ app.post('/api/projects/:slug/serve', requireProjectAccess('editor'), rateLimit(
 });
 
 // Stop serving (keeps config for UX memory, enabled=false).
-app.post('/api/projects/:slug/serve/stop', requireProjectAccess('editor'), rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req, res) => {
+app.post('/api/projects/:slug/serve/stop', requireProjectAccess('editor'), userWriteLimiter, async (req, res) => {
   try {
     const serve = await stopServeProcess(req.params.slug);
     recordAudit('serve-stop', true, req.ip);
@@ -1963,10 +2025,23 @@ function normalizeUploadPath(raw: string): string | null {
   return clean.slice(0, 1024);
 }
 
+// ── Compression (gzip/deflate for all responses) ─────────────
+app.use(compression());
+
 // ── Serve frontend static build if present ───────────────────
 const frontendDist = path.join(__dirname, '..', '..', 'frontend', 'dist');
 if (fs.existsSync(frontendDist)) {
-  app.use(express.static(frontendDist));
+  app.use(express.static(frontendDist, {
+    maxAge: '7d',
+    immutable: true,
+    setHeaders(res, filePath) {
+      // index.html must always revalidate — it's the SPA entry point that
+      // references hashed Vite assets under /assets/*.
+      if (filePath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
   // SPA fallback — catch-all (Express 5 compatible)
   app.use((req, res, next) => {
     if (req.path.startsWith('/api/')) return next();
@@ -1992,6 +2067,9 @@ app.use((err: any, _req: any, res: any, next: any) => {
 
 // ── Start ────────────────────────────────────────────────────
 const server = http.createServer(app);
+// Proxy WebSocket upgrades for /ide and /oc FIRST — ws-server's own upgrade
+// handler destroys any socket whose path does not start with /ws/.
+attachProxyUpgrades(server, appProxies);
 attachWebSockets(server);
 
 server.listen(PORT, HOST, () => {
@@ -1999,6 +2077,7 @@ server.listen(PORT, HOST, () => {
   console.log(`[Madar] WebSocket hub on ws://${HOST}:${PORT}/ws`);
   console.log(`[Madar] Workspaces root: ${WORKSPACES_ROOT}`);
   console.log(`[Madar] opencode web on port ${OPENCODE_PORT}`);
+  console.log(`[Madar] Authenticated proxies: /ide (code-server) + /oc (opencode)`);
   console.log(`[Madar] Chat model: ${getChatConfig().model}`);
   console.log(`[Madar] Docker socket: /var/run/docker.sock`);
 });
