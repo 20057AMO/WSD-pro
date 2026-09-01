@@ -47,6 +47,7 @@ export type AuditEvent =
   | 'serve-start-failed'
   | 'serve-stop'
   | 'workspace-janitor'
+  | 'storage-cleanup'
   | 'project-files-deleted'
   | 'opencode-studio'
   | 'opencode-update'

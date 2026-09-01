@@ -164,8 +164,11 @@ def main() -> int:
             pg = browser.new_page()
             pg.add_init_script(init)
             pg.goto(f"{_base()}/#/projects", wait_until="load")
-            pg.wait_for_timeout(1200)
-            land = pg.locator('button', has_text='+ New Project').count() == 1
+            try:
+                pg.locator('button', has_text='+ New Project').first.wait_for(state='visible', timeout=10000)
+                land = True
+            except Exception:  # noqa: BLE001
+                land = False
             check("forged admin session boots the app (Projects toolbar visible)", land)
             pg.close()
 
@@ -242,10 +245,18 @@ def main() -> int:
             pg = browser.new_page()
             pg.add_init_script(init)
             pg.goto(f"{_base()}/#/projects", wait_until="load")
-            pg.wait_for_timeout(1500)
+            # Poll for chips to render — data fetch may lag behind the initial paint
             card = pg.locator('.project-card', has_text='e2e-limited').first
-            cpu_chip = card.locator('.meta-chip', has_text=re.compile(r'^CPU ')).count()
-            mem_chip = card.locator('.meta-chip', has_text=re.compile(r'^RAM ')).count()
+            card.wait_for(state='visible', timeout=10000)
+            cpu_chip = 0
+            mem_chip = 0
+            deadline = time.time() + 15.0
+            while time.time() < deadline:
+                cpu_chip = card.locator('.meta-chip', has_text=re.compile(r'^CPU ')).count()
+                mem_chip = card.locator('.meta-chip', has_text=re.compile(r'^RAM ')).count()
+                if cpu_chip == 1 and mem_chip == 1:
+                    break
+                pg.wait_for_timeout(500)
             check("Projects card shows CPU + RAM meta-chips", cpu_chip == 1 and mem_chip == 1,
                   f"cpu={cpu_chip} ram={mem_chip}")
             pg.close()
@@ -253,19 +264,32 @@ def main() -> int:
             pg = browser.new_page()
             pg.add_init_script(init)
             pg.goto(f"{_base()}/#/", wait_until="load")
-            pg.wait_for_timeout(1500)
             dcard = pg.locator('.project-card', has_text='e2e-limited').first
-            check("Dashboard card shows the CPU meta-chip",
-                  dcard.locator('.meta-chip', has_text=re.compile(r'^CPU ')).count() == 1)
+            dcard.wait_for(state='visible', timeout=10000)
+            dcpu = 0
+            deadline = time.time() + 15.0
+            while time.time() < deadline:
+                dcpu = dcard.locator('.meta-chip', has_text=re.compile(r'^CPU ')).count()
+                if dcpu == 1:
+                    break
+                pg.wait_for_timeout(500)
+            check("Dashboard card shows the CPU meta-chip", dcpu == 1)
             pg.close()
 
             pg = browser.new_page()
             pg.add_init_script(init)
             pg.goto(f"{_base()}/#/planner", wait_until="load")
-            pg.wait_for_timeout(1500)
             pcard = pg.locator('.planner-card', has_text='e2e-limited').first
-            pl_cpu = pcard.locator('.meta-chip', has_text=re.compile(r'^CPU ')).count()
-            pl_mem = pcard.locator('.meta-chip', has_text=re.compile(r'^RAM ')).count()
+            pcard.wait_for(state='visible', timeout=10000)
+            pl_cpu = 0
+            pl_mem = 0
+            deadline = time.time() + 15.0
+            while time.time() < deadline:
+                pl_cpu = pcard.locator('.meta-chip', has_text=re.compile(r'^CPU ')).count()
+                pl_mem = pcard.locator('.meta-chip', has_text=re.compile(r'^RAM ')).count()
+                if pl_cpu == 1 and pl_mem == 1:
+                    break
+                pg.wait_for_timeout(500)
             check("Planner card shows CPU + RAM meta-chips", pl_cpu == 1 and pl_mem == 1,
                   f"cpu={pl_cpu} ram={pl_mem}")
             pg.close()

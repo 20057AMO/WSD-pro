@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'preact/hooks';
+import { useState, useEffect, useRef } from 'preact/hooks';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   Folder,
@@ -16,8 +16,15 @@ import {
   RefreshCw,
   HardDrive,
   Globe,
+  Plus,
+  Upload,
+  TerminalSquare,
+  LayoutDashboard,
+  Bot,
+  Trash2,
 } from 'lucide-preact';
 import { CrashBadge } from '../components/CrashBadge';
+import { ConfirmModal } from '../components/ConfirmModal';
 import {
   listProjects,
   startProject,
@@ -25,10 +32,13 @@ import {
   getServerInfo,
   getIdeStatus,
   getStorageMetrics,
+  importProjectSnapshot,
+  cleanupStorage,
   Project,
   ServerInfo,
   IdeStatus,
   StorageMetrics,
+  StorageCleanupResult,
 } from '../api';
 import { fmtCpu, fmtMem } from '../lib/limits';
 import { fmtBytes } from '../lib/size';
@@ -46,6 +56,14 @@ export function Dashboard() {
   const [acting, setActing] = useState<string | null>(null);
   const [storage, setStorage] = useState<StorageMetrics | null>(null);
   const [storageRefreshing, setStorageRefreshing] = useState(false);
+  const [qaBusy, setQaBusy] = useState<string | null>(null);
+  const [stopAllOpen, setStopAllOpen] = useState(false);
+  const [stopAllBusy, setStopAllBusy] = useState(false);
+  const restoreInputRef = useRef<HTMLInputElement | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [cleanupOpen, setCleanupOpen] = useState(false);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
+  const [cleanupResult, setCleanupResult] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +106,93 @@ export function Dashboard() {
       setLoadError(err.message);
     } finally {
       setStorageRefreshing(false);
+    }
+  };
+
+  // ── Quick Actions handlers ──────────────────────────────────────
+  const handleNewProject = () => {
+    try { sessionStorage.setItem('wsd.openCreate', '1'); } catch { /* ignored */ }
+    setLocation('/projects');
+  };
+
+  const handleRestoreFile = async (e: any) => {
+    const file = e.target?.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setLoadError(null);
+    try {
+      const { project } = await importProjectSnapshot(file);
+      setLocation(`/project/${project.slug}`);
+    } catch (err: any) {
+      setLoadError(err?.message || 'Restore failed');
+    } finally {
+      if (e.target) e.target.value = '';
+      setImporting(false);
+    }
+  };
+
+  const handleStartAll = async () => {
+    if (qaBusy) return;
+    setQaBusy('start-all');
+    const errors: string[] = [];
+    for (const p of projects) {
+      if (p.status !== 'running') {
+        try { await startProject(p.slug); }
+        catch (err: any) { errors.push(`${p.name}: ${err.message || 'failed'}`); }
+      }
+    }
+    if (errors.length > 0) {
+      setLoadError(`Failed starting ${errors.length} project(s):\n${errors.join('\n')}`);
+    }
+    setQaBusy(null);
+  };
+
+  const handleStopAll = async () => {
+    setStopAllOpen(true);
+  };
+
+  const confirmStopAll = async () => {
+    if (stopAllBusy) return;
+    setStopAllBusy(true);
+    const errors: string[] = [];
+    for (const p of projects) {
+      if (p.status === 'running') {
+        try { await stopProject(p.slug); }
+        catch (err: any) { errors.push(`${p.name}: ${err.message || 'failed'}`); }
+      }
+    }
+    if (errors.length > 0) {
+      setLoadError(`Failed stopping ${errors.length} project(s):\n${errors.join('\n')}`);
+    }
+    setStopAllBusy(false);
+    setStopAllOpen(false);
+  };
+
+  // ── Storage cleanup handler ─────────────────────────────────────
+  const handleCleanup = async () => {
+    if (cleanupBusy) return;
+    setCleanupBusy(true);
+    setCleanupResult(null);
+    try {
+      const res: StorageCleanupResult = await cleanupStorage(true);
+      setCleanupBusy(false);
+      setCleanupOpen(false);
+      // Refresh storage metrics after cleanup
+      try {
+        const sm = await getStorageMetrics(true);
+        setStorage(sm);
+      } catch { /* best-effort refresh */ }
+      // Build success summary
+      const parts: string[] = [];
+      const archiveCount = res.archived.length + res.purged.length;
+      if (archiveCount > 0) parts.push(`${archiveCount} archive${archiveCount !== 1 ? 's' : ''} purged`);
+      if (res.containersRemoved > 0) parts.push(`${res.containersRemoved} container${res.containersRemoved !== 1 ? 's' : ''} removed`);
+      if (res.dockerPruned) parts.push('Docker cache pruned');
+      setCleanupResult(parts.length > 0 ? `Cleaned: ${parts.join(' · ')}` : 'Nothing to clean up');
+    } catch (err: any) {
+      setLoadError(err.message);
+      setCleanupBusy(false);
+      setCleanupOpen(false);
     }
   };
 
@@ -155,6 +260,53 @@ export function Dashboard() {
       </div>
 
       {loadError && <div class="login-error" style="margin-bottom:16px">{loadError}</div>}
+
+      {/* ── Quick Actions ─────────────────────────────────── */}
+      <div class="dash-qa-section">
+        <div class="dash-qa-grid">
+          <button class="qa-tile" onClick={handleNewProject}>
+            <Plus width={18} height={18} class="icon" />
+            <span>New Project</span>
+          </button>
+          <button class="qa-tile" onClick={() => restoreInputRef.current?.click()} disabled={importing}>
+            {importing
+              ? <Loader2 width={18} height={18} class="icon spin" />
+              : <Upload width={18} height={18} class="icon" />}
+            <span>{importing ? 'Importing…' : 'Restore'}</span>
+          </button>
+          <input
+            ref={restoreInputRef}
+            type="file"
+            accept=".tar.gz,application/gzip"
+            class="dash-restore-input"
+            onChange={handleRestoreFile}
+          />
+          <button class="qa-tile" onClick={handleStartAll} disabled={!!qaBusy}>
+            <Play width={18} height={18} class="icon" />
+            <span>Start All</span>
+          </button>
+          <button class="qa-tile" onClick={handleStopAll} disabled={!!qaBusy}>
+            <Square width={18} height={18} class="icon" />
+            <span>Stop All</span>
+          </button>
+          <button class="qa-tile" onClick={() => setLocation('/ide')}>
+            <MonitorCheck width={18} height={18} class="icon" />
+            <span>VS Code</span>
+          </button>
+          <button class="qa-tile" onClick={() => setLocation('/opencode')}>
+            <Bot width={18} height={18} class="icon" />
+            <span>Opencode</span>
+          </button>
+          <button class="qa-tile" onClick={() => setLocation('/terminals')}>
+            <TerminalSquare width={18} height={18} class="icon" />
+            <span>Terminals</span>
+          </button>
+          <button class="qa-tile" onClick={() => setLocation('/planner')}>
+            <LayoutDashboard width={18} height={18} class="icon" />
+            <span>Planner</span>
+          </button>
+        </div>
+      </div>
 
       <div class="dash-stats">
         <div class="dash-stat-card" onClick={() => setLocation('/projects')}>
@@ -261,10 +413,17 @@ export function Dashboard() {
       <div class="panel dash-storage">
         <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
           <span>Storage</span>
-          <button class="btn-ghost sm" onClick={refreshStorage} disabled={storageRefreshing}>
-            {storageRefreshing ? <Loader2 width={13} height={13} class="icon spin" /> : <RefreshCw width={13} height={13} class="icon" />}
-            Refresh
-          </button>
+          <div style="display:flex;gap:8px;align-items:center">
+            {cleanupResult && <span class="chat-save-msg" style="margin:0">{cleanupResult}</span>}
+            <button class="btn-ghost sm btn-cleanup" onClick={() => setCleanupOpen(true)} disabled={storageRefreshing}>
+              <Trash2 width={13} height={13} class="icon" />
+              Clean up
+            </button>
+            <button class="btn-ghost sm" onClick={refreshStorage} disabled={storageRefreshing}>
+              {storageRefreshing ? <Loader2 width={13} height={13} class="icon spin" /> : <RefreshCw width={13} height={13} class="icon" />}
+              Refresh
+            </button>
+          </div>
         </div>
         <p class="settings-hint">Workspaces · snapshot archives · Docker disk usage.</p>
         {storage == null ? (
@@ -341,6 +500,28 @@ export function Dashboard() {
           <span class="dash-system-val">{info?.tailscaleIp || '—'}</span>
         </div>
       </div>
+
+      <ConfirmModal
+        open={stopAllOpen}
+        danger
+        loading={stopAllBusy}
+        title="Stop all projects?"
+        message="Stops every running project container."
+        confirmLabel="Stop All"
+        onConfirm={confirmStopAll}
+        onCancel={() => { if (!stopAllBusy) setStopAllOpen(false); }}
+      />
+
+      <ConfirmModal
+        open={cleanupOpen}
+        danger
+        loading={cleanupBusy}
+        title="Clean up storage?"
+        message="Archives orphaned workspaces, permanently deletes snapshot archives in .archive, removes stale orphan containers, and refreshes metrics. Includes Docker build-cache pruning."
+        confirmLabel="Clean Up"
+        onConfirm={handleCleanup}
+        onCancel={() => { if (!cleanupBusy) setCleanupOpen(false); }}
+      />
     </div>
   );
 }
