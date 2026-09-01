@@ -12,12 +12,15 @@ import { handleChatSocket } from './ws-chat';
 import { handleTerminalSocket } from './ws-terminal';
 import { handleProjectLogsSocket } from './ws-project-logs';
 import { handleAgentSocket } from './ws-agent';
-import { handleProjectStatusSocket } from './ws-project-status';
-import { handleProjectsStatusSocket } from './ws-projects-status';
+import { handleProjectStatusSocket, shutdownProjectStatusBroadcasters } from './ws-project-status';
+import { handleProjectsStatusSocket, shutdownProjectsStatusBroadcaster } from './ws-projects-status';
 import { handlePresenceSocket } from './ws-presence';
 import { verifyToken } from '../services/user-store';
 
+/** Interactive rooms (chat/terminal/logs/agent/presence) stay at 8. */
 const MAX_CONNECTIONS_PER_ROOM = 8;
+/** Status broadcast rooms may have many viewers — no interactive state. */
+const STATUS_ROOM_MAX = 200;
 const roomConnections = new Map<string, number>();
 const PING_INTERVAL_MS = 30_000;
 
@@ -51,6 +54,7 @@ export function attachWebSockets(server: http.Server): void {
 
     const url = new URL(req.url || '/', 'http://localhost');
     const token = url.searchParams.get('token') || '';
+    const authUser = token ? verifyToken(token) : null;
 
     const chatMatch = url.pathname.match(/^\/ws\/chat\/([^/]+)\/([^/]+)$/);
     if (chatMatch) {
@@ -65,7 +69,7 @@ export function attachWebSockets(server: http.Server): void {
         ws.close(1013, 'too many connections for chat');
         return;
       }
-      handleChatSocket(ws, slug, chatId, releaseRoom(room));
+      handleChatSocket(ws, slug, chatId, authUser, releaseRoom(room));
       return;
     }
 
@@ -105,7 +109,7 @@ export function attachWebSockets(server: http.Server): void {
     const projectsStatusMatch = url.pathname.match(/^\/ws\/projects\/status$/);
     if (projectsStatusMatch) {
       const room = 'projects:status';
-      if (!acquireRoom(room)) {
+      if (!acquireRoom(room, STATUS_ROOM_MAX)) {
         ws.close(1013, 'too many connections for projects status');
         return;
       }
@@ -121,7 +125,7 @@ export function attachWebSockets(server: http.Server): void {
         return;
       }
       const room = `status:${slug}`;
-      if (!acquireRoom(room)) {
+      if (!acquireRoom(room, STATUS_ROOM_MAX)) {
         ws.close(1013, 'too many connections for status');
         return;
       }
@@ -141,7 +145,7 @@ export function attachWebSockets(server: http.Server): void {
         ws.close(1013, 'too many connections for chat');
         return;
       }
-      handleChatSocket(ws, 'global', chatId, releaseRoom(room));
+      handleChatSocket(ws, 'global', chatId, authUser, releaseRoom(room));
       return;
     }
 
@@ -158,7 +162,7 @@ export function attachWebSockets(server: http.Server): void {
         ws.close(1013, 'too many connections for agent');
         return;
       }
-      handleAgentSocket(ws, agentId, chatId, releaseRoom(room));
+      handleAgentSocket(ws, agentId, chatId, authUser, releaseRoom(room));
       return;
     }
 
@@ -195,9 +199,9 @@ export function attachWebSockets(server: http.Server): void {
   wss.on('close', () => clearInterval(pingTimer));
 }
 
-function acquireRoom(room: string): boolean {
+function acquireRoom(room: string, max = MAX_CONNECTIONS_PER_ROOM): boolean {
   const count = roomConnections.get(room) || 0;
-  if (count >= MAX_CONNECTIONS_PER_ROOM) return false;
+  if (count >= max) return false;
   roomConnections.set(room, count + 1);
   return true;
 }
@@ -208,4 +212,10 @@ function releaseRoom(room: string): () => void {
     if (current <= 1) roomConnections.delete(room);
     else roomConnections.set(room, current - 1);
   };
+}
+
+/** Clear all broadcaster timers and close their sockets — call on shutdown. */
+export function shutdownWebSocketBroadcasters(): void {
+  shutdownProjectStatusBroadcasters();
+  shutdownProjectsStatusBroadcaster();
 }

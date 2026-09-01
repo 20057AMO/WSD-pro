@@ -1,7 +1,8 @@
 /**
  * ws-projects-status.ts
  * Madar — Global project status broadcaster over WebSocket.
- * Polls all containers every 4 s; only sends when any project's status or stats change.
+ * Uses a shared broadcaster: ONE listContainers per 4 s tick while ≥1 subscriber,
+ * fanned out to all.  Per-connection timers eliminated.
  * Frames: { type:'ready', projects:[{ slug, status }] }
  *         { type:'update', slug, status }
  */
@@ -35,42 +36,85 @@ async function scanStatuses(): Promise<ProjectStatus[]> {
   }
 }
 
+// ── Shared broadcaster state ────────────────────────────────────
+
+interface Broadcaster {
+  timer: ReturnType<typeof setInterval> | null;
+  subs: Set<WebSocket>;
+  prev: ProjectStatus[];
+  inFlight: boolean;
+}
+
+const broadcaster: Broadcaster = { timer: null, subs: new Set(), prev: [], inFlight: false };
+
+// ── Broadcaster internals ──────────────────────────────────────
+
+function sendToSub(ws: WebSocket, obj: unknown): void {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  try { ws.send(JSON.stringify(obj)); } catch { /* ignore */ }
+}
+
+async function tick(): Promise<void> {
+  if (broadcaster.inFlight || broadcaster.subs.size === 0) return;
+  broadcaster.inFlight = true;
+  try {
+    const current = await scanStatuses();
+    if (broadcaster.subs.size === 0) return;
+    if (broadcaster.prev.length === 0) {
+      // First scan (or after reset) — send full list to every subscriber
+      const msg = { type: 'ready', projects: current };
+      for (const ws of broadcaster.subs) sendToSub(ws, msg);
+    } else {
+      for (const p of current) {
+        const old = broadcaster.prev.find((x) => x.slug === p.slug);
+        if (!old || old.status !== p.status) {
+          const msg = { type: 'update', slug: p.slug, status: p.status };
+          for (const ws of broadcaster.subs) sendToSub(ws, msg);
+        }
+      }
+    }
+    broadcaster.prev = current;
+  } catch {
+    // Swallow — next tick retries
+  } finally {
+    broadcaster.inFlight = false;
+  }
+}
+
+function startTimer(): void {
+  if (broadcaster.timer) return;
+  broadcaster.timer = setInterval(tick, POLL_MS);
+}
+
+function stopTimer(): void {
+  if (broadcaster.timer) { clearInterval(broadcaster.timer); broadcaster.timer = null; }
+}
+
+// ── Public entry point (same signature as before) ──────────────
 
 export function handleProjectsStatusSocket(
   ws: WebSocket,
   onRelease: () => void,
 ): void {
   let closed = false;
-  let timer: ReturnType<typeof setInterval> | null = null;
-  let prev: ProjectStatus[] = [];
 
-  const send = (obj: unknown) => {
-    if (closed || ws.readyState !== WebSocket.OPEN) return;
-    try { ws.send(JSON.stringify(obj)); } catch { /* ignore */ }
-  };
+  broadcaster.subs.add(ws);
 
-  const tick = async () => {
-    if (closed) return;
-    const current = await scanStatuses();
-    if (closed) return;
-
-    if (prev.length === 0) {
-      send({ type: 'ready', projects: current });
-    } else {
-      for (const p of current) {
-        const old = prev.find((x) => x.slug === p.slug);
-        if (!old || old.status !== p.status) {
-          send({ type: 'update', slug: p.slug, status: p.status });
-        }
-      }
-    }
-    prev = current;
-  };
+  // A new subscriber must receive the current project list immediately (same
+  // contract as the original per-connection 'ready' frame). If a snapshot is
+  // already known, push it now; otherwise the scheduled tick will deliver it.
+  if (broadcaster.prev.length > 0) {
+    sendToSub(ws, { type: 'ready', projects: broadcaster.prev });
+  }
 
   const cleanup = () => {
     if (closed) return;
     closed = true;
-    if (timer) clearInterval(timer);
+    broadcaster.subs.delete(ws);
+    if (broadcaster.subs.size === 0) {
+      stopTimer();
+      broadcaster.prev = [];
+    }
     if (ws.readyState === WebSocket.OPEN) ws.close();
     onRelease();
   };
@@ -78,7 +122,20 @@ export function handleProjectsStatusSocket(
   ws.on('close', cleanup);
   ws.on('error', cleanup);
 
-  tick().then(() => {
-    if (!closed) timer = setInterval(tick, POLL_MS);
+  // First subscriber's tick delivers the initial snapshot, then the interval
+  // takes over.
+  void tick().then(() => {
+    if (!closed) startTimer();
   });
+}
+
+// ── Shutdown hook ──────────────────────────────────────────────
+
+export function shutdownProjectsStatusBroadcaster(): void {
+  stopTimer();
+  for (const ws of broadcaster.subs) {
+    try { ws.close(); } catch { /* already gone */ }
+  }
+  broadcaster.subs.clear();
+  broadcaster.prev = [];
 }
