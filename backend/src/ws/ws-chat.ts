@@ -21,6 +21,8 @@ import { touchSession } from '../services/chat-sessions';
 import { getProjectContext, listProjectsBrief, capText } from '../services/project-context';
 import { retrieveProject, formatRetrievedChunks } from '../services/project-index';
 import { buildSystemPrompt, getChatConfig } from '../services/chat-config';
+import { checkUserWrite } from '../services/user-write-limiter';
+import type { UserRole } from '../services/user-store';
 
 const MAX_PROMPT_CHARS = 20000;
 const MAX_HISTORY_TURNS = 20;
@@ -146,7 +148,13 @@ function buildHistory(slug: string, chatId: string): ChatMessage[] {
   return turns.slice(-MAX_HISTORY_TURNS * 2);
 }
 
-export function handleChatSocket(ws: WebSocket, slug: string, chatId: string, onRelease: () => void): void {
+export function handleChatSocket(
+  ws: WebSocket,
+  slug: string,
+  chatId: string,
+  authUser: { id: string; username: string; role: UserRole; jti?: string } | null,
+  onRelease: () => void
+): void {
   const room = roomKey(slug, chatId);
   const events = chatStore.readEvents(slug, chatId);
   sendJson(ws, { type: 'replay', events });
@@ -202,6 +210,14 @@ export function handleChatSocket(ws: WebSocket, slug: string, chatId: string, on
     const project = normalizeProject(msg.project);
     if (project === null) {
       sendJson(ws, { type: 'error', message: 'Invalid project scope' });
+      return;
+    }
+
+    // Per-user write budget (NAT-shared safe). Reject the message, but keep the
+    // socket open so the client can back off and retry — never drop the WS.
+    const retryAfter = checkUserWrite(authUser?.id, undefined);
+    if (retryAfter > 0) {
+      sendJson(ws, { type: 'error', message: 'Rate limited. Slow down your messages and try again shortly.' });
       return;
     }
 

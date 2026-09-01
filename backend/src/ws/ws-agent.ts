@@ -11,6 +11,8 @@ import {
   hasToolCalls,
   MAX_TOOL_ITERATIONS,
 } from '../services/agent-tool-executor';
+import { checkUserWrite } from '../services/user-write-limiter';
+import type { UserRole } from '../services/user-store';
 
 const MAX_PROMPT_CHARS = 20000;
 const MAX_HISTORY_TURNS = 20;
@@ -99,7 +101,13 @@ function buildUserContent(text: string, attachments: any[]): string {
   return parts.join('\n\n');
 }
 
-export function handleAgentSocket(ws: WebSocket, agentId: string, chatId: string, onRelease: () => void): void {
+export function handleAgentSocket(
+  ws: WebSocket,
+  agentId: string,
+  chatId: string,
+  authUser: { id: string; username: string; role: UserRole; jti?: string } | null,
+  onRelease: () => void
+): void {
   const room = roomKey(agentId, chatId);
   const events = readAgentEvents(agentId, chatId);
   sendJson(ws, { type: 'replay', events });
@@ -157,6 +165,14 @@ export function handleAgentSocket(ws: WebSocket, agentId: string, chatId: string
 
     if (active.get(room)) {
       sendJson(ws, { type: 'error', message: 'A reply is already running. Wait or stop.' });
+      return;
+    }
+
+    // Per-user write budget (NAT-shared safe). Reject the message, keep the
+    // socket open so the client can back off — never drop the WS.
+    const retryAfter = checkUserWrite(authUser?.id, undefined);
+    if (retryAfter > 0) {
+      sendJson(ws, { type: 'error', message: 'Rate limited. Slow down your messages and try again shortly.' });
       return;
     }
 

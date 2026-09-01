@@ -35,6 +35,7 @@ import {
 } from './opencode-api';
 import { ensureServeRunning, probeServe } from './project-serve';
 import { deriveServeState, type ServeState } from './serve-core';
+import { invalidateProjectsCache } from './projects-cache';
 
 const docker = new Docker(); // uses /var/run/docker.sock by default
 
@@ -491,6 +492,9 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
 
   dispatchWebhook('created', { event: 'created', slug, name: clean.name, at: new Date().toISOString() });
 
+  // A new container is immediately listable — drop any cached project list.
+  invalidateProjectsCache();
+
   return info;
 }
 
@@ -653,6 +657,8 @@ export async function startProject(slug: string): Promise<ProjectInfo> {
     name: loadMeta(projectSlug)?.name || projectSlug,
     at: new Date().toISOString(),
   });
+  // Status changed — force the next project-list read to rebuild.
+  invalidateProjectsCache();
   return info;
 }
 
@@ -679,6 +685,8 @@ export async function stopProject(slug: string): Promise<ProjectInfo> {
     name: loadMeta(projectSlug)?.name || projectSlug,
     at: new Date().toISOString(),
   });
+  // Status changed — force the next project-list read to rebuild.
+  invalidateProjectsCache();
   return info;
 }
 
@@ -710,6 +718,8 @@ export async function removeProject(slug: string): Promise<void> {
   } catch {
     /* non-fatal */
   }
+  // The project no longer exists — drop any cached project list.
+  invalidateProjectsCache();
 }
 
 /**
@@ -857,6 +867,8 @@ export async function recreateProject(slug: string): Promise<ProjectInfo> {
     name: meta.name || proj.name,
     at: new Date().toISOString(),
   });
+  // Teardown + rebuild changed status/container — refresh the cached list.
+  invalidateProjectsCache();
   return created;
 }
 
@@ -1170,6 +1182,9 @@ export async function duplicateProject(
   }
 
   touchActivity(created.slug, 'duplicated');
+  // Workspace files + canvas landed after createProject's own invalidation —
+  // refresh once more so the copy's canvasEditedAt is immediately accurate.
+  invalidateProjectsCache();
 
   return created;
 }
