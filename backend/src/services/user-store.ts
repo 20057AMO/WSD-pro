@@ -116,7 +116,7 @@ export function getUserInfo(id: string): { id: string; username: string; role: U
 
 // ── Setup (first user = admin) ────────────────────────────────
 
-export function setup(username: string, password: string): { id: string; username: string; token: string } {
+export async function setup(username: string, password: string): Promise<{ id: string; username: string; token: string }> {
   if (hasUser()) throw new Error('User already exists. Cannot run setup again.');
 
   const cleanUsername = username.trim();
@@ -130,7 +130,7 @@ export function setup(username: string, password: string): { id: string; usernam
   const user: StoredUser = {
     id,
     username: cleanUsername,
-    passwordHash: bcrypt.hashSync(password, BCRYPT_ROUNDS),
+    passwordHash: await bcrypt.hash(password, BCRYPT_ROUNDS),
     role: 'admin',
     createdAt: now,
     passwordChangedAt: now,
@@ -156,11 +156,11 @@ export type LoginResult =
  * is diverted to the pending-token step; everyone else gets a direct session
  * carrying their own identity (never the first admin's).
  */
-export function login(username: string, password: string): LoginResult {
+export async function login(username: string, password: string): Promise<LoginResult> {
   if (usersMap.size === 0) loadUsers();
   const user = getUserByUsername(username);
   if (!user) throw new Error('Invalid username or password.');
-  if (!bcrypt.compareSync(password, user.passwordHash)) throw new Error('Invalid username or password.');
+  if (!(await bcrypt.compare(password, user.passwordHash))) throw new Error('Invalid username or password.');
   if (isTotpEnabled(user.id)) {
     return { requires2fa: true, pendingToken: signPending2faToken(user.id) };
   }
@@ -213,40 +213,81 @@ export function verifyToken(token: string | null): { id: string; username: strin
   }
 }
 
+// ── IDE / opencode proxy session (scoped, cookie-carried) ─────────
+// The /ide and /oc reverse proxies can't receive Authorization headers
+// (they're iframes), so the frontend mints a SHORT-LIVED scoped token via
+// POST /api/auth/ide-session and we carry it as an HttpOnly cookie. The token
+// is scoped `ide` → it can NEVER authenticate generic routes (verifyToken
+// rejects any token carrying a `scope` claim; only verifyIdeToken accepts it).
+const IDE_TOKEN_EXPIRY = '1h';
+const IDE_TOKEN_TTL_SEC = 60 * 60;
+
+export { IDE_TOKEN_TTL_SEC };
+
+/** Mint a scoped `ide` token (and its TTL) for a known user. */
+export function signIdeToken(userId: string): { token: string; expiresInSec: number } {
+  const user = getUserById(userId);
+  if (!user) throw new Error('User not found.');
+  const token = jwt.sign({ scope: 'ide', id: user.id, tv: user.tokenVersion || 0 }, JWT_SECRET, {
+    expiresIn: IDE_TOKEN_EXPIRY,
+  });
+  return { token, expiresInSec: IDE_TOKEN_TTL_SEC };
+}
+
+/**
+ * Validate an `ide`-scoped token. Revocation-aware (tokenVersion must match).
+ * Returns the authenticated user id, or null when the cookie is absent/invalid.
+ * This is the ONLY verifier that accepts the `ide` scope — the generic
+ * verifyToken() rejects it, so an ide token is useless against /api/*.
+ */
+export function verifyIdeToken(token: string | null): { id: string } | null {
+  if (usersMap.size === 0) loadUsers();
+  if (!token) return null;
+  try {
+    const decoded = jwt.verify(String(token), JWT_SECRET) as { scope?: string; id?: string; tv?: number };
+    if (decoded.scope !== 'ide' || !decoded.id) return null;
+    const user = usersMap.get(decoded.id);
+    if (user && (decoded.tv || 0) !== (user.tokenVersion || 0)) return null;
+    return { id: decoded.id };
+  } catch {
+    return null;
+  }
+}
+
 // ── Password management (per-user) ────────────────────────────
 
-export function verifyAccountPassword(accountPassword: string, userId?: string): boolean {
+export async function verifyAccountPassword(accountPassword: string, userId?: string): Promise<boolean> {
   if (usersMap.size === 0) loadUsers();
   const user = userId ? usersMap.get(userId) : Array.from(usersMap.values())[0];
   if (!user) return false;
-  return bcrypt.compareSync(String(accountPassword || ''), user.passwordHash);
+  return bcrypt.compare(String(accountPassword || ''), user.passwordHash);
 }
 
-export function changePassword(currentPassword: string, newPassword: string, userId: string): { token: string } {
+export async function changePassword(currentPassword: string, newPassword: string, userId: string): Promise<{ token: string }> {
   const user = getUserById(userId);
   if (!user) throw new Error('User not found.');
 
-  if (!bcrypt.compareSync(currentPassword, user.passwordHash)) {
+  if (!(await bcrypt.compare(currentPassword, user.passwordHash))) {
     throw new Error('Current password is incorrect.');
   }
   if (!newPassword || newPassword.length < 6) {
     throw new Error('New password must be at least 6 characters.');
   }
 
-  user.passwordHash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
+  user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   user.passwordChangedAt = new Date().toISOString();
   user.tokenVersion = (user.tokenVersion || 0) + 1;
   saveUsers();
   return { token: signSessionToken(user) };
 }
 
-export function revokeAllSessions(accountPassword: string, userId?: string): void {
+export async function revokeAllSessions(accountPassword: string, userId?: string): Promise<void> {
   if (usersMap.size === 0) loadUsers();
   if (userId) {
     // Revoke specific user
     const user = getUserById(userId);
     if (!user) throw new Error('User not found.');
-    if (!bcrypt.compareSync(accountPassword, user.passwordHash)) {
+    if (!(await bcrypt.compare(accountPassword, user.passwordHash))) {
       throw Object.assign(new Error('Account password is incorrect.'), { status: 401 });
     }
     user.tokenVersion = (user.tokenVersion || 0) + 1;
@@ -261,12 +302,12 @@ export function revokeAllSessions(accountPassword: string, userId?: string): voi
 
 // ── User CRUD (admin only) ────────────────────────────────────
 
-export function createUser(
+export async function createUser(
   username: string,
   password: string,
   role: UserRole = 'editor',
   creatorId?: string
-): { id: string; username: string; role: UserRole } {
+): Promise<{ id: string; username: string; role: UserRole }> {
   if (usersMap.size === 0) loadUsers();
 
   const cleanUsername = username.trim();
@@ -284,7 +325,7 @@ export function createUser(
   const user: StoredUser = {
     id,
     username: cleanUsername,
-    passwordHash: bcrypt.hashSync(password, BCRYPT_ROUNDS),
+    passwordHash: await bcrypt.hash(password, BCRYPT_ROUNDS),
     role,
     createdAt: now,
     passwordChangedAt: now,
@@ -336,27 +377,27 @@ export function hasProvidersPassword(): boolean {
   return !!findProvidersUser();
 }
 
-export function setProvidersPassword(accountPassword: string, newPassword: string, userId?: string): void {
+export async function setProvidersPassword(accountPassword: string, newPassword: string, userId?: string): Promise<void> {
   if (usersMap.size === 0) loadUsers();
   const user = userId ? getUserById(userId) : findProvidersUser() || Array.from(usersMap.values())[0];
   if (!user) throw new Error('No user configured.');
 
-  if (!bcrypt.compareSync(accountPassword, user.passwordHash)) {
+  if (!(await bcrypt.compare(accountPassword, user.passwordHash))) {
     throw new Error('Account password is incorrect.');
   }
   assertProvidersPassword(newPassword);
 
-  user.providersPasswordHash = bcrypt.hashSync(newPassword, BCRYPT_ROUNDS);
+  user.providersPasswordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
   user.providersPasswordVersion = (user.providersPasswordVersion || 0) + 1;
   saveUsers();
 }
 
-export function removeProvidersPassword(accountPassword: string, userId?: string): void {
+export async function removeProvidersPassword(accountPassword: string, userId?: string): Promise<void> {
   if (usersMap.size === 0) loadUsers();
   const user = userId ? getUserById(userId) : findProvidersUser();
   if (!user) throw new Error('No user configured.');
 
-  if (!bcrypt.compareSync(accountPassword, user.passwordHash)) {
+  if (!(await bcrypt.compare(accountPassword, user.passwordHash))) {
     throw new Error('Account password is incorrect.');
   }
   if (!user.providersPasswordHash) {
@@ -378,12 +419,12 @@ export function revokeProvidersUnlocks(): void {
   saveUsers();
 }
 
-export function issueUnlockToken(providersPassword: string, sid = ''): { unlockToken: string; expiresInSec: number } | null {
+export async function issueUnlockToken(providersPassword: string, sid = ''): Promise<{ unlockToken: string; expiresInSec: number } | null> {
   if (usersMap.size === 0) loadUsers();
   const user = findProvidersUser();
   if (!user?.providersPasswordHash) return null;
 
-  if (!bcrypt.compareSync(String(providersPassword || ''), user.providersPasswordHash)) {
+  if (!(await bcrypt.compare(String(providersPassword || ''), user.providersPasswordHash))) {
     return null;
   }
 
