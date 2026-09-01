@@ -283,57 +283,6 @@ select.modern-input { appearance: none; cursor: pointer; }
 .qa-tile span { font-size: 0.72rem; font-weight: 500; line-height: 1.2; text-align: center; }
 .qa-tile:disabled { opacity: 0.55; cursor: default; }
 .dash-restore-input { display: none; }
-.btn-cleanup {
-  color: var(--red);
-  border-color: rgba(248,81,73,0.3);
-}
-.btn-cleanup:hover { border-color: var(--red); color: var(--red); background: rgba(248,81,73,0.08); }
-.btn-cleanup .icon { color: var(--red); }
-
-/* Storage Metrics */
-.storage-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
-}
-.storage-metric-card {
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.storage-metric-icon {
-  background: var(--panel);
-  border: 1px solid var(--border-2);
-  width: 32px; height: 32px;
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--text-2);
-}
-.storage-metric-info { display: flex; flex-direction: column; gap: 2px; }
-.storage-metric-label { font-size: 0.7rem; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
-.storage-metric-value { font-size: 0.9rem; font-weight: 600; color: var(--text); }
-
-.storage-offender {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  margin-bottom: 6px;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.storage-offender:hover { border-color: var(--text-3); background: var(--panel-2); }
-.storage-offender-left { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; }
-.storage-offender-right { display: flex; align-items: center; gap: 12px; }
-.storage-offender-size { font-size: 0.75rem; font-family: var(--mono); color: var(--text-2); min-width: 60px; text-align: right; }
-.storage-bar-bg { width: 100px; height: 4px; background: var(--panel); border-radius: 2px; overflow: hidden; }
-.storage-bar-fill { height: 100%; background: var(--accent); transition: width 0.4s; }
 
 /* System Footer */
 .dash-system-footer {

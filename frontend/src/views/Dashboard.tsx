@@ -1,10 +1,6 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
-  Folder,
-  Archive,
-  Database,
-  Box,
   FolderOpen,
   Loader2,
   Play,
@@ -13,15 +9,12 @@ import {
   MonitorCheck,
   MonitorOff,
   ChevronRight,
-  RefreshCw,
-  HardDrive,
   Globe,
   Plus,
   Upload,
   TerminalSquare,
   LayoutDashboard,
   Bot,
-  Trash2,
 } from 'lucide-preact';
 import { CrashBadge } from '../components/CrashBadge';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -31,17 +24,13 @@ import {
   stopProject,
   getServerInfo,
   getIdeStatus,
-  getStorageMetrics,
   importProjectSnapshot,
-  cleanupStorage,
   Project,
   ServerInfo,
   IdeStatus,
-  StorageMetrics,
-  StorageCleanupResult,
 } from '../api';
 import { fmtCpu, fmtMem } from '../lib/limits';
-import { fmtBytes } from '../lib/size';
+import { useDocumentVisible } from '../lib/visibility';
 
 // How many project cards to show on the dashboard before a "view all" link.
 const PROJECT_PREVIEW_LIMIT = 8;
@@ -54,60 +43,72 @@ export function Dashboard() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
-  const [storage, setStorage] = useState<StorageMetrics | null>(null);
-  const [storageRefreshing, setStorageRefreshing] = useState(false);
   const [qaBusy, setQaBusy] = useState<string | null>(null);
   const [stopAllOpen, setStopAllOpen] = useState(false);
   const [stopAllBusy, setStopAllBusy] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
-  const [cleanupOpen, setCleanupOpen] = useState(false);
-  const [cleanupBusy, setCleanupBusy] = useState(false);
-  const [cleanupResult, setCleanupResult] = useState<string | null>(null);
+
+  const visible = useDocumentVisible();
+
+  // Keep a ref so the interval callbacks can check current visibility
+  // without being re-bound (avoids timer churn).
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
 
   useEffect(() => {
     let cancelled = false;
-    const tick = async () => {
+
+    const tickProjects = async () => {
+      if (!visibleRef.current) return; // skip when hidden
       try {
-        const [p, i, s] = await Promise.all([
-          listProjects(),
-          getServerInfo(),
-          getIdeStatus(),
-        ]);
+        const p = await listProjects();
         if (cancelled) return;
         setProjects(p.projects);
-        setInfo(i);
-        setIde(s.ide);
         setLoadError(null);
       } catch (err: any) {
         if (!cancelled) setLoadError(err.message);
       } finally {
         if (!cancelled) setLoading(false);
       }
+    };
+
+    // 30s tick for static/slow-changing info (server version, IDE status)
+    const tickInfo = async () => {
+      if (!visibleRef.current) return;
       try {
-        const sm = await getStorageMetrics().catch(() => null);
-        if (!cancelled && sm) setStorage(sm);
+        const [i, s] = await Promise.all([getServerInfo(), getIdeStatus()]);
+        if (cancelled) return;
+        setInfo(i);
+        setIde(s.ide);
       } catch {
-        /* storage is best-effort */
+        /* server info/IDE are non-critical — degrade silently */
       }
     };
-    tick();
-    const t = setInterval(tick, 5000);
-    return () => { cancelled = true; clearInterval(t); };
+
+    // Initial mount: tick immediately
+    tickProjects();
+    tickInfo();
+
+    const projectTimer = setInterval(tickProjects, 5000);
+    const infoTimer = setInterval(tickInfo, 30000);
+    return () => { cancelled = true; clearInterval(projectTimer); clearInterval(infoTimer); };
   }, []);
 
-  const refreshStorage = async () => {
-    if (storageRefreshing) return;
-    setStorageRefreshing(true);
-    try {
-      const sm = await getStorageMetrics(true);
-      setStorage(sm);
-    } catch (err: any) {
-      setLoadError(err.message);
-    } finally {
-      setStorageRefreshing(false);
+  // When the tab becomes visible again, tick once immediately to catch up
+  // on any state changes that happened while hidden.
+  const prevVisible = useRef(visible);
+  useEffect(() => {
+    if (visible && !prevVisible.current) {
+      listProjects().then((p) => {
+        setProjects(p.projects);
+        setLoadError(null);
+      }).catch(() => {});
+      getServerInfo().then((i) => setInfo(i)).catch(() => {});
+      getIdeStatus().then((s) => setIde(s.ide)).catch(() => {});
     }
-  };
+    prevVisible.current = visible;
+  }, [visible]);
 
   // ── Quick Actions handlers ──────────────────────────────────────
   const handleNewProject = () => {
@@ -167,39 +168,6 @@ export function Dashboard() {
     setStopAllBusy(false);
     setStopAllOpen(false);
   };
-
-  // ── Storage cleanup handler ─────────────────────────────────────
-  const handleCleanup = async () => {
-    if (cleanupBusy) return;
-    setCleanupBusy(true);
-    setCleanupResult(null);
-    try {
-      const res: StorageCleanupResult = await cleanupStorage(true);
-      setCleanupBusy(false);
-      setCleanupOpen(false);
-      // Refresh storage metrics after cleanup
-      try {
-        const sm = await getStorageMetrics(true);
-        setStorage(sm);
-      } catch { /* best-effort refresh */ }
-      // Build success summary
-      const parts: string[] = [];
-      const archiveCount = res.archived.length + res.purged.length;
-      if (archiveCount > 0) parts.push(`${archiveCount} archive${archiveCount !== 1 ? 's' : ''} purged`);
-      if (res.containersRemoved > 0) parts.push(`${res.containersRemoved} container${res.containersRemoved !== 1 ? 's' : ''} removed`);
-      if (res.dockerPruned) parts.push('Docker cache pruned');
-      setCleanupResult(parts.length > 0 ? `Cleaned: ${parts.join(' · ')}` : 'Nothing to clean up');
-    } catch (err: any) {
-      setLoadError(err.message);
-      setCleanupBusy(false);
-      setCleanupOpen(false);
-    }
-  };
-
-  const storageTop = (storage?.projects || [])
-    .slice()
-    .sort((a, b) => b.workspaceBytes - a.workspaceBytes)
-    .slice(0, 3);
 
   const running = projects.filter((p) => p.status === 'running').length;
   const stopped = projects.filter((p) => p.status === 'stopped' || p.status === 'created').length;
@@ -410,82 +378,6 @@ export function Dashboard() {
         </div>
       )}
 
-      <div class="panel dash-storage">
-        <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-          <span>Storage</span>
-          <div style="display:flex;gap:8px;align-items:center">
-            {cleanupResult && <span class="chat-save-msg" style="margin:0">{cleanupResult}</span>}
-            <button class="btn-ghost sm btn-cleanup" onClick={() => setCleanupOpen(true)} disabled={storageRefreshing}>
-              <Trash2 width={13} height={13} class="icon" />
-              Clean up
-            </button>
-            <button class="btn-ghost sm" onClick={refreshStorage} disabled={storageRefreshing}>
-              {storageRefreshing ? <Loader2 width={13} height={13} class="icon spin" /> : <RefreshCw width={13} height={13} class="icon" />}
-              Refresh
-            </button>
-          </div>
-        </div>
-        <p class="settings-hint">Workspaces · snapshot archives · Docker disk usage.</p>
-        {storage == null ? (
-          <div class="dim">Loading storage…</div>
-        ) : (
-          <>
-            <div class="storage-metrics-grid">
-              <div class="storage-metric-card">
-                <div class="storage-metric-icon"><Folder width={16} height={16} class="icon" /></div>
-                <div class="storage-metric-info">
-                  <span class="storage-metric-label">Workspaces</span>
-                  <span class="storage-metric-value">{fmtBytes(storage.totalWorkspaceBytes)}</span>
-                </div>
-              </div>
-              <div class="storage-metric-card">
-                <div class="storage-metric-icon"><Archive width={16} height={16} class="icon" /></div>
-                <div class="storage-metric-info">
-                  <span class="storage-metric-label">Snapshot archives</span>
-                  <span class="storage-metric-value">{fmtBytes(storage.totalSnapshotBytes)}</span>
-                </div>
-              </div>
-              <div class="storage-metric-card">
-                <div class="storage-metric-icon"><Database width={16} height={16} class="icon" /></div>
-                <div class="storage-metric-info">
-                  <span class="storage-metric-label">Data directory</span>
-                  <span class="storage-metric-value">{fmtBytes(storage.dataDirBytes)}</span>
-                </div>
-              </div>
-              <div class="storage-metric-card">
-                <div class="storage-metric-icon"><Box width={16} height={16} class="icon" /></div>
-                <div class="storage-metric-info">
-                  <span class="storage-metric-label">Containers (writable)</span>
-                  <span class="storage-metric-value">{fmtBytes(storage.containerWritableBytes)}</span>
-                </div>
-              </div>
-            </div>
-            {storageTop.length > 0 && (
-              <div class="storage-offenders">
-                <div class="dim" style="font-size:0.75rem;margin:12px 0 6px">Largest workspaces</div>
-                {storageTop.map((p) => {
-                  const pct = storage.totalWorkspaceBytes > 0 ? (p.workspaceBytes / storage.totalWorkspaceBytes) * 100 : 0;
-                  return (
-                    <div class="storage-offender" key={p.slug} onClick={() => setLocation(`/project/${p.slug}`)}>
-                      <div class="storage-offender-left">
-                        <HardDrive width={12} height={12} class="icon" />
-                        <span class="storage-offender-name">{p.name}</span>
-                      </div>
-                      <div class="storage-offender-right">
-                        <span class="storage-offender-size">{fmtBytes(p.workspaceBytes)}</span>
-                        <div class="storage-bar-bg">
-                          <div class="storage-bar-fill" style={`width:${pct}%`}></div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
       <div class="dash-system-footer">
         <div class="dash-system-item">
           <span>Server</span>
@@ -510,17 +402,6 @@ export function Dashboard() {
         confirmLabel="Stop All"
         onConfirm={confirmStopAll}
         onCancel={() => { if (!stopAllBusy) setStopAllOpen(false); }}
-      />
-
-      <ConfirmModal
-        open={cleanupOpen}
-        danger
-        loading={cleanupBusy}
-        title="Clean up storage?"
-        message="Archives orphaned workspaces, permanently deletes snapshot archives in .archive, removes stale orphan containers, and refreshes metrics. Includes Docker build-cache pruning."
-        confirmLabel="Clean Up"
-        onConfirm={handleCleanup}
-        onCancel={() => { if (!cleanupBusy) setCleanupOpen(false); }}
       />
     </div>
   );
