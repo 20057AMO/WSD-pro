@@ -70,10 +70,24 @@ describe('dirSize', () => {
     try {
       fs.symlinkSync(target, path.join(tree, 'link.bin'));
     } catch {
-      return; // no symlink support (Windows admin) — trait skipped
+      return; // no symlink support (Windows without admin/Dev Mode) — trait skipped
     }
+
+    // The link ON ITS OWN must be tiny: the 64KB target must NOT be pulled in
+    // (otherwise we'd see >= 64KB just for the link dir).
+    const linkOnly = dirSize(tree);
+    assert.ok(
+      linkOnly.size < 64 * 1024,
+      `target bytes leaked through the symlink (got ${linkOnly.size})`,
+    );
+
+    // Whole-root total is target size + tiny link overhead (~path length),
+    // NOT target counted twice (target + followed link). No double-counting.
     const { size } = dirSize(root);
-    assert.ok(size < 64 * 1024, `linked target bytes must not be counted (got ${size})`);
+    assert.ok(
+      size < 64 * 1024 + 1024,
+      `target bytes must not be double-counted (got ${size})`,
+    );
   });
 
   test('soft budget stops early and reports truncated', () => {
