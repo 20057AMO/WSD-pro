@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { ArrowLeft, SquareTerminal, FolderOpen, RefreshCw } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
-import { getOpencodeStatus, openOpencodeProject, listProjects, requestIdeSession, type Project } from '../api';
+import { getOpencodeStatus, openOpencodeProject, listProjects, type Project } from '../api';
 import { useDocumentVisible } from '../lib/visibility';
 
 const PROJECT_KEY = 'wsd.opencode.project';
@@ -10,8 +10,9 @@ const HIDDEN_INTERVAL = 30000;
 const MAX_BACKOFF = 30000;
 
 export function Opencode() {
-  const [loc, setLocation] = useHashLocation();
+  const [, setLocation] = useHashLocation();
   const [running, setRunning] = useState<boolean | null>(null);
+  const [port, setPort] = useState(4096);
   const [projects, setProjects] = useState<Project[]>([]);
   const [picked, setPicked] = useState('');
   const pickedRef = useRef('');
@@ -19,29 +20,25 @@ export function Opencode() {
   const [frameKey, setFrameKey] = useState(0);
   const [frameReady, setFrameReady] = useState(false);
   const [openErr, setOpenErr] = useState<string | null>(null);
-  // The iframe only starts once we KNOW the wsd.ide cookie is set — otherwise
-  // it races the async mint and lands on the proxy's 401 page with no retry.
-  const [sessionReady, setSessionReady] = useState(false);
 
   const visible = useDocumentVisible();
 
-  // Mint the proxy cookie on mount and keep it alive every 25 min (below the
-  // 1-hour HttpOnly expiry). Also refresh when the tab becomes visible again.
-  // The iframe is gated on the FIRST successful mint (sessionReady).
+  // Warm the connection to the opencode web server before the iframe mounts
+  // (saves DNS + TCP round-trips on first paint).
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const refresh = () => {
-      requestIdeSession().then(() => setSessionReady(true)).catch(() => {});
-    };
-    refresh();
-    timer = setInterval(refresh, 25 * 60 * 1000);
-    return () => { if (timer) clearInterval(timer); };
+    try {
+      const l = document.createElement('link');
+      l.rel = 'preconnect';
+      l.href = `${window.location.protocol}//${window.location.hostname}:4096`;
+      document.head.appendChild(l);
+      return () => {
+        l.remove();
+      };
+    } catch {
+      /* ignore */
+    }
   }, []);
 
-  // Re-mint when the tab becomes visible after being hidden.
-  useEffect(() => {
-    if (visible) requestIdeSession().catch(() => {});
-  }, [visible]);
   const retryCountRef = useRef(0);
 
   useEffect(() => {
@@ -53,6 +50,7 @@ export function Opencode() {
         .then((s) => {
           if (cancelled) return;
           setRunning(s.running);
+          setPort(s.port);
           retryCountRef.current = 0; // reset backoff on success
           scheduleNext();
         })
@@ -82,7 +80,11 @@ export function Opencode() {
     };
   }, [visible]);
 
-  const url = '/oc/';
+  const host = window.location.hostname;
+  // Match the page protocol so the iframe is not blocked as mixed content
+  // when the dashboard itself is served over HTTPS.
+  const proto = window.location.protocol === 'https:' ? 'https' : 'http';
+  const url = `${proto}://${host}:${port}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -127,21 +129,26 @@ export function Opencode() {
   // so we read the full hash directly to get ?project=.
   useEffect(() => {
     if (!projects.length) return;
-    let wanted = '';
-    const hash = window.location.hash || '';
-    const qIdx = hash.indexOf('?');
-    if (qIdx >= 0) {
-      wanted = new URLSearchParams(hash.slice(qIdx)).get('project') || '';
-    } else {
-      try {
-        wanted = localStorage.getItem(PROJECT_KEY) || '';
-      } catch {
-        /* ignore */
+    const handleHash = () => {
+      let wanted = '';
+      const hash = window.location.hash || '';
+      const qIdx = hash.indexOf('?');
+      if (qIdx >= 0) {
+        wanted = new URLSearchParams(hash.slice(qIdx)).get('project') || '';
+      } else {
+        try {
+          wanted = localStorage.getItem(PROJECT_KEY) || '';
+        } catch {
+          /* ignore */
+        }
       }
-    }
-    if (!wanted || wanted === pickedRef.current) return;
-    if (projects.some((p) => p.slug === wanted)) openProject(wanted);
-  }, [loc, projects]);
+      if (!wanted || wanted === pickedRef.current) return;
+      if (projects.some((p) => p.slug === wanted)) openProject(wanted);
+    };
+    handleHash();
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, [projects]);
 
   // Reset the loading overlay whenever a new frame mounts.
   useEffect(() => {
@@ -179,11 +186,6 @@ export function Opencode() {
           <div class="big-icon"><SquareTerminal width={30} height={30} class="icon" /></div>
           opencode is not available right now. Check the container log:
           <code class="mono" style="display:block;margin-top:8px">docker compose logs app</code>
-        </div>
-      ) : !sessionReady ? (
-        <div class="ide-loading">
-          <RefreshCw width={16} height={16} class="icon spin" />
-          Loading opencode…
         </div>
       ) : (
         <>

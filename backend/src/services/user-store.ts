@@ -213,47 +213,6 @@ export function verifyToken(token: string | null): { id: string; username: strin
   }
 }
 
-// ── IDE / opencode proxy session (scoped, cookie-carried) ─────────
-// The /ide and /oc reverse proxies can't receive Authorization headers
-// (they're iframes), so the frontend mints a SHORT-LIVED scoped token via
-// POST /api/auth/ide-session and we carry it as an HttpOnly cookie. The token
-// is scoped `ide` → it can NEVER authenticate generic routes (verifyToken
-// rejects any token carrying a `scope` claim; only verifyIdeToken accepts it).
-const IDE_TOKEN_EXPIRY = '1h';
-const IDE_TOKEN_TTL_SEC = 60 * 60;
-
-export { IDE_TOKEN_TTL_SEC };
-
-/** Mint a scoped `ide` token (and its TTL) for a known user. */
-export function signIdeToken(userId: string): { token: string; expiresInSec: number } {
-  const user = getUserById(userId);
-  if (!user) throw new Error('User not found.');
-  const token = jwt.sign({ scope: 'ide', id: user.id, tv: user.tokenVersion || 0 }, JWT_SECRET, {
-    expiresIn: IDE_TOKEN_EXPIRY,
-  });
-  return { token, expiresInSec: IDE_TOKEN_TTL_SEC };
-}
-
-/**
- * Validate an `ide`-scoped token. Revocation-aware (tokenVersion must match).
- * Returns the authenticated user id, or null when the cookie is absent/invalid.
- * This is the ONLY verifier that accepts the `ide` scope — the generic
- * verifyToken() rejects it, so an ide token is useless against /api/*.
- */
-export function verifyIdeToken(token: string | null): { id: string } | null {
-  if (usersMap.size === 0) loadUsers();
-  if (!token) return null;
-  try {
-    const decoded = jwt.verify(String(token), JWT_SECRET) as { scope?: string; id?: string; tv?: number };
-    if (decoded.scope !== 'ide' || !decoded.id) return null;
-    const user = usersMap.get(decoded.id);
-    if (user && (decoded.tv || 0) !== (user.tokenVersion || 0)) return null;
-    return { id: decoded.id };
-  } catch {
-    return null;
-  }
-}
-
 // ── Password management (per-user) ────────────────────────────
 
 export async function verifyAccountPassword(accountPassword: string, userId?: string): Promise<boolean> {

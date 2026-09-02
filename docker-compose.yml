@@ -24,12 +24,7 @@ services:
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
       WSD_OPENCODE_PORT: ${WSD_OPENCODE_PORT:-4096}
-      # Production defaults to WSD_TESTING=0 (real rate ceilings). Only the
-      # automated-suite container should set WSD_TESTING=1 to relax the
-      # global/strict/agent-write ceilings (index.ts) so multi-suite teardown
-      # never trips them mid-run. The auth/unlock/totp brute-force scopes stay
-      # at their REAL values in both — exactly what the security suites assert.
-      WSD_TESTING: ${WSD_TESTING:-0}
+      WSD_TESTING: ${WSD_TESTING:-1}
       # Crash-detector sweep cadence (min 5s; lower = faster detection, more
       # docker inspect calls per second).
       WSD_ALERT_SWEEP_MS: ${WSD_ALERT_SWEEP_MS:-10000}
@@ -42,12 +37,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      # Only the dashboard is published. code-server (8080) and opencode web
-      # (4096) run INSIDE this container and are reached EXCLUSIVELY through
-      # the authenticated Express reverse proxy at /ide and /oc — their ports
-      # are deliberately NOT published to the host, closing the unauthenticated
-      # bypass (any LAN user could previously open every workspace directly).
       - "3000:3000"
+      - "8100:8080"
+      - "${WSD_OPENCODE_PORT:-4096}:4096"
     depends_on:
       - workspace
 

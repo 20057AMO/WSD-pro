@@ -109,10 +109,7 @@ import {
   disableTotp,
   verifyTotpCode,
   verifyPending2faToken,
-  signIdeToken,
-  IDE_TOKEN_TTL_SEC,
 } from './services/user-store';
-import { createAppProxies, proxyHttp, attachProxyUpgrades, IDE_COOKIE } from './services/app-proxy';
 import { otpauthUri } from './services/totp';
 import { buildBackup, restoreFromBackup } from './services/settings-export';
 import { recordAudit, listAudit } from './services/audit-store';
@@ -168,16 +165,6 @@ if (corsOrigins.length > 0) {
     })
   );
 }
-
-// ── Authenticated reverse proxy for /ide (code-server) and /oc (opencode) ──
-// Created up-front so the HTTP handlers can be mounted here — BEFORE
-// express.json() (so proxied POST bodies are never drained by the body parser)
-// and before the SPA catch-all. WebSocket upgrades for these paths are wired
-// onto the http server in attachProxyUpgrades() at the bottom (before the /ws
-// hub, whose upgrade handler destroys any non-/ws socket).
-const appProxies = createAppProxies();
-app.use('/ide', proxyHttp(appProxies)[0]);
-app.use('/oc', proxyHttp(appProxies)[1]);
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -434,29 +421,6 @@ app.post('/api/auth/logout-all', authLimiter, async (req: any, res) => {
   } catch (err: any) {
     recordAudit('logout-all-failed', false, req.ip);
     res.status(err?.status || 400).json({ error: err.message });
-  }
-});
-
-// ── IDE / opencode proxy session (cookie) ──────────────────────
-// iframes can't send an Authorization header, so the SPA asks for a SHORT-LIVED
-// scoped token here; we hand it back as an HttpOnly `wsd.ide` cookie
-// (SameSite=Lax, Path=/) that the /ide and /oc reverse proxies validate. The
-// token is scope:`ide` → the generic verifyToken() rejects it, so it can NEVER
-// authenticate /api/* (only verifyIdeToken accepts it). Dedicated limiter keeps
-// session-minting from draining the auth brute-force budget.
-const ideSessionLimiter = rateLimit('ide-session', RATE_WINDOW, 30);
-
-app.post('/api/auth/ide-session', ideSessionLimiter, (req: any, res) => {
-  const userId = req.user?.id;
-  if (!userId) return res.status(401).json({ error: 'Authentication required.' });
-  try {
-    const { token, expiresInSec } = signIdeToken(userId);
-    res.setHeader('Set-Cookie', [
-      `${IDE_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${expiresInSec}`,
-    ]);
-    res.json({ ok: true, expiresInSec });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
   }
 });
 
@@ -2067,9 +2031,6 @@ app.use((err: any, _req: any, res: any, next: any) => {
 
 // ── Start ────────────────────────────────────────────────────
 const server = http.createServer(app);
-// Proxy WebSocket upgrades for /ide and /oc FIRST — ws-server's own upgrade
-// handler destroys any socket whose path does not start with /ws/.
-attachProxyUpgrades(server, appProxies);
 attachWebSockets(server);
 
 server.listen(PORT, HOST, () => {
@@ -2077,7 +2038,6 @@ server.listen(PORT, HOST, () => {
   console.log(`[Madar] WebSocket hub on ws://${HOST}:${PORT}/ws`);
   console.log(`[Madar] Workspaces root: ${WORKSPACES_ROOT}`);
   console.log(`[Madar] opencode web on port ${OPENCODE_PORT}`);
-  console.log(`[Madar] Authenticated proxies: /ide (code-server) + /oc (opencode)`);
   console.log(`[Madar] Chat model: ${getChatConfig().model}`);
   console.log(`[Madar] Docker socket: /var/run/docker.sock`);
 });
