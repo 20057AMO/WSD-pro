@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { FolderSearch, FolderOpen, Copy, Upload, Globe, Loader2 } from 'lucide-preact';
+import { FolderSearch, FolderOpen, Copy, Upload, Globe, Trash2, Loader2 } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { CrashBadge } from '../components/CrashBadge';
+import { TrashPanel } from '../components/TrashPanel';
 import {
   listProjects,
+  listArchive,
   createProject,
   duplicateProject,
   importProjectSnapshot,
@@ -37,6 +39,10 @@ export function Projects() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  type PageTab = 'projects' | 'trash';
+  const [pageTab, setPageTab] = useState<PageTab>('projects');
+  const [trashCount, setTrashCount] = useState<number | null>(null);
+
   const [createOpen, setCreateOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
@@ -64,6 +70,8 @@ export function Projects() {
     const params = new URLSearchParams(raw);
     const f = params.get('filter');
     if (f === 'running' || f === 'stopped' || f === 'crashed') setFilter(f);
+    const t = params.get('tab');
+    if (t === 'trash') setPageTab('trash');
   }, []);
 
   // Deep-link from the dashboard: its empty-state "New Project" button sets
@@ -87,6 +95,11 @@ export function Projects() {
   const [duplicating, setDuplicating] = useState(false);
   const [dupError, setDupError] = useState<string | null>(null);
 
+  // Trash count for the tab label — fetched on mount and refreshed after changes.
+  useEffect(() => {
+    listArchive().then((r) => setTrashCount(r.archives.length)).catch(() => {});
+  }, []);
+
   // Styled destructive-confirm (replaces native window.confirm).
   // Per-card delete lives in the project page's Danger zone now — the cards
   // expose an "Open" action instead.
@@ -105,6 +118,13 @@ export function Projects() {
       setLoading(false);
     }
   };
+
+  const handleTrashRestored = async (_slug: string) => {
+    await refresh();
+    listArchive().then((r) => setTrashCount(r.archives.length)).catch(() => {});
+  };
+
+  const handleTrashCountChange = (count: number) => setTrashCount(count);
 
   const visible = useDocumentVisible();
   const visibleRef = useRef(visible);
@@ -440,6 +460,16 @@ export function Projects() {
 
   return (
     <div class="view">
+      <div class="detail-tabs" style="margin-bottom:16px">
+        <button class={`tab-btn ${pageTab === 'projects' ? 'active' : ''}`} onClick={() => setPageTab('projects')}>
+          Projects
+        </button>
+        <button class={`tab-btn ${pageTab === 'trash' ? 'active' : ''}`} onClick={() => setPageTab('trash')}>
+          <Trash2 width={13} height={13} class="icon" /> Trash{trashCount != null ? ` (${trashCount})` : ''}
+        </button>
+      </div>
+
+      {pageTab === 'projects' && (<>
       <div class="proj-header">
         <div>
           <h1 class="hero-title" style="font-size:1.5rem">Projects</h1>
@@ -732,6 +762,11 @@ export function Projects() {
         onConfirm={runConfirmed}
         onCancel={() => { if (!confirmBusy) setConfirm(null); }}
       />
+      </>)}
+
+      {pageTab === 'trash' && (
+        <TrashPanel onRestored={handleTrashRestored} onTrashCountChange={handleTrashCountChange} />
+      )}
     </div>
   );
 }

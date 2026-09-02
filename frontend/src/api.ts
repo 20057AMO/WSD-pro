@@ -1043,3 +1043,41 @@ export const cleanupStorage = (docker?: boolean) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ docker }),
   });
+
+// ── Trash Bin (./.archive) ─────────────────────────────────────
+/** One archived (deleted-project) workspace in the trash. */
+export interface ArchivedProject {
+  /** Raw `.archive/<entry>` folder name, e.g. `m1abc2def-my-proj`. */
+  entry: string;
+  /** Slug derived from the entry name (best-effort). */
+  slug: string;
+  /** Display name (falls back to slug). */
+  name: string;
+  /** ISO date the workspace was archived, or null for legacy/non-canonical. */
+  date: string | null;
+  sizeBytes: number;
+  truncated?: boolean;
+}
+
+export const listArchive = (fresh = false) =>
+  api<{ archives: ArchivedProject[] }>(`/api/archive${fresh ? '?fresh=1' : ''}`);
+
+export const restoreArchive = (
+  entry: string,
+  body: { name?: string; description?: string; ports?: number[] },
+) =>
+  api<{ project: Project }>(`/api/archive/${encodeURIComponent(entry)}/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+export const deleteArchive = (entry: string) =>
+  api<{ ok: boolean }>(`/api/archive/${encodeURIComponent(entry)}`, { method: 'DELETE' });
+
+export const emptyTrash = () =>
+  api<{ emptied: number }>('/api/archive/empty', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });

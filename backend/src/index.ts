@@ -77,6 +77,13 @@ import { getStorageMetrics, invalidateStorageCache } from './services/storage-me
 import { getCachedProjects, invalidateProjectsCache } from './services/projects-cache';
 import { cleanupStorage } from './services/storage-cleanup';
 import {
+  listArchives,
+  deleteArchive,
+  emptyTrash,
+  restoreArchive,
+  setOwner as setArchiveOwner,
+} from './services/archive-manager';
+import {
   listSessions,
   createSession,
   renameSession,
@@ -978,6 +985,61 @@ app.post('/api/storage/cleanup', requireRole('editor'), rateLimit('strict', RATE
     res.json(await cleanupStorage({ docker }));
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Cleanup failed' });
+  }
+});
+
+// ── Trash Bin (./.archive management) ─────────────────────────────
+// List archived (deleted-project) workspaces. Read-only, any authenticated role.
+app.get('/api/archive', async (req: any, res) => {
+  try {
+    const fresh = req.query?.fresh === '1' || req.query?.fresh === 'true';
+    res.json({ archives: await listArchives(fresh) });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to list archive' });
+  }
+});
+
+// Permanently delete a single archive entry (editor+).
+app.delete('/api/archive/:entry', requireRole('editor'), rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req: any, res) => {
+  try {
+    await deleteArchive(req.params.entry);
+    recordAudit('archive-delete', true, req.ip);
+    res.json({ ok: true });
+  } catch (err: any) {
+    recordAudit('archive-delete', false, req.ip);
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Empty the trash: permanently delete every archive entry (editor+).
+app.post('/api/archive/empty', requireRole('editor'), rateLimit('strict', RATE_WINDOW, RATE_STRICT_MAX), async (req: any, res) => {
+  try {
+    const emptied = await emptyTrash();
+    recordAudit('archive-empty', true, req.ip);
+    res.json({ emptied });
+  } catch (err: any) {
+    recordAudit('archive-empty', false, req.ip);
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+// Restore an archived project as a NEW live project (editor+).
+app.post('/api/archive/:entry/restore', requireRole('editor'), userWriteLimiter, async (req: any, res) => {
+  try {
+    const { name, description, ports } = req.body || {};
+    const project = await restoreArchive(req.params.entry, {
+      name,
+      description,
+      ports,
+    });
+    // The restoring user becomes the owner (matches import/duplicate).
+    const userId = req.user?.id;
+    if (userId) setArchiveOwner(project.slug, userId);
+    recordAudit('archive-restore', true, req.ip);
+    res.status(201).json({ project });
+  } catch (err: any) {
+    recordAudit('archive-restore', false, req.ip);
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
