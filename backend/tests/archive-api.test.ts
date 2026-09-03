@@ -137,6 +137,36 @@ async function restoreArchive(
   return { status: r.status, json };
 }
 
+/**
+ * POST /projects with a short bounded retry on transient container-start
+ * failures. GitHub's runners occasionally drop a fresh bind-mount right after
+ * tearing down an earlier container ("failed to fulfil mount request" / OCI
+ * shim errors). A brief retry absorbs that flake WITHOUT any destructive
+ * global cleanup (no volume purging). Never retried on a 4xx that isn't a
+ * mount/start error, so an intentional 400/409 still surfaces immediately.
+ */
+async function createProjectRetry(
+  body: any,
+  tries = 3,
+): Promise<{ status: number; json: any }> {
+  let last: { status: number; json: any } = { status: 0, json: {} };
+  for (let i = 0; i < tries; i++) {
+    const r = await reqAuth('POST', '/projects', body);
+    let json: any = {};
+    try { json = await r.json(); } catch { /* non-JSON */ }
+    last = { status: r.status, json };
+    if (r.status >= 200 && r.status < 300) return last;
+    const errText = String(json?.error || r.statusText || '');
+    const transient =
+      r.status >= 500 ||
+      (r.status === 400 &&
+        /mount|shim|oci|runc|start container|failed to (start|create)/i.test(errText));
+    if (!transient) return last;
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 1500 * (i + 1)));
+  }
+  return last;
+}
+
 // ── Suite ────────────────────────────────────────────────────────
 
 describe('Trash Bin API (archive) — real Docker', () => {
@@ -320,12 +350,12 @@ describe('Trash Bin API (archive) — real Docker', () => {
     const busyPort = 18888;
 
     // Create a live project that claims port 18888.
-    const createRes = await reqAuth('POST', '/projects', {
+    const createRes = await createProjectRetry({
       name: 'Port Holder',
       slug: portHolderSlug,
       ports: [busyPort],
     });
-    assert.strictEqual(createRes.status, 201, `create port holder: ${createRes.status} ${(await createRes.json()).error || ''}`);
+    assert.strictEqual(createRes.status, 201, `create port holder: ${createRes.status} ${createRes.json.error || ''}`);
     createdSlugs.push(portHolderSlug);
 
     // Seed an archive entry.
@@ -355,11 +385,11 @@ describe('Trash Bin API (archive) — real Docker', () => {
     const collideSlug = uniqueId('collide');
 
     // Create a live project that "owns" this slug.
-    const createRes = await reqAuth('POST', '/projects', {
+    const createRes = await createProjectRetry({
       name: 'Collide Target',
       slug: collideSlug,
     });
-    assert.strictEqual(createRes.status, 201, `create collide target: ${createRes.status} ${(await createRes.json()).error || ''}`);
+    assert.strictEqual(createRes.status, 201, `create collide target: ${createRes.status} ${createRes.json.error || ''}`);
     createdSlugs.push(collideSlug);
 
     // Seed an archive entry whose derived slug matches the live project.
