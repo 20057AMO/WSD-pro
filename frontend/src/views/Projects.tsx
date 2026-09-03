@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { FolderSearch, FolderOpen, Copy, Upload, Globe, Trash2, Loader2, Clock } from 'lucide-preact';
+import { FolderSearch, FolderOpen, Copy, Upload, Globe, Trash2, Loader2, Clock, Users } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { CrashBadge } from '../components/CrashBadge';
@@ -24,6 +24,25 @@ type SortKey = 'name' | 'status' | 'created' | 'activity';
 type SortDir = 'asc' | 'desc';
 type FilterStatus = 'all' | 'running' | 'stopped' | 'crashed';
 type ViewMode = 'cards' | 'table';
+
+/** Number of team members beyond the owner (the owner is the first member). */
+function extraMemberCount(p: Project): number {
+  if (!p.members || !p.ownerId) return 0;
+  return p.members.filter((m) => m.userId !== p.ownerId).length;
+}
+
+/** Who owns / can access a project, shown on cards and the table. */
+function ProjectPeople({ p }: { p: Project }) {
+  const ownerName = p.owner?.username || '(deleted user)';
+  const extra = extraMemberCount(p);
+  return (
+    <span class="meta-chip people" title={`Owner: ${ownerName}${extra ? ` · ${extra} more member${extra === 1 ? '' : 's'}` : ''}`}>
+      <Users width={11} height={11} class="icon" />
+      <span class="people-owner">{ownerName}</span>
+      {extra > 0 && <span class="people-extra">+{extra}</span>}
+    </span>
+  );
+}
 
 export function Projects() {
   const [, setLocation] = useHashLocation();
@@ -588,6 +607,7 @@ export function Projects() {
               </div>
               <div class="project-meta">
                 <span class="meta-chip">{p.slug}</span>
+                <ProjectPeople p={p} />
                 {lastTouchedLabel(p) && (
                   <span class="meta-chip activity" title="Last activity">
                     <Clock width={11} height={11} class="icon" /> {lastTouchedLabel(p)}
@@ -628,6 +648,7 @@ export function Projects() {
                 <th>Status</th>
                 <th>Description</th>
                 <th>Ports</th>
+                <th>Team</th>
                 <th className="proj-th-sortable" onClick={() => toggleSort('activity')}>Activity{sortIcon('activity')}</th>
                 <th className="proj-th-sortable" onClick={() => toggleSort('created')}>Created{sortIcon('created')}</th>
                 <th>Actions</th>
@@ -652,6 +673,7 @@ export function Projects() {
                   )}
                   {p.tags && p.tags.length > 0 && <span class="dim" style="margin-left:4px;font-size:0.7rem">{p.tags.join(', ')}</span>}
                 </td>
+                  <td onClick={(e) => e.stopPropagation()}><ProjectPeople p={p} /></td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <span class="proj-td-activity" title={lastTouched(p) ? new Date(lastTouched(p)!).toLocaleString() : undefined}>
                       {lastTouchedLabel(p) ? `~${lastTouchedLabel(p)} ago` : '—'}

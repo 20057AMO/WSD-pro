@@ -28,7 +28,9 @@ export interface Project {
   liveLimits?: ProjectLimits;
   activity?: { action: string; at: string }[];
   ownerId?: string;
-  members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string }[];
+  /** Resolved owner identity (enriched on the project list). */
+  owner?: { id: string; username: string } | null;
+  members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string; username?: string }[];
   canvasEditedAt?: string | null;
   tags?: string[];
   /** Last detected container crash — red chip/banner until cleared. */

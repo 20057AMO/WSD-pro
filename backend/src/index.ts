@@ -1391,6 +1391,7 @@ app.post('/api/projects/:slug/members', (req: any, res) => {
       meta.members.push({ userId, role: memberRole, addedAt: new Date().toISOString() });
     }
     saveMeta(req.params.slug, meta);
+    invalidateProjectsCache();
     res.json({ member: { userId, role: memberRole } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1425,6 +1426,7 @@ app.delete('/api/projects/:slug/members/:userId', (req: any, res) => {
       return res.status(404).json({ error: 'Member not found' });
     }
     saveMeta(req.params.slug, meta);
+    invalidateProjectsCache();
     res.json({ ok: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1459,6 +1461,7 @@ app.post('/api/projects/:slug/transfer-owner', (req: any, res) => {
 
     meta.ownerId = userId;
     saveMeta(req.params.slug, meta);
+    invalidateProjectsCache();
     res.json({ ok: true, ownerId: userId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

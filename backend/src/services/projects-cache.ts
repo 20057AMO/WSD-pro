@@ -22,18 +22,43 @@
 import { createProjectsCache, PROJECTS_CACHE_DEFAULT_TTL_MS, PROJECTS_CACHE_MIN_TTL_MS, type ProjectsCache } from './projects-cache-core';
 import { listProjects, type ProjectInfo } from './docker-manager';
 import * as canvas from './project-canvas';
+import { listUsers } from './user-store';
 
 export { createProjectsCache, PROJECTS_CACHE_DEFAULT_TTL_MS, PROJECTS_CACHE_MIN_TTL_MS };
 export type { ProjectsCache };
 
-/** The real builder: listProjects() + the canvasEditedAt enrichment the
- *  GET /api/projects route used to do inline per request. */
+/** Additive people enrichment: resolves the raw ownerId/members userIds into
+ *  human-readable usernames so the Projects page can show who owns / can
+ *  access each project. Fields are added, never removed, and every member is
+ *  rebuilt as a fresh object so the stored meta reference is never mutated. */
+type PeopleEnriched = ProjectInfo & {
+  owner?: { id: string; username: string } | null;
+  members?: { userId: string; role: 'admin' | 'editor' | 'viewer'; addedAt: string; username: string }[];
+};
+
+function enrichPeople(projects: ProjectInfo[]): PeopleEnriched[] {
+  const usersById = new Map(listUsers().map((u) => [u.id, u.username]));
+  const resolve = (id?: string) => (id ? usersById.get(id) ?? '(deleted user)' : null);
+
+  return projects.map((p) => {
+    const out = p as PeopleEnriched;
+    out.owner = p.ownerId ? { id: p.ownerId, username: resolve(p.ownerId)! } : null;
+    if (Array.isArray(p.members)) {
+      out.members = p.members.map((m) => ({ ...m, username: resolve(m.userId)! }));
+    }
+    return out;
+  });
+}
+
+/** The real builder: listProjects() + the canvasEditedAt + people enrichment
+ *  the GET /api/projects route used to do inline per request. */
 async function buildProjectsList(): Promise<ProjectInfo[]> {
   const projects = await listProjects();
-  for (const p of projects) {
+  const enriched = enrichPeople(projects);
+  for (const p of enriched) {
     (p as ProjectInfo & { canvasEditedAt?: string | null }).canvasEditedAt = canvas.loadCanvas(p.slug).updatedAt;
   }
-  return projects;
+  return enriched;
 }
 
 const projectsCache = createProjectsCache(buildProjectsList);
