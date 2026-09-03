@@ -70,7 +70,7 @@ import {
   toPublic,
 } from './services/webhooks-store';
 import { sendWebhook } from './services/webhook-sender';
-import { startAlertsAutomation } from './services/project-alerts';
+import { startAlertsAutomation, manualClearCrash } from './services/project-alerts';
 import { serveStatus, startServeProcess, stopServeProcess } from './services/project-serve';
 import { sanitizeServeConfig } from './services/serve-core';
 import { getStorageMetrics, invalidateStorageCache } from './services/storage-metrics';
@@ -1472,6 +1472,21 @@ app.post('/api/projects/:slug/transfer-owner', (req: any, res) => {
 app.get('/api/projects/:slug/presence', requireProjectAccess('viewer'), (req, res) => {
   const users = getPresence(req.params.slug);
   res.json({ users });
+});
+
+// Manually dismiss the crash badge (editor+) — clears meta.crash so the red
+// chip/banner goes away without restarting the container.
+app.post('/api/projects/:slug/crash-clear', requireProjectAccess('editor'), userWriteLimiter, async (req, res) => {
+  try {
+    if (!loadMeta(req.params.slug)) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+    await manualClearCrash(req.params.slug);
+    invalidateProjectsCache();
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Start project

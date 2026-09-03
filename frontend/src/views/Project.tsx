@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { ExternalLink, Download, TriangleAlert, Globe, Copy, Loader2 } from 'lucide-preact';
+import { ExternalLink, Download, TriangleAlert, Globe, Copy, Loader2, Check } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   getProject,
@@ -32,6 +32,7 @@ import {
   crashTitle,
   startServe,
   stopServe,
+  clearProjectCrash,
 } from '../api';
 import type {
   Project,
@@ -255,6 +256,15 @@ export function Project({ params }: { params: { slug: string } }) {
     }
   };
 
+  const handleDismissCrash = async () => {
+    try {
+      await clearProjectCrash(slug);
+      await load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
   const handleRestart = async () => {
     setConfirmRestart(true);
   };
@@ -381,9 +391,14 @@ export function Project({ params }: { params: { slug: string } }) {
       {project?.crash && (
         <div class="panel" style="margin-bottom: 16px; border-left: 3px solid var(--red); background: rgba(248,81,73,0.06);">
           <div style="display:flex; align-items:center; gap:8px; color: var(--red); font-weight: 600;">
-            <TriangleAlert width={15} height={15} class="icon" />
-            <span>This container crashed</span>
-            <span class="dim" style="color:var(--text-2); font-weight:400">{crashTitle(project.crash)}</span>
+            <span style="display:flex; align-items:center; gap:8px; flex:1">
+              <TriangleAlert width={15} height={15} class="icon" />
+              <span>This container crashed</span>
+              <span class="dim" style="color:var(--text-2); font-weight:400">{crashTitle(project.crash)}</span>
+            </span>
+            <button class="btn-ghost sm" style="white-space:nowrap" onClick={handleDismissCrash}>
+              <Check width={13} height={13} class="icon" /> Dismiss
+            </button>
           </div>
           <p class="settings-hint" style="margin: 6px 0 0">
             {project.crash.reason === 'oom'

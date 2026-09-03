@@ -372,6 +372,10 @@ export const startProject = (slug: string) =>
 export const stopProject = (slug: string) =>
   api<{ project: Project }>(`/api/projects/${slug}/stop`, { method: 'POST' });
 
+/** Manually dismiss the crash badge (editor+) — clears meta.crash server-side. */
+export const clearProjectCrash = (slug: string) =>
+  api<{ ok: boolean }>(`/api/projects/${slug}/crash-clear`, { method: 'POST' });
+
 export const updateProjectTags = (slug: string, tags: string[]) =>
   api<{ tags: string[] }>(`/api/projects/${encodeURIComponent(slug)}/tags`, {
     method: 'PUT',

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { FolderSearch, FolderOpen, Copy, Upload, Globe, Trash2, Loader2, Clock, Users, HardDrive } from 'lucide-preact';
+import { FolderSearch, FolderOpen, Copy, Upload, Globe, Trash2, Loader2, Clock, Users, HardDrive, X } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { CrashBadge } from '../components/CrashBadge';
@@ -12,6 +12,7 @@ import {
   importProjectSnapshot,
   startProject,
   stopProject,
+  clearProjectCrash,
   deleteProject,
   wsUrl,
   type Project,
@@ -459,6 +460,17 @@ export function Projects() {
     }
   };
 
+  // Dismiss a crash badge from the list without touching the container.
+  const handleClearCrash = async (e: MouseEvent, slug: string) => {
+    e.stopPropagation();
+    try {
+      await clearProjectCrash(slug);
+      setProjects((prev) => prev.map((p) => (p.slug === slug ? { ...p, crash: undefined } : p)));
+    } catch (err: any) {
+      setLoadError(err.message);
+    }
+  };
+
   const openProjectCard = (e: MouseEvent, p: Project) => {
     e.stopPropagation();
     if (p.status === 'running' && p.serve?.enabled && p.serve.hostPort) {
@@ -628,6 +640,11 @@ export function Projects() {
                 <h3>{p.name}</h3>
                 <span class={`status-badge ${p.status}`}>{p.status}</span>
                 {p.crash && <CrashBadge crash={p.crash} />}
+                {p.crash && (
+                  <button class="crash-dismiss" title="Dismiss crash alert" onClick={(e) => handleClearCrash(e, p.slug)}>
+                    <X width={11} height={11} class="icon" />
+                  </button>
+                )}
               </div>
               <div class="project-desc">{p.description || '—'}</div>
               <div class="project-tags" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">

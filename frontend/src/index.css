@@ -384,6 +384,11 @@ select.modern-input { appearance: none; cursor: pointer; }
 .status-badge.running { background: rgba(63,185,80,0.12); color: var(--green); }
 .status-badge.stopped, .status-badge.exited, .status-badge.created, .status-badge.missing { background: rgba(156,163,175,0.12); color: var(--text-2); }
 .status-badge.error { background: rgba(248,81,73,0.12); color: var(--red); }
+.crash-dismiss {
+  background: transparent; border: none; color: var(--text-2); cursor: pointer;
+  padding: 2px 3px; border-radius: 4px; line-height: 0;
+}
+.crash-dismiss:hover { color: var(--red); background: rgba(248,81,73,0.12); }
 .project-desc { color: var(--text-2); font-size: 0.8rem; line-height: 1.5; margin-bottom: 14px; min-height: 36px; }
 .project-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .meta-chip {

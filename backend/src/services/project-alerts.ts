@@ -165,6 +165,28 @@ export async function resetCrashState(slug: string): Promise<void> {
   saveMeta(slug, meta);
 }
 
+/**
+ * Manually dismiss the crash badge ("I've seen it, don't keep flagging me").
+ * Deletes `meta.crash` so the red chip/banner clears. On a still-stopped
+ * container it also marks `requestedStop` so the sweep won't immediately
+ * re-flag the SAME crash (matching the "explicit stop never alarms" rule a
+ * user has effectively accepted by dismissing). A running (auto-restarted)
+ * container keeps requestedStop untouched so its next real incident is still
+ * caught. The next explicit start/recreate re-seeds everything via
+ * resetCrashState.
+ */
+export async function manualClearCrash(slug: string): Promise<void> {
+  const meta = loadMeta(slug);
+  if (!meta) return;
+  const state = await getContainerState(slug);
+  const running = state?.running === true;
+  delete meta.crash;
+  if (!running) meta.requestedStop = true;
+  if (state) meta.crashWatch = { restartCount: state.restartCount, startedAt: state.startedAt };
+  else { delete meta.crashWatch; delete meta.requestedStop; }
+  saveMeta(slug, meta);
+}
+
 // ── Automation loop (mirrors project-snapshots-auto's boot pattern) ─────
 
 let deferTimer: NodeJS.Timeout | null = null;
