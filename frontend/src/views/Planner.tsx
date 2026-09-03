@@ -5,6 +5,7 @@ import { listProjects } from '../api';
 import type { Project } from '../api';
 import { CrashBadge } from '../components/CrashBadge';
 import { fmtCpu, fmtMem } from '../lib/limits';
+import { relTime } from '../lib/time';
 
 /**
  * Planner — a visual overview of every project and its planning canvas.
@@ -12,15 +13,6 @@ import { fmtCpu, fmtMem } from '../lib/limits';
  * live status dot and the last canvas edit time so the freshest boards float
  * to the top.
  */
-
-function relTime(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-  if (s < 60) return 'now';
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h`;
-  return `${Math.floor(s / 86400)}d`;
-}
 
 export function Planner() {
   const [, setLocation] = useHashLocation();

@@ -341,6 +341,7 @@ select.modern-input { appearance: none; cursor: pointer; }
 .proj-td-name { font-weight: 600; }
 .proj-td-desc { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .proj-td-date { white-space: nowrap; color: var(--text-3); font-size: 0.75rem; }
+.proj-td-activity { white-space: nowrap; color: var(--text-3); font-size: 0.72rem; }
 
 .modal-dialog {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
@@ -394,6 +395,8 @@ select.modern-input { appearance: none; cursor: pointer; }
 .meta-chip.port { color: var(--blue); border-color: rgba(88,166,255,0.25); }
 .meta-chip.serve { color: var(--green); border-color: rgba(63,185,80,0.35); }
 .meta-chip.serve .icon { vertical-align: -2px; margin-right: 2px; }
+.meta-chip.activity { color: var(--accent); border-color: rgba(139,92,246,0.3); }
+.meta-chip.activity .icon { vertical-align: -2px; margin-right: 2px; }
 .card-footer { display: flex; gap: 8px; }
 .card-footer .btn-ghost { flex: 1; justify-content: center; }
 

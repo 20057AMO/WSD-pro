@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { FolderSearch, FolderOpen, Copy, Upload, Globe, Trash2, Loader2 } from 'lucide-preact';
+import { FolderSearch, FolderOpen, Copy, Upload, Globe, Trash2, Loader2, Clock } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { CrashBadge } from '../components/CrashBadge';
@@ -17,9 +17,10 @@ import {
   type Project,
 } from '../api';
 import { fmtCpu, fmtMem } from '../lib/limits';
+import { lastTouched, lastTouchedLabel } from '../lib/time';
 import { useDocumentVisible } from '../lib/visibility';
 
-type SortKey = 'name' | 'status' | 'created';
+type SortKey = 'name' | 'status' | 'created' | 'activity';
 type SortDir = 'asc' | 'desc';
 type FilterStatus = 'all' | 'running' | 'stopped' | 'crashed';
 type ViewMode = 'cards' | 'table';
@@ -245,6 +246,11 @@ export function Projects() {
       if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
       else if (sortKey === 'status') cmp = a.status.localeCompare(b.status);
       else if (sortKey === 'created') cmp = (a.createdAt || '').localeCompare(b.createdAt || '');
+      else if (sortKey === 'activity') {
+        const at = lastTouched(a) || '';
+        const bt = lastTouched(b) || '';
+        cmp = at.localeCompare(bt);
+      }
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return list;
@@ -501,6 +507,7 @@ export function Projects() {
             <option value="crashed">Crashed</option>
           </select>
           <select class="modern-input chat-sel" value={sortKey} onChange={handleSortSelect}>
+            <option value="activity">Sort: Activity</option>
             <option value="created">Sort: Date</option>
             <option value="name">Sort: Name</option>
             <option value="status">Sort: Status</option>
@@ -581,6 +588,11 @@ export function Projects() {
               </div>
               <div class="project-meta">
                 <span class="meta-chip">{p.slug}</span>
+                {lastTouchedLabel(p) && (
+                  <span class="meta-chip activity" title="Last activity">
+                    <Clock width={11} height={11} class="icon" /> {lastTouchedLabel(p)}
+                  </span>
+                )}
                 {p.hostPorts && Object.entries(p.hostPorts).map(([priv, pub]) => (
                   <span class="meta-chip port" key={priv}>:{pub}</span>
                 ))}
@@ -616,6 +628,7 @@ export function Projects() {
                 <th>Status</th>
                 <th>Description</th>
                 <th>Ports</th>
+                <th className="proj-th-sortable" onClick={() => toggleSort('activity')}>Activity{sortIcon('activity')}</th>
                 <th className="proj-th-sortable" onClick={() => toggleSort('created')}>Created{sortIcon('created')}</th>
                 <th>Actions</th>
               </tr>
@@ -639,6 +652,11 @@ export function Projects() {
                   )}
                   {p.tags && p.tags.length > 0 && <span class="dim" style="margin-left:4px;font-size:0.7rem">{p.tags.join(', ')}</span>}
                 </td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <span class="proj-td-activity" title={lastTouched(p) ? new Date(lastTouched(p)!).toLocaleString() : undefined}>
+                      {lastTouchedLabel(p) ? `~${lastTouchedLabel(p)} ago` : '—'}
+                    </span>
+                  </td>
                   <td class="proj-td-date">{p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <button class="btn-ghost sm" onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>
