@@ -52,7 +52,7 @@ import { ReAuthModal } from '../components/ReAuthModal';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { fmtBytes } from '../lib/size';
 
-const APP_VERSION = '2.0.0-beta';
+const APP_VERSION = 'BETA';
 
 const AUDIT_LABELS: Record<string, string> = {
   setup: 'Account created',

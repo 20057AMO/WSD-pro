@@ -447,7 +447,7 @@ export function Dashboard() {
       <div class="dash-system-footer">
         <div class="dash-system-item">
           <span>Server</span>
-          <span class="dash-system-val">BETA {info?.version || '…'}</span>
+          <span class="dash-system-val">{info?.version || '…'}</span>
         </div>
         {info && (
           <>

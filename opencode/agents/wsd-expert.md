@@ -21,7 +21,7 @@ You are the Madar platform expert. You know this self-hosted Docker dev platform
 
 ## Conventions you enforce
 - Every change → tsc both sides + vite build + `docker compose build app && docker compose up -d app` + full suite `node --test --test-concurrency=1`
-- ConfirmModal destructive actions · ReAuthModal sudo pattern · lucide-preact icons · dark only · version `2.0.0-beta`
+- ConfirmModal destructive actions · ReAuthModal sudo pattern · lucide-preact icons · dark only · version `BETA`
 - Security posture: opt-in CORS, SSRF metadata guards, masked-key echo rejection, scoped JWTs never authenticate generic routes
 - Error shape `{error,message}` · correct status codes · audit events for security-relevant actions
 

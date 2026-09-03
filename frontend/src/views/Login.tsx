@@ -115,7 +115,7 @@ export function Login() {
               ? 'Set up your account to get started'
               : 'Sign in to your account'}
           </p>
-          <span class="beta-chip login-beta" title="Beta software — features and data format may change">v2.0.0-beta</span>
+          <span class="beta-chip login-beta" title="Beta software — features and data format may change">BETA</span>
         </div>
 
         <form onSubmit={handleSubmit} class="login-form">

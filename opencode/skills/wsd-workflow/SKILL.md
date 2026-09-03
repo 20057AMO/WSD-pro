@@ -27,7 +27,7 @@ Scope: every code change in this repo. If you touched `frontend/` or `backend/` 
 One feature/area per round · full context + vertical goal BEFORE any edit · clarifying questions before new work.
 
 ## House style quick reference
-ConfirmModal destructive ops · ReAuthModal sudo pattern · lucide-preact icons (`class="icon"`) · dark only · version `2.0.0-beta` · error shape `{error,message}` · audit events for security-relevant actions.
+ConfirmModal destructive ops · ReAuthModal sudo pattern · lucide-preact icons (`class="icon"`) · dark only · version `BETA` · error shape `{error,message}` · audit events for security-relevant actions.
 
 ## Windows host quirks
 - PowerShell: no `&&` — use `if ($?)`; git stderr prints as PS errors harmlessly

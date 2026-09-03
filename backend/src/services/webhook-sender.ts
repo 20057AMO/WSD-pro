@@ -44,7 +44,7 @@ export async function sendWebhook(
     const body = JSON.stringify(payload);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'User-Agent': 'Madar/2.0.0-beta',
+      'User-Agent': 'Madar/BETA',
     };
     if (w.secret) {
       headers['X-Madar-Timestamp'] = String(Math.floor(Date.now() / 1000));

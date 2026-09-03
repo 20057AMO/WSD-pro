@@ -243,7 +243,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'Madar',
-    version: '2.0.0-beta',
+    version: 'BETA',
     timestamp: new Date().toISOString(),
   });
 });
@@ -522,7 +522,7 @@ app.post('/api/settings/export', authLimiter, async (req: any, res) => {
   }
   try {
     recordAudit('backup-export', true, req.ip);
-    const backup = buildBackup('2.0.0-beta');
+    const backup = buildBackup('BETA');
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="madar-backup-${new Date().toISOString().slice(0, 10)}.json"`
@@ -593,7 +593,7 @@ app.get('/api/server/info', async (_req, res) => {
   const ips = detectIp();
   const host = await getHostInfo();
   res.json({
-    version: '2.0.0-beta',
+    version: 'BETA',
     lanIp: ips.lanIp,
     tailscaleIp: ips.tailscaleIp,
     basePort: PORT,

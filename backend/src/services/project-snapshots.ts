@@ -195,7 +195,7 @@ export function exportProjectSnapshot(slug: string): ProjectSnapshot {
   const now = Math.floor(Date.now() / 1000);
   const manifest: SnapshotManifest = {
     madar: MAGIC_MADAR,
-    appVersion: (process.env.WSD_APP_VERSION as string) || '2.0.0-beta',
+    appVersion: (process.env.WSD_APP_VERSION as string) || 'BETA',
     exportedAt: new Date().toISOString(),
     project: {
       name: meta.name,

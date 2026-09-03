@@ -8,7 +8,7 @@
   <a href="https://github.com/20057AMO/madar/actions/workflows/ci.yml">
     <img src="https://github.com/20057AMO/madar/actions/workflows/ci.yml/badge.svg" alt="CI" />
   </a>
-  <img src="https://img.shields.io/badge/version-2.0.0--beta-blue" alt="version" />
+  <img src="https://img.shields.io/badge/version-BETA-blue" alt="version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
 </p>
 

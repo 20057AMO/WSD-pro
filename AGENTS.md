@@ -172,7 +172,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - **Brand honesty**: sidebar uses the REAL product marks — `components/brand-icons.tsx` embeds the official opencode logo (opencode + OC Studio nav) and the official VS Code mark (nav label "VS Code", formerly "Web IDE"; EmbeddedIDE toolbar/empty-states renamed too)
 - **ConfirmModal** replaces native `window.confirm()` for destructive/sensitive actions (project delete single/bulk, container restart/recreate, file delete, provider delete, agent delete, unlock-badge "Lock now") — dark modal matching ReAuthModal; danger variant shows warning avatar + red button and the title always names the exact target; in-app notices replace `alert()` (e.g. IDE-not-running yellow banner)
 - App theme: **dark mode only**
-- Version string: `2.0.0-beta` (health, server/info, About panel, backups all aligned)
+- Version string: `BETA` (health, server/info, About panel, backups all aligned)
 
 ### Project notes (ideas / bugs / goals)
 - Per-project structured notes stored in `data/projects/<slug>/notes.json` (`services/project-notes.ts`): items `{id, text, kind: 'idea'|'bug'|'goal', done, createdAt}` — ≤300 items, text ≤2000 chars, junk rows dropped silently on normalize, unknown kinds default to `idea`
@@ -296,7 +296,7 @@ Dockerfile.workspace — Ubuntu 24.04 base image for project containers
 - Legacy tokens without a `tv` claim are treated as version 0
 
 ### Beta
-- App version: `2.0.0-beta` — badge shown in sidebar footer, login page and Settings → About
+- App version: `BETA` — badge shown in sidebar footer, login page and Settings → About
 
 ### Auto-logout (idle timeout)
 - Configurable in Settings: off / 30 min / 60 min / 120 min (stored in `localStorage` as `wsd.idleTimeout`)
