@@ -401,6 +401,8 @@ select.modern-input { appearance: none; cursor: pointer; }
 .meta-chip.people .icon { vertical-align: -2px; margin-right: 2px; }
 .meta-chip.people .people-owner { max-width: 11em; overflow: hidden; text-overflow: ellipsis; }
 .meta-chip.people .people-extra { opacity: 0.75; margin-left: 3px; }
+.meta-chip.storage { color: #7dd3fc; border-color: rgba(125,211,252,0.25); white-space: nowrap; }
+.meta-chip.storage .icon { vertical-align: -2px; margin-right: 2px; }
 .card-footer { display: flex; gap: 8px; }
 .card-footer .btn-ghost { flex: 1; justify-content: center; }
 

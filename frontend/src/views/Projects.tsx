@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'preact/hooks';
-import { FolderSearch, FolderOpen, Copy, Upload, Globe, Trash2, Loader2, Clock, Users } from 'lucide-preact';
+import { FolderSearch, FolderOpen, Copy, Upload, Globe, Trash2, Loader2, Clock, Users, HardDrive } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { CrashBadge } from '../components/CrashBadge';
@@ -15,8 +15,11 @@ import {
   deleteProject,
   wsUrl,
   type Project,
+  getStorageMetrics,
+  type ProjectStorage,
 } from '../api';
 import { fmtCpu, fmtMem } from '../lib/limits';
+import { fmtBytes } from '../lib/size';
 import { lastTouched, lastTouchedLabel } from '../lib/time';
 import { useDocumentVisible } from '../lib/visibility';
 
@@ -44,11 +47,26 @@ function ProjectPeople({ p }: { p: Project }) {
   );
 }
 
+/** Workspace + snapshot disk usage for a project, rendered as a meta-chip. */
+function ProjectStorageChip({ slug, bySlug }: { slug: string; bySlug: Map<string, ProjectStorage> }) {
+  const s = bySlug.get(slug);
+  if (!s) return null;
+  const ws = fmtBytes(s.workspaceBytes);
+  const snap = fmtBytes(s.snapshotBytes);
+  const snapNote = snap !== '—' ? ` · snapshots ${snap}` : '';
+  return (
+    <span class="meta-chip storage" title={`Disk usage — workspace ${ws}${snapNote}`}>
+      <HardDrive width={11} height={11} class="icon" /> {ws}
+    </span>
+  );
+}
+
 export function Projects() {
   const [, setLocation] = useHashLocation();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [storageBySlug, setStorageBySlug] = useState<Map<string, ProjectStorage>>(new Map());
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterStatus>('all');
@@ -139,8 +157,19 @@ export function Projects() {
     }
   };
 
+  // Per-project disk usage (workspace + snapshots) from GET /api/storage.
+  // The endpoint has its own short TTL cache, so this re-scan is cheap even
+  // when called alongside lifecycle changes.
+  const refreshStorage = async () => {
+    try {
+      const s = await getStorageMetrics();
+      setStorageBySlug(new Map(s.projects?.map((p) => [p.slug, p]) || []));
+    } catch { /* storage is a soft enhancement — never block the page */ }
+  };
+
   const handleTrashRestored = async (_slug: string) => {
     await refresh();
+    refreshStorage();
     listArchive().then((r) => setTrashCount(r.archives.length)).catch(() => {});
   };
 
@@ -157,6 +186,7 @@ export function Projects() {
 
     // Initial data fetch
     refresh();
+    refreshStorage();
 
     const connectWs = () => {
       if (closed) return;
@@ -608,6 +638,7 @@ export function Projects() {
               <div class="project-meta">
                 <span class="meta-chip">{p.slug}</span>
                 <ProjectPeople p={p} />
+                <ProjectStorageChip slug={p.slug} bySlug={storageBySlug} />
                 {lastTouchedLabel(p) && (
                   <span class="meta-chip activity" title="Last activity">
                     <Clock width={11} height={11} class="icon" /> {lastTouchedLabel(p)}
@@ -649,6 +680,7 @@ export function Projects() {
                 <th>Description</th>
                 <th>Ports</th>
                 <th>Team</th>
+                <th>Size</th>
                 <th className="proj-th-sortable" onClick={() => toggleSort('activity')}>Activity{sortIcon('activity')}</th>
                 <th className="proj-th-sortable" onClick={() => toggleSort('created')}>Created{sortIcon('created')}</th>
                 <th>Actions</th>
@@ -674,6 +706,7 @@ export function Projects() {
                   {p.tags && p.tags.length > 0 && <span class="dim" style="margin-left:4px;font-size:0.7rem">{p.tags.join(', ')}</span>}
                 </td>
                   <td onClick={(e) => e.stopPropagation()}><ProjectPeople p={p} /></td>
+                  <td onClick={(e) => e.stopPropagation()}><ProjectStorageChip slug={p.slug} bySlug={storageBySlug} /></td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <span class="proj-td-activity" title={lastTouched(p) ? new Date(lastTouched(p)!).toLocaleString() : undefined}>
                       {lastTouchedLabel(p) ? `~${lastTouchedLabel(p)} ago` : '—'}
