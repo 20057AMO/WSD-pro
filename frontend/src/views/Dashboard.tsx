@@ -6,111 +6,157 @@ import {
   Play,
   Square,
   TriangleAlert,
-  MonitorCheck,
-  MonitorOff,
   ChevronRight,
   Globe,
   Plus,
   Upload,
   TerminalSquare,
   LayoutDashboard,
-  Bot,
 } from 'lucide-preact';
 import { CrashBadge } from '../components/CrashBadge';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { VSCodeIcon, OpencodeIcon } from '../components/brand-icons';
 import {
   listProjects,
   startProject,
   stopProject,
   getServerInfo,
-  getIdeStatus,
   importProjectSnapshot,
+  wsUrl,
   Project,
   ServerInfo,
-  IdeStatus,
 } from '../api';
 import { fmtCpu, fmtMem } from '../lib/limits';
 import { useDocumentVisible } from '../lib/visibility';
 
-// How many project cards to show on the dashboard before a "view all" link.
 const PROJECT_PREVIEW_LIMIT = 8;
+
+function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  if (d > 0) return `${d}d ${h}h`;
+  const m = Math.floor((seconds % 3600) / 60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function formatMemBytes(bytes: number): string {
+  const gb = bytes / (1024 ** 3);
+  if (gb >= 1) return `${Math.round(gb)} GiB`;
+  return `${Math.round(bytes / (1024 ** 2))} MiB`;
+}
 
 export function Dashboard() {
   const [, setLocation] = useHashLocation();
   const [projects, setProjects] = useState<Project[]>([]);
   const [info, setInfo] = useState<ServerInfo | null>(null);
-  const [ide, setIde] = useState<IdeStatus | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<string | null>(null);
   const [qaBusy, setQaBusy] = useState<string | null>(null);
   const [stopAllOpen, setStopAllOpen] = useState(false);
   const [stopAllBusy, setStopAllBusy] = useState(false);
+  const [stopAllSuccess, setStopAllSuccess] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement | null>(null);
   const [importing, setImporting] = useState(false);
 
   const visible = useDocumentVisible();
-
-  // Keep a ref so the interval callbacks can check current visibility
-  // without being re-bound (avoids timer churn).
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
 
   useEffect(() => {
-    let cancelled = false;
+    let closed = false;
+    let timer: number | null = null;
+    let socket: WebSocket | null = null;
 
-    const tickProjects = async () => {
-      if (!visibleRef.current) return; // skip when hidden
+    const refreshProjects = async () => {
+      if (!visibleRef.current) return;
       try {
         const p = await listProjects();
-        if (cancelled) return;
-        setProjects(p.projects);
-        setLoadError(null);
+        if (!closed) { setProjects(p.projects); setLoadError(null); }
       } catch (err: any) {
-        if (!cancelled) setLoadError(err.message);
+        if (!closed) setLoadError(err.message);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!closed) setLoading(false);
       }
     };
 
-    // 30s tick for static/slow-changing info (server version, IDE status)
     const tickInfo = async () => {
       if (!visibleRef.current) return;
       try {
-        const [i, s] = await Promise.all([getServerInfo(), getIdeStatus()]);
-        if (cancelled) return;
+        const i = await getServerInfo();
+        if (closed) return;
         setInfo(i);
-        setIde(s.ide);
-      } catch {
-        /* server info/IDE are non-critical — degrade silently */
-      }
+      } catch { /* non-critical */ }
     };
 
-    // Initial mount: tick immediately
-    tickProjects();
-    tickInfo();
+    const connectWs = () => {
+      if (closed) return;
+      try { socket = new WebSocket(wsUrl('/ws/projects/status')); } catch { socket = null; }
+      if (!socket) { startPolling(); return; }
 
-    const projectTimer = setInterval(tickProjects, 5000);
+      socket.onmessage = (ev) => {
+        if (closed) return;
+        let msg: any;
+        try { msg = JSON.parse(ev.data); } catch { return; }
+        if (msg.type === 'error') { socket?.close(); if (!closed) startPolling(); return; }
+        if (msg.type === 'ready') {
+          setProjects((prev) => {
+            const map = new Map<string, string>(msg.projects.map((p: any) => [p.slug, p.status]));
+            return prev.map((p) => {
+              const ns = map.get(p.slug) as Project['status'] | undefined;
+              return ns && ns !== p.status ? { ...p, status: ns } : p;
+            });
+          });
+          setLoading(false);
+          setLoadError(null);
+        }
+        if (msg.type === 'update') {
+          setProjects((prev) =>
+            prev.map((p) => p.slug === msg.slug ? { ...p, status: msg.status } : p),
+          );
+        }
+      };
+
+      const fail = () => { socket?.close(); if (!closed) startPolling(); };
+      socket.onerror = fail;
+      socket.onclose = () => { if (!closed) startPolling(); };
+    };
+
+    const startPolling = () => {
+      if (timer) return;
+      const tick = async () => {
+        if (!visibleRef.current) return;
+        try {
+          const p = await listProjects();
+          if (!closed) { setProjects(p.projects); setLoadError(null); }
+        } catch { /* ignore */ }
+      };
+      tick();
+      timer = window.setInterval(tick, 5000);
+    };
+
+    refreshProjects();
+    tickInfo();
     const infoTimer = setInterval(tickInfo, 30000);
-    return () => { cancelled = true; clearInterval(projectTimer); clearInterval(infoTimer); };
+    connectWs();
+
+    return () => {
+      closed = true;
+      if (timer) clearInterval(timer);
+      clearInterval(infoTimer);
+      try { socket?.close(); } catch { /* ignore */ }
+    };
   }, []);
 
-  // When the tab becomes visible again, tick once immediately to catch up
-  // on any state changes that happened while hidden.
   const prevVisible = useRef(visible);
   useEffect(() => {
     if (visible && !prevVisible.current) {
-      listProjects().then((p) => {
-        setProjects(p.projects);
-        setLoadError(null);
-      }).catch(() => {});
+      listProjects().then((p) => { setProjects(p.projects); setLoadError(null); }).catch(() => {});
       getServerInfo().then((i) => setInfo(i)).catch(() => {});
-      getIdeStatus().then((s) => setIde(s.ide)).catch(() => {});
     }
     prevVisible.current = visible;
   }, [visible]);
 
-  // ── Quick Actions handlers ──────────────────────────────────────
   const handleNewProject = () => {
     try { sessionStorage.setItem('wsd.openCreate', '1'); } catch { /* ignored */ }
     setLocation('/projects');
@@ -148,9 +194,7 @@ export function Dashboard() {
     setQaBusy(null);
   };
 
-  const handleStopAll = async () => {
-    setStopAllOpen(true);
-  };
+  const handleStopAll = () => { setStopAllOpen(true); };
 
   const confirmStopAll = async () => {
     if (stopAllBusy) return;
@@ -164,6 +208,9 @@ export function Dashboard() {
     }
     if (errors.length > 0) {
       setLoadError(`Failed stopping ${errors.length} project(s):\n${errors.join('\n')}`);
+    } else {
+      setStopAllSuccess(true);
+      setTimeout(() => setStopAllSuccess(false), 3000);
     }
     setStopAllBusy(false);
     setStopAllOpen(false);
@@ -187,16 +234,25 @@ export function Dashboard() {
     }
   };
 
-  const openPreview = (e: MouseEvent, p: Project) => {
+  const openProject = (e: MouseEvent, p: Project) => {
     e.stopPropagation();
     if (p.status === 'running' && p.serve?.enabled && p.serve.hostPort) {
-      window.open(`http://${window.location.hostname}:${p.serve.hostPort}`, '_blank');
+      window.open(`http://${window.location.hostname}:${p.serve.hostPort}`, '_blank', 'noopener,noreferrer');
     } else if (p.status === 'running' && p.hostPorts && Object.keys(p.hostPorts).length > 0) {
       const hostPort = Object.values(p.hostPorts)[0];
-      window.open(`http://${window.location.hostname}:${hostPort}`, '_blank');
+      window.open(`http://${window.location.hostname}:${hostPort}`, '_blank', 'noopener,noreferrer');
     } else {
       setLocation(`/project/${p.slug}`);
     }
+  };
+
+  const navigateTo = (path: string) => (e: MouseEvent) => {
+    e.stopPropagation();
+    setLocation(path);
+  };
+
+  const handleCardKeyDown = (path: string) => (e: KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLocation(path); }
   };
 
   if (loading) {
@@ -218,16 +274,10 @@ export function Dashboard() {
         <span class="hero-badge">BETA</span>
         <h1 class="hero-title">Dashboard</h1>
         <p class="hero-sub">Your development environment at a glance.</p>
-        <button 
-          class="btn-primary" 
-          style="margin-top:20px" 
-          onClick={() => { try { sessionStorage.setItem('wsd.openCreate', '1'); } catch { /* ignored */ } setLocation('/projects'); }}
-        >
-          <Play width={16} height={16} class="icon" /> + New Project
-        </button>
       </div>
 
-      {loadError && <div class="login-error" style="margin-bottom:16px">{loadError}</div>}
+      {loadError && <div class="login-error dash-error">{loadError}</div>}
+      {stopAllSuccess && <div class="dash-success">All projects stopped.</div>}
 
       {/* ── Quick Actions ─────────────────────────────────── */}
       <div class="dash-qa-section">
@@ -258,11 +308,11 @@ export function Dashboard() {
             <span>Stop All</span>
           </button>
           <button class="qa-tile" onClick={() => setLocation('/ide')}>
-            <MonitorCheck width={18} height={18} class="icon" />
+            <VSCodeIcon width={18} height={18} />
             <span>VS Code</span>
           </button>
           <button class="qa-tile" onClick={() => setLocation('/opencode')}>
-            <Bot width={18} height={18} class="icon" />
+            <OpencodeIcon width={18} height={18} />
             <span>Opencode</span>
           </button>
           <button class="qa-tile" onClick={() => setLocation('/terminals')}>
@@ -276,22 +326,41 @@ export function Dashboard() {
         </div>
       </div>
 
+      {/* ── Stat Cards ────────────────────────────────────── */}
       <div class="dash-stats">
-        <div class="dash-stat-card" onClick={() => setLocation('/projects')}>
+        <div
+          class="dash-stat-card"
+          role="button"
+          tabIndex={0}
+          onClick={navigateTo('/projects')}
+          onKeyDown={handleCardKeyDown('/projects')}
+        >
           <div class="dash-stat-icon"><FolderOpen width={18} height={18} class="icon" /></div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{projects.length}</span>
             <span class="dash-stat-label">Total Projects</span>
           </div>
         </div>
-        <div class="dash-stat-card running" onClick={() => setLocation('/projects?filter=running')}>
+        <div
+          class="dash-stat-card running"
+          role="button"
+          tabIndex={0}
+          onClick={navigateTo('/projects?filter=running')}
+          onKeyDown={handleCardKeyDown('/projects?filter=running')}
+        >
           <div class="dash-stat-icon"><Play width={18} height={18} class="icon" /></div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{running}</span>
             <span class="dash-stat-label">Running</span>
           </div>
         </div>
-        <div class="dash-stat-card stopped" onClick={() => setLocation('/projects?filter=stopped')}>
+        <div
+          class="dash-stat-card stopped"
+          role="button"
+          tabIndex={0}
+          onClick={navigateTo('/projects?filter=stopped')}
+          onKeyDown={handleCardKeyDown('/projects?filter=stopped')}
+        >
           <div class="dash-stat-icon"><Square width={18} height={18} class="icon" /></div>
           <div class="dash-stat-info">
             <span class="dash-stat-value">{stopped}</span>
@@ -299,7 +368,13 @@ export function Dashboard() {
           </div>
         </div>
         {crashed > 0 && (
-          <div class="dash-stat-card crashed" onClick={() => setLocation('/projects?filter=crashed')}>
+          <div
+            class="dash-stat-card crashed"
+            role="button"
+            tabIndex={0}
+            onClick={navigateTo('/projects?filter=crashed')}
+            onKeyDown={handleCardKeyDown('/projects?filter=crashed')}
+          >
             <div class="dash-stat-icon"><TriangleAlert width={18} height={18} class="icon" /></div>
             <div class="dash-stat-info">
               <span class="dash-stat-value">{crashed}</span>
@@ -307,15 +382,9 @@ export function Dashboard() {
             </div>
           </div>
         )}
-        <div class="dash-stat-card" onClick={() => setLocation('/ide')}>
-          <div class="dash-stat-icon">{ide?.running ? <MonitorCheck width={18} height={18} class="icon" /> : <MonitorOff width={18} height={18} class="icon" />}</div>
-          <div class="dash-stat-info">
-            <span class="dash-stat-value">{ide?.running ? 'On' : 'Off'}</span>
-            <span class="dash-stat-label">VS Code</span>
-          </div>
-        </div>
       </div>
 
+      {/* ── Projects Preview ──────────────────────────────── */}
       <div class="section-head">
         <h2>Projects</h2>
         {projects.length > 0 && (
@@ -323,14 +392,10 @@ export function Dashboard() {
         )}
       </div>
       {previewProjects.length === 0 ? (
-        <div class="empty-state" style="border:1px dashed var(--border);border-radius:10px;padding:28px">
+        <div class="dash-empty-state">
           <div class="big-icon"><FolderOpen width={30} height={30} class="icon" /></div>
           No projects yet — create your first one.
-          <button
-            class="btn-primary"
-            style="margin-top:12px"
-            onClick={() => { try { sessionStorage.setItem('wsd.openCreate', '1'); } catch { /* ignored */ } setLocation('/projects'); }}
-          >+ New Project</button>
+          <button class="btn-primary dash-empty-cta" onClick={handleNewProject}>+ New Project</button>
         </div>
       ) : (
         <div class="projects-grid">
@@ -338,20 +403,23 @@ export function Dashboard() {
             <div
               class="project-card"
               key={p.slug}
+              role="button"
+              tabIndex={0}
               onClick={() => setLocation(`/project/${p.slug}`)}
+              onKeyDown={handleCardKeyDown(`/project/${p.slug}`)}
             >
-<div class="project-card-header">
-  <h3>{p.name}</h3>
-  <span class={`status-badge ${p.status}`}>{p.status}</span>
-  {p.crash && <CrashBadge crash={p.crash} />}
-</div>
-<div class="project-desc">{p.description || '—'}</div>
-<div class="project-tags" style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:8px">
-  {p.tags && p.tags.map(t => (
-    <span class="tag-chip" key={t}>{t}</span>
-  ))}
-</div>
-<div class="project-meta">
+              <div class="project-card-header">
+                <h2>{p.name}</h2>
+                <span class={`status-badge ${p.status}`}>{p.status}</span>
+                {p.crash && <CrashBadge crash={p.crash} />}
+              </div>
+              <div class="project-desc">{p.description || '—'}</div>
+              <div class="project-tags">
+                {p.tags && p.tags.map(t => (
+                  <span class="tag-chip" key={t}>{t}</span>
+                ))}
+              </div>
+              <div class="project-meta">
                 {p.hostPorts && Object.entries(p.hostPorts).map(([priv, pub]) => (
                   <span class="meta-chip port" key={priv}>:{pub}</span>
                 ))}
@@ -366,10 +434,7 @@ export function Dashboard() {
                 <button class="btn-ghost sm" disabled={acting === p.slug} onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>
                   {acting === p.slug ? '…' : p.status === 'running' ? 'Stop' : 'Start'}
                 </button>
-                <button class="btn-ghost sm" onClick={(e) => openPreview(e, p)}>
-                  <FolderOpen width={13} height={13} class="icon" /> Preview
-                </button>
-                <button class="btn-ghost sm" onClick={(e) => { e.stopPropagation(); setLocation(`/project/${p.slug}`); }}>
+                <button class="btn-ghost sm" onClick={(e) => openProject(e, p)}>
                   Open <ChevronRight width={13} height={13} class="icon" />
                 </button>
               </div>
@@ -378,19 +443,40 @@ export function Dashboard() {
         </div>
       )}
 
+      {/* ── System Footer ─────────────────────────────────── */}
       <div class="dash-system-footer">
         <div class="dash-system-item">
           <span>Server</span>
-          <span class="dash-system-val">v{info?.version || '…'}</span>
+          <span class="dash-system-val">BETA {info?.version || '…'}</span>
         </div>
-        <div class="dash-system-item">
-          <span>LAN IP</span>
-          <span class="dash-system-val">{info?.lanIp || '—'}</span>
-        </div>
-        <div class="dash-system-item">
-          <span>Tailscale</span>
-          <span class="dash-system-val">{info?.tailscaleIp || '—'}</span>
-        </div>
+        {info && (
+          <>
+            <div class="dash-system-item">
+              <span>Host</span>
+              <span class="dash-system-val">{info.hostCpu} CPU · {formatMemBytes(info.hostMemBytes)}</span>
+            </div>
+            <div class="dash-system-item">
+              <span>Up</span>
+              <span class="dash-system-val">{formatUptime(info.uptime)}</span>
+            </div>
+            <div class="dash-system-item">
+              <span>Port</span>
+              <span class="dash-system-val">:{info.basePort}</span>
+            </div>
+            {info.lanIp && (
+              <div class="dash-system-item">
+                <span>LAN</span>
+                <span class="dash-system-val">{info.lanIp}</span>
+              </div>
+            )}
+            {info.tailscaleIp && (
+              <div class="dash-system-item">
+                <span>Tailscale</span>
+                <span class="dash-system-val">{info.tailscaleIp}</span>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       <ConfirmModal

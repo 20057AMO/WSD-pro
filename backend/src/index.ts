@@ -35,7 +35,7 @@ import {
   HttpError,
   WORKSPACES_ROOT,
 } from './services/docker-manager';
-import { type ProjectLimits } from './services/project-limits';
+import { type ProjectLimits, getHostInfo } from './services/project-limits';
 import { startJanitor } from './services/workspace-janitor';
 import * as studio from './services/opencode-studio';
 import { listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile, renameWorkspacePath, deleteWorkspacePath, resolveProjectSubdir } from './services/workspace-files';
@@ -589,13 +589,17 @@ app.delete('/api/users/:userId', requireAdmin, userAdminLimiter, (req: any, res)
 });
 
 // ── Server info / networking ─────────────────────────────────
-app.get('/api/server/info', (_req, res) => {
+app.get('/api/server/info', async (_req, res) => {
   const ips = detectIp();
+  const host = await getHostInfo();
   res.json({
     version: '2.0.0-beta',
     lanIp: ips.lanIp,
     tailscaleIp: ips.tailscaleIp,
     basePort: PORT,
+    hostCpu: host.cpu,
+    hostMemBytes: host.memBytes,
+    uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
   });
 });

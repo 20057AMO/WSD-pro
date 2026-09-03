@@ -133,6 +133,9 @@ export interface ServerInfo {
   lanIp: string | null;
   tailscaleIp: string | null;
   basePort: number;
+  hostCpu: number;
+  hostMemBytes: number;
+  uptime: number;
   timestamp: string;
 }
 
