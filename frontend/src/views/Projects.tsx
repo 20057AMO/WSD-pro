@@ -75,6 +75,7 @@ export function Projects() {
   const [sortKey, setSortKey] = useState<SortKey>('created');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [view, setView] = useState<ViewMode>('cards');
+  const [page, setPage] = useState(0);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -306,6 +307,42 @@ export function Projects() {
     return list;
   }, [projects, filter, tagFilter, search, sortKey, sortDir]);
 
+  // Pagination — client-side slice of the already filtered+sorted array.
+  const PAGE_SIZE = 12;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const clampedPage = Math.min(page, pageCount - 1);
+  const pageItems = useMemo(
+    () => filtered.slice(clampedPage * PAGE_SIZE, (clampedPage + 1) * PAGE_SIZE),
+    [filtered, clampedPage],
+  );
+
+  // Keep the current page in range after a WS refresh/delete shrinks the list
+  // (background status patches never reset to page 1 — only deliberate
+  // filter/search/sort changes do, via setPage(0) at those controls).
+  useEffect(() => {
+    setPage((p) => Math.min(p, pageCount - 1));
+  }, [pageCount]);
+
+  // Collapse many pages to "1 … c-1 c c+1 … last" so the row stays compact.
+  const paginationNumbers = useMemo(() => {
+    return (current: number, count: number): (number | 'ellipsis')[] => {
+      if (count <= 7) return Array.from({ length: count }, (_, i) => i);
+      const nums: number[] = [0];
+      for (let p = current - 1; p <= current + 1; p++) {
+        if (p > 0 && p < count - 1) nums.push(p);
+      }
+      nums.push(count - 1);
+      const out: (number | 'ellipsis')[] = [];
+      let prev = -2;
+      for (const np of nums) {
+        if (typeof np === 'number' && np - prev > 1) out.push('ellipsis');
+        out.push(np);
+        prev = np;
+      }
+      return out.filter((v, i) => i === 0 || v !== out[i - 1]);
+    };
+  }, []);
+
   const toggleSelect = (slug: string) => {
     setSelected((cur) => {
       const next = new Set(cur);
@@ -315,6 +352,10 @@ export function Projects() {
     });
   };
 
+  // Select-all spans the ENTIRE filtered set across pages (bulk start/stop/
+  // delete always operate over everything matching the current filter, not
+  // just the visible page). The header checkbox .indeterminate communicates
+  // "some of the filtered set is selected" from any page.
   const selectAll = () => {
     if (filtered.every((p) => selected.has(p.slug))) {
       setSelected(new Set());
@@ -486,6 +527,7 @@ export function Projects() {
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir('asc'); }
+    setPage(0);
   };
 
   const handleSortSelect = (e: any) => {
@@ -496,6 +538,7 @@ export function Projects() {
     } else {
       setSortDir((d) => d === 'asc' ? 'desc' : 'asc');
     }
+    setPage(0);
   };
 
   const sortIcon = (key: SortKey) => sortKey === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '';
@@ -559,21 +602,21 @@ export function Projects() {
             class="modern-input proj-search"
             placeholder="Search projects…"
             value={search}
-            onInput={(e: any) => setSearch(e.target.value)}
+            onInput={(e: any) => { setSearch(e.target.value); setPage(0); }}
           />
-          <select class="modern-input chat-sel" value={filter} onChange={(e: any) => setFilter(e.target.value)}>
+          <select class="modern-input chat-sel" value={filter} onChange={(e: any) => { setFilter(e.target.value); setPage(0); }} aria-label="Filter by status">
             <option value="all">All</option>
             <option value="running">Running</option>
             <option value="stopped">Stopped</option>
             <option value="crashed">Crashed</option>
           </select>
-          <select class="modern-input chat-sel" value={sortKey} onChange={handleSortSelect}>
+          <select class="modern-input chat-sel" value={sortKey} onChange={handleSortSelect} aria-label="Sort projects">
             <option value="activity">Sort: Activity</option>
             <option value="created">Sort: Date</option>
             <option value="name">Sort: Name</option>
             <option value="status">Sort: Status</option>
           </select>
-          <button class="btn-ghost sm" onClick={() => setSortDir((d) => d === 'asc' ? 'desc' : 'asc')}>
+          <button class="btn-ghost sm" onClick={() => { setSortDir((d) => d === 'asc' ? 'desc' : 'asc'); setPage(0); }}>
             {sortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
           </button>
         </div>
@@ -587,7 +630,7 @@ export function Projects() {
         <div class="proj-tag-filter">
           <button
             class={`tag-chip ${tagFilter === null ? 'active' : ''}`}
-            onClick={() => setTagFilter(null)}
+            onClick={() => { setTagFilter(null); setPage(0); }}
           >
             All
           </button>
@@ -595,7 +638,7 @@ export function Projects() {
             <button
               class={`tag-chip ${tagFilter === t ? 'active' : ''}`}
               key={t}
-              onClick={() => setTagFilter(tagFilter === t ? null : t)}
+              onClick={() => { setTagFilter(tagFilter === t ? null : t); setPage(0); }}
             >
               {t}
             </button>
@@ -623,7 +666,7 @@ export function Projects() {
         </div>
       ) : view === 'cards' ? (
         <div class="projects-grid">
-          {filtered.map((p) => (
+          {pageItems.map((p) => (
             <div
               class={`project-card ${selected.has(p.slug) ? 'selected' : ''}`}
               key={p.slug}
@@ -635,9 +678,10 @@ export function Projects() {
                     type="checkbox"
                     checked={selected.has(p.slug)}
                     onChange={() => toggleSelect(p.slug)}
+                    aria-label={`Select ${p.name}`}
                   />
                 </label>
-                <h3>{p.name}</h3>
+                <h2>{p.name}</h2>
                 <span class={`status-badge ${p.status}`}>{p.status}</span>
                 {p.crash && <CrashBadge crash={p.crash} />}
                 {p.crash && (
@@ -690,7 +734,7 @@ export function Projects() {
             <thead>
               <tr>
                 <th class="proj-th-check">
-                  <input type="checkbox" ref={selectAllRef} checked={filtered.length > 0 && filtered.every((p) => selected.has(p.slug))} onChange={selectAll} />
+                  <input type="checkbox" ref={selectAllRef} checked={filtered.length > 0 && filtered.every((p) => selected.has(p.slug))} onChange={selectAll} aria-label="Select all projects" />
                 </th>
                 <th class="proj-th-sortable" onClick={() => toggleSort('name')}>Name{sortIcon('name')}</th>
                 <th>Status</th>
@@ -704,10 +748,10 @@ export function Projects() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => (
+              {pageItems.map((p) => (
                 <tr key={p.slug} class={selected.has(p.slug) ? 'selected' : ''} onClick={() => setLocation(`/project/${p.slug}`)}>
                   <td onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" checked={selected.has(p.slug)} onChange={() => toggleSelect(p.slug)} />
+                    <input type="checkbox" checked={selected.has(p.slug)} onChange={() => toggleSelect(p.slug)} aria-label={`Select ${p.name}`} />
                   </td>
                   <td class="proj-td-name">{p.name}</td>
                   <td><span class={`status-badge ${p.status}`}>{p.status}</span>{p.crash && <CrashBadge crash={p.crash} />}</td>
@@ -745,6 +789,44 @@ export function Projects() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {filtered.length > PAGE_SIZE && (
+        <div class="proj-pagination" aria-label="Projects pagination">
+          <button
+            class="btn-ghost sm"
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={clampedPage === 0}
+            aria-label="Previous page"
+          >
+            ‹
+          </button>
+          {paginationNumbers(clampedPage, pageCount).map((n, i) =>
+            n === 'ellipsis' ? (
+              <span class="proj-page-ellipsis" key={`e${i}`}>…</span>
+            ) : (
+              <button
+                class={`btn-ghost sm ${n === clampedPage ? 'active' : ''}`}
+                key={i}
+                onClick={() => setPage(n)}
+                aria-current={n === clampedPage ? 'page' : undefined}
+              >
+                {n + 1}
+              </button>
+            ),
+          )}
+          <button
+            class="btn-ghost sm"
+            onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            disabled={clampedPage === pageCount - 1}
+            aria-label="Next page"
+          >
+            ›
+          </button>
+          <span class="proj-page-info">
+            Showing {clampedPage * PAGE_SIZE + 1}–{Math.min(filtered.length, (clampedPage + 1) * PAGE_SIZE)} of {filtered.length}
+          </span>
         </div>
       )}
 

@@ -307,6 +307,12 @@ select.modern-input { appearance: none; cursor: pointer; }
 .proj-view-toggle { display: flex; gap: 4px; }
 .proj-view-toggle .btn-ghost.active { background: var(--panel-2); color: var(--text); border-color: var(--border); }
 
+.proj-pagination { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 18px; flex-wrap: wrap; }
+.proj-pagination .btn-ghost.sm.active { background: var(--panel-2); color: var(--text); border-color: var(--border); }
+.proj-pagination .proj-page-info { font-size: 0.72rem; color: var(--text-3); margin-left: 10px; white-space: nowrap; }
+.proj-pagination .proj-page-ellipsis { font-size: 0.8rem; color: var(--text-3); line-height: 1; }
+.proj-pagination button:disabled { opacity: 0.4; cursor: default; }
+
 .proj-bulk-bar {
   display: flex; align-items: center; gap: 10px; padding: 10px 16px;
   background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius);
@@ -330,7 +336,7 @@ select.modern-input { appearance: none; cursor: pointer; }
   text-transform: uppercase; letter-spacing: 0.04em;
 }
 .proj-table td { padding: 10px 14px; border-bottom: 1px solid var(--border-2); color: var(--text); }
-.proj-table tbody tr { cursor: pointer; transition: background 0.1s; }
+.proj-table tbody tr { cursor: pointer; transition: background 0.1s; contain: layout style; }
 .proj-table tbody tr:hover { background: var(--panel-2); }
 .proj-table tbody tr.selected { background: var(--panel-2); }
 .proj-table td:first-child { width: 40px; }
@@ -372,10 +378,11 @@ select.modern-input { appearance: none; cursor: pointer; }
   cursor: pointer;
   transition: border-color 0.15s, transform 0.12s, box-shadow 0.15s;
   position: relative;
+  contain: content;
 }
 .project-card:hover { border-color: var(--border-2); transform: translateY(-1px); box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
 .project-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.project-card h3 { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; }
+.project-card h2 { font-size: 1rem; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
 .status-badge {
   font-size: 0.64rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
   padding: 3px 9px; border-radius: 999px;

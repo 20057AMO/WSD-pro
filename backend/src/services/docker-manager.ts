@@ -423,7 +423,17 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
     WorkingDir: '/workspace',
   });
 
-  await container.start();
+  try {
+    await container.start();
+  } catch (err: any) {
+    if (err.message && err.message.includes('port is already allocated')) {
+      throw {
+        statusCode: 409,
+        message: 'One or more requested ports are already in use by another project or service.',
+      };
+    }
+    throw err;
+  }
 
   registerOpencodeProject(slug);
 
