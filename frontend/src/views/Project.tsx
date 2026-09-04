@@ -950,17 +950,27 @@ function OverviewPanel({
         </div>
 
         <div class="panel">
-          <div class="panel-title">Port health</div>
+          <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between">
+            <span>Port health</span>
+            {checks && checks.length > 0 && (
+              <span class="health-summary">
+                {checks.filter((k) => k.status === 'open').length}/{checks.length} open
+              </span>
+            )}
+          </div>
           {checks && checks.length > 0 ? (
             <div class="kv-list">
               {checks.map((c) => (
-                <div class="kv" key={c.port}>
-                  <span>
-                    <span class={`health-dot ${c.status}`} /> port {c.port} → {c.hostPort}
+                <div class="health-row" key={c.port}>
+                  <span class="health-row-port">
+                    <span class={`health-dot ${c.status}`} />
+                    <span class="mono">port {c.port}</span>
+                    <span class="health-arrow">→</span>
+                    <span class="mono host">{c.hostPort}</span>
                   </span>
-                  <b style={`color: ${c.status === 'open' ? 'var(--green)' : 'var(--red)'}`}>
-                    {c.status === 'open' ? `HTTP ${c.httpCode}` : c.status} · {c.ms}ms
-                  </b>
+                  <span class={`health-chip ${c.status}`}>
+                    {c.status === 'open' ? `HTTP ${c.httpCode} · ${c.ms}ms` : c.status}
+                  </span>
                 </div>
               ))}
             </div>

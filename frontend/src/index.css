@@ -1064,6 +1064,9 @@ textarea.agent-prompt-input {
   .ov-field { flex-direction: column; align-items: stretch; }
   .ov-field .modern-input { width: 100%; }
   .ov-stat-grid { grid-template-columns: 1fr 1fr; }
+  .health-row { align-items: flex-start; flex-wrap: wrap; }
+  .health-row-port { flex-wrap: wrap; row-gap: 4px; }
+  .health-chip { margin-left: auto; }
   .btn-row > .btn-primary, .btn-row > .btn-ghost, .btn-row > .btn-danger { flex: 1 1 100%; }
   .detail-topbar { flex-direction: column; align-items: stretch; gap: 12px; }
   .detail-topbar > .btn-ghost { align-self: flex-start; }
@@ -1133,6 +1136,18 @@ textarea.agent-prompt-input {
 .health-dot.refused { background: var(--red); }
 .health-dot.timeout { background: #eab308; }
 .health-dot.error { background: var(--text-3); }
+
+.health-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-2); }
+.health-row-port { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-2); font-size: 0.78rem; }
+.health-row-port .mono { white-space: nowrap; }
+.health-row-port .host { color: var(--text-3); }
+.health-arrow { color: var(--text-3); }
+.health-chip { flex-shrink: 0; font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid; }
+.health-chip.open { color: var(--green); border-color: color-mix(in srgb, var(--green) 35%, transparent); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.health-chip.refused { color: var(--red); border-color: color-mix(in srgb, var(--red) 35%, transparent); background: color-mix(in srgb, var(--red) 12%, transparent); }
+.health-chip.timeout { color: #eab308; border-color: color-mix(in srgb, #eab308 35%, transparent); background: color-mix(in srgb, #eab308 12%, transparent); }
+.health-chip.error { color: var(--text-2); border-color: color-mix(in srgb, var(--text-2) 35%, transparent); background: color-mix(in srgb, var(--text-2) 10%, transparent); }
+.health-summary { font-size: 0.7rem; font-weight: 600; color: var(--text-2); text-transform: none; letter-spacing: 0; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-2); }
 
 .ctx-preview {
   max-height: 180px; overflow: auto;
