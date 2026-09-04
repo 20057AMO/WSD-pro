@@ -1229,20 +1229,21 @@ function OverviewPanel({
 
       <div class="panel danger-zone">
         <div class="panel-title" style="color: var(--red)">Danger zone</div>
-        <div class="kv" style="align-items:center">
-          <span>Deletes the container and permanently removes its workspace files from disk.</span>
-          <div style="display:flex; gap:8px; align-items:center">
-            <input
-              class="modern-input"
-              style="width: 180px"
-              placeholder={`type '${slug}' to confirm`}
-              value={confirmText}
-              onInput={(e: any) => setConfirmText(e.target.value)}
-            />
-            <button class="btn-danger sm" onClick={doDelete} disabled={confirmText !== slug || deleting}>
-              {deleting ? 'Deleting…' : 'Delete project'}
-            </button>
-          </div>
+        <div class="danger-desc">
+          <TriangleAlert width={14} height={14} class="icon" />
+          <span>Deletes the container and permanently removes its workspace files from disk on the server.</span>
+        </div>
+        <div class="danger-confirm">
+          <input
+            class="modern-input"
+            placeholder={`type '${slug}' to confirm`}
+            value={confirmText}
+            onInput={(e: any) => setConfirmText(e.target.value)}
+          />
+          <button class="btn-danger sm" onClick={doDelete} disabled={confirmText !== slug || deleting}>
+            {deleting ? <Loader2 width={12} height={12} class="icon spin" /> : null}
+            {deleting ? 'Deleting…' : 'Delete project'}
+          </button>
         </div>
       </div>
 

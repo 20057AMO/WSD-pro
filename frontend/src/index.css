@@ -1051,8 +1051,9 @@ textarea.agent-prompt-input {
   .studio-body { flex-direction: column !important; }
   .studio-list { width: 100% !important; max-height: 200px; border-right: none !important; }
   .team-row { flex-wrap: wrap; }
-  .danger-zone .kv { flex-wrap: wrap; }
-  .danger-zone .kv input { flex: 1 1 100%; width: 100% !important; }
+  .danger-zone .danger-confirm { flex-direction: column; align-items: stretch; }
+  .danger-zone .danger-confirm .modern-input { width: 100%; }
+  .danger-zone .danger-confirm .btn-danger { justify-content: center; }
   .agents-sidebar { padding-right: 12px; }
   .empty-state { box-sizing: border-box; max-width: 100%; }
   
@@ -1168,11 +1169,12 @@ textarea.agent-prompt-input {
   color: var(--text-2);
 }
 
-.activity-list { display: flex; flex-direction: column; gap: 8px; }
-.activity-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.74rem; }
+.activity-list { display: flex; flex-direction: column; }
+.activity-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.74rem; padding: 9px 4px; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
+.activity-row:last-child { border-bottom: none; padding-bottom: 4px; }
 .activity-dot-wrap { display: flex; align-items: center; gap: 8px; overflow: hidden; }
 .activity-dot {
-  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
   background: var(--text-3);
 }
 .activity-dot.created { background: var(--blue); }
@@ -1184,6 +1186,10 @@ textarea.agent-prompt-input {
 .activity-at { color: var(--text-3); flex-shrink: 0; margin-left: 10px; }
 
 .danger-zone { border-color: rgba(248,81,73,0.3); }
+.danger-desc { display: flex; align-items: flex-start; gap: 8px; color: var(--text-2); font-size: 0.78rem; line-height: 1.5; }
+.danger-desc .icon { flex-shrink: 0; margin-top: 2px; color: var(--red); }
+.danger-confirm { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.danger-confirm .modern-input { flex: 1; min-width: 0; width: auto; }
 
 /* ── Overview (refined, mobile-first) ─────────────────────── */
 .ov-stack { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
