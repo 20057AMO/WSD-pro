@@ -1047,6 +1047,7 @@ function OverviewPanel({
               <select
                 class="modern-input mono"
                 style="max-width:120px"
+                aria-label="Static site port"
                 value={project.serve?.enabled ? project.serve.port : servePort ?? project.serve?.port ?? project.ports[0]}
                 disabled={project.serve?.enabled}
                 onChange={(e: any) => setServePort(Number(e.target.value))}

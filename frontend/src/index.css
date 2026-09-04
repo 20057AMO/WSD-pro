@@ -686,7 +686,7 @@ select.modern-input { appearance: none; cursor: pointer; }
   transition: border-color 0.15s;
 }
 .port-link:hover { border-color: var(--blue); }
-.port-link .p-label { color: var(--text-3); font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.port-link .p-label { color: #a1a5ae; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .port-link .p-val { color: var(--blue); }
 
 
@@ -1532,11 +1532,11 @@ textarea.agent-prompt-input {
   margin: 6px 0 12px; line-height: 1.5;
 }
 
-.tag-chip {
+span.tag-chip {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 2px 6px; border-radius: 4px;
   background: color-mix(in srgb, var(--accent, #6ea8fe) 15%, transparent);
-  color: var(--accent, #6ea8fe);
+  color: #c7ccd5;
   font-size: 0.72rem; font-weight: 500;
   border: 1px solid color-mix(in srgb, var(--accent, #6ea8fe) 30%, transparent);
 }
@@ -1552,7 +1552,7 @@ button.tag-chip.active {
 }
 .tag-remove:hover { opacity: 1; color: var(--red); }
 
-.project-tags .tag-chip { font-size: 0.65rem; opacity: 0.8; }
+.project-tags .tag-chip { font-size: 0.65rem; }
 
 /* ── Project tag filter row ── */
 .proj-tag-filter {
@@ -1959,7 +1959,7 @@ input[type="file"].modern-file::file-selector-button {
 
 .presence-count {
   font-size: 0.75rem;
-  color: #6b6d74;
+  color: #92959e;
   margin-left: 2px;
 }
 
