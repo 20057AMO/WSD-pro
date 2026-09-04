@@ -508,6 +508,9 @@ function OverviewPanel({
   const [deleting, setDeleting] = useState(false);
   const [confirmRecreate, setConfirmRecreate] = useState(false);
 
+  // Which config section is currently in edit mode (view/edit pattern).
+  const [editSection, setEditSection] = useState<'env' | 'ports' | 'limits' | null>(null);
+
   const visible = useDocumentVisible();
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
@@ -820,7 +823,7 @@ function OverviewPanel({
   };
 
   return (
-    <div class="overview-stack">
+    <div class="overview-stack overview">
       <div class="overview-grid">
         <div class="panel">
           <div class="panel-title">Project info</div>
@@ -900,12 +903,18 @@ function OverviewPanel({
         <div class="panel">
           <div class="panel-title">Runtime</div>
           {effectiveStats?.running ? (
-            <div class="kv-list">
-              <div class="kv"><span>CPU</span><b>{effectiveStats.cpuPct}%</b></div>
-              <div class="stat-bar"><div class="stat-fill" style={`width: ${Math.min(100, effectiveStats.cpuPct)}%`} /></div>
-              <div class="kv"><span>Memory</span><b>{fmtBytes(effectiveStats.memBytes)} / {fmtBytes(effectiveStats.memLimit)}</b></div>
-              <div class="stat-bar"><div class="stat-fill" style={`width: ${Math.min(100, effectiveStats.memPct)}%`} /></div>
-              <div class="kv"><span>Mem %</span><b>{effectiveStats.memPct}%</b></div>
+            <div class="ov-stat-grid">
+              <div class="ov-stat">
+                <div class="ov-stat-label">CPU</div>
+                <div class="ov-stat-value">{effectiveStats.cpuPct}%</div>
+                <div class="stat-bar" style="margin-top:8px"><div class="stat-fill" style={`width: ${Math.min(100, effectiveStats.cpuPct)}%`} /></div>
+              </div>
+              <div class="ov-stat">
+                <div class="ov-stat-label">Memory</div>
+                <div class="ov-stat-value">{fmtBytes(effectiveStats.memBytes)}</div>
+                <div class="ov-stat-sub">of {fmtBytes(effectiveStats.memLimit)} · {effectiveStats.memPct}%</div>
+                <div class="stat-bar" style="margin-top:8px"><div class="stat-fill" style={`width: ${Math.min(100, effectiveStats.memPct)}%`} /></div>
+              </div>
             </div>
           ) : (
             <div class="empty-state" style="padding: 24px">Project is {project?.status || 'unknown'}. Start it to see runtime stats.</div>
@@ -963,142 +972,210 @@ function OverviewPanel({
         </div>
       </div>
 
-      <div class="overview-grid">
+      <div class="ov-stack">
         <div class="panel">
-          <div class="panel-title">Clone from git</div>
-          <div style="display:flex; gap:8px">
-            <input
-              class="modern-input"
-              style="flex:1"
-              placeholder="https://github.com/org/repo.git"
-              value={cloneUrl}
-              onInput={(e: any) => setCloneUrl(e.target.value)}
-              onKeyDown={(e: any) => e.key === 'Enter' && doClone()}
-            />
-            <button class="btn-primary sm" onClick={doClone} disabled={cloning || !cloneUrl.trim()}>
-              {cloning ? 'Cloning…' : 'Clone'}
-            </button>
-          </div>
-          {cloneMsg && <div class="terminal-line" style="margin-top:8px">{cloneMsg}</div>}
-          <div class="panel-title" style="margin-top:22px">Environment variables</div>
-          <textarea
-            class="modern-input mono"
-            style="width:100%; resize:vertical; min-height:96px"
-            placeholder="KEY=VALUE (one per line)"
-            value={envText}
-            onInput={(e: any) => setEnvText(e.target.value)}
-          />
-          <div class="panel-title" style="margin-top:22px">Published ports</div>
-          <input
-            class="modern-input mono"
-            style="width:100%"
-            placeholder="e.g. 8000, 8080 — blank unpublishes all"
-            value={portsText}
-            ref={portsInputRef}
-            onInput={(e: any) => setPortsText(e.target.value)}
-            onKeyDown={(e: any) => e.key === 'Enter' && savePorts()}
-          />
-          <div style="display:flex; gap:8px; margin-top:10px; align-items:center">
-            <button class="btn-ghost sm" onClick={savePorts} disabled={savingPorts}>
-              {savingPorts ? 'Saving…' : 'Save ports'}
-            </button>
-            {portsMsg && <span class="dim" style="color: var(--text-3); font-size:0.74rem">{portsMsg}</span>}
-          </div>
-          <div class="panel-title" style="margin-top:22px">Resource limits</div>
-          <div style="display:flex; gap:8px; flex-wrap:wrap">
-            <input
-              class="modern-input mono"
-              style="flex:1; min-width:120px"
-              placeholder="CPU e.g. 2 or 500m — blank = no limit"
-              value={cpuText}
-              ref={cpuInputRef}
-              onInput={(e: any) => setCpuText(e.target.value)}
-              onKeyDown={(e: any) => e.key === 'Enter' && saveLimits()}
-            />
-            <input
-              class="modern-input mono"
-              style="flex:1; min-width:120px"
-              placeholder="Memory e.g. 512Mi or 1Gi — blank = no limit"
-              value={memText}
-              ref={memInputRef}
-              onInput={(e: any) => setMemText(e.target.value)}
-              onKeyDown={(e: any) => e.key === 'Enter' && saveLimits()}
-            />
-          </div>
-          <div style="display:flex; gap:8px; margin-top:10px; align-items:center; flex-wrap:wrap">
-            <button class="btn-ghost sm" onClick={saveLimits} disabled={savingLimits}>
-              {savingLimits ? 'Saving…' : 'Save limits'}
-            </button>
-            {limitsPending(project) && (
-              <span class="dim" style="color: var(--amber, #eab308); font-size:0.74rem">
-                Pending — container still runs on {fmtCpu(project?.liveLimits?.cpu) || 'no CPU limit'}
-                {project?.liveLimits?.memory ? ` / ${fmtMem(project.liveLimits.memory)}` : ' / no memory limit'}.
-                Recreate to apply.
-              </span>
-            )}
-            {!limitsPending(project) && limitsMsg && (
-              <span class="dim" style="color: var(--text-3); font-size:0.74rem">{limitsMsg}</span>
-            )}
-          </div>
-          {project && project.ports && project.ports.length > 0 && (
-            <>
-            <div class="panel-title" style="margin-top:22px">Static site</div>
-            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-              <select
-                class="modern-input mono"
-                style="max-width:120px"
-                aria-label="Static site port"
-                value={project.serve?.enabled ? project.serve.port : servePort ?? project.serve?.port ?? project.ports[0]}
-                disabled={project.serve?.enabled}
-                onChange={(e: any) => setServePort(Number(e.target.value))}
-              >
-                {project.ports.map((p) => (
-                  <option key={p} value={p}>:{p}</option>
-                ))}
-              </select>
-              <span
-                class={`serve-dot ${project.serve?.active ? 'on' : project.serve?.enabled && project.serve?.error ? 'err' : ''}`}
-                title={project.serve?.enabled ? (project.serve?.active ? 'Serving' : project.serve?.error ? 'Serve error' : 'Enabled') : 'Not serving'}
+          <div class="panel-title">Configuration</div>
+
+          <div class="ov-section">
+            <div class="ov-section-label">Clone from git</div>
+            <div class="ov-section-desc">Pull an existing repository into the workspace.</div>
+            <div class="ov-field">
+              <input
+                class="modern-input"
+                style="flex:1"
+                placeholder="https://github.com/org/repo.git"
+                value={cloneUrl}
+                onInput={(e: any) => setCloneUrl(e.target.value)}
+                onKeyDown={(e: any) => e.key === 'Enter' && doClone()}
               />
-              {project.serve?.enabled && (
-                <>
-                  {serveUrl && (
-                    <a class="port-link" style="flex:1; min-width:0" href={serveUrl} target="_blank" rel="noreferrer">
-                      <span class="p-val">{serveUrl}</span>
-                    </a>
-                  )}
+              <button class="btn-primary sm" onClick={doClone} disabled={cloning || !cloneUrl.trim()}>
+                {cloning ? 'Cloning…' : 'Clone'}
+              </button>
+            </div>
+            {cloneMsg && <div class="terminal-line">{cloneMsg}</div>}
+          </div>
+
+          <div class="ov-section">
+            <div class="ov-section-label">Environment variables</div>
+            {editSection === 'env' ? (
+              <>
+                <textarea
+                  class="modern-input mono"
+                  style="width:100%; resize:vertical; min-height:96px"
+                  placeholder="KEY=VALUE (one per line)"
+                  value={envText}
+                  onInput={(e: any) => setEnvText(e.target.value)}
+                />
+                <div class="ov-row-actions">
+                  <button class="btn-primary sm" onClick={saveEnv}>Save env</button>
+                  <button class="btn-ghost sm" onClick={() => setEditSection(null)}>Cancel</button>
+                  {envMsg && <span class="dim" style="color: var(--text-3)">{envMsg}</span>}
+                </div>
+              </>
+            ) : (
+              <>
+                {Object.keys(project?.env || {}).length > 0 ? (
+                  <div class="ov-env-view">
+                    {Object.entries(project?.env || {}).map(([k, v]) => (
+                      <span class="ov-env-chip" key={k}>{k}={v}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <div class="ov-value ov-value-empty">No environment variables set.</div>
+                )}
+                <div class="ov-row-actions">
+                  <button class="btn-ghost sm" onClick={() => setEditSection('env')}>Edit</button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div class="ov-section">
+            <div class="ov-section-label">Published ports</div>
+            {editSection === 'ports' ? (
+              <>
+                <div class="ov-field">
+                  <input
+                    class="modern-input mono"
+                    style="flex:1"
+                    placeholder="e.g. 8000, 8080 — blank unpublishes all"
+                    value={portsText}
+                    ref={portsInputRef}
+                    onInput={(e: any) => setPortsText(e.target.value)}
+                    onKeyDown={(e: any) => e.key === 'Enter' && savePorts()}
+                  />
+                </div>
+                <div class="ov-row-actions">
+                  <button class="btn-ghost sm" onClick={savePorts} disabled={savingPorts}>
+                    {savingPorts ? 'Saving…' : 'Save ports'}
+                  </button>
+                  <button class="btn-ghost sm" onClick={() => setEditSection(null)}>Cancel</button>
+                  {portsMsg && <span class="dim" style="color: var(--text-3)">{portsMsg}</span>}
+                </div>
+              </>
+            ) : (
+              <>
+                <div class="ov-value">
+                  {project?.ports && project.ports.length > 0 ? project.ports.join(', ') : <span class="ov-value-empty">No published ports.</span>}
+                </div>
+                <div class="ov-row-actions">
+                  <button class="btn-ghost sm" onClick={() => setEditSection('ports')}>Edit</button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <div class="ov-section">
+            <div class="ov-section-label">Resource limits</div>
+            {editSection === 'limits' ? (
+              <>
+                <div class="ov-field">
+                  <input
+                    class="modern-input mono"
+                    style="flex:1; min-width:120px"
+                    placeholder="CPU e.g. 2 or 500m — blank = no limit"
+                    value={cpuText}
+                    ref={cpuInputRef}
+                    onInput={(e: any) => setCpuText(e.target.value)}
+                    onKeyDown={(e: any) => e.key === 'Enter' && saveLimits()}
+                  />
+                  <input
+                    class="modern-input mono"
+                    style="flex:1; min-width:120px"
+                    placeholder="Memory e.g. 512Mi or 1Gi — blank = no limit"
+                    value={memText}
+                    ref={memInputRef}
+                    onInput={(e: any) => setMemText(e.target.value)}
+                    onKeyDown={(e: any) => e.key === 'Enter' && saveLimits()}
+                  />
+                </div>
+                <div class="ov-row-actions">
+                  <button class="btn-ghost sm" onClick={saveLimits} disabled={savingLimits}>
+                    {savingLimits ? 'Saving…' : 'Save limits'}
+                  </button>
+                  <button class="btn-ghost sm" onClick={() => setEditSection(null)}>Cancel</button>
+                  {!limitsPending(project) && limitsMsg && <span class="dim" style="color: var(--text-3)">{limitsMsg}</span>}
+                </div>
+              </>
+            ) : (
+              <>
+                <div class="ov-value">
+                  {project?.limits?.cpu || project?.limits?.memory
+                    ? `${project.limits.cpu ? `CPU ${project.limits.cpu}` : 'no CPU'}${project.limits.memory ? ` · RAM ${fmtMem(project.limits.memory)}` : ' · no memory'}`
+                    : <span class="ov-value-empty">No resource limits set.</span>}
+                </div>
+                {limitsPending(project) && (
+                  <div class="ov-pending">
+                    <Loader2 width={13} height={13} class="icon spin" />
+                    Pending — container still runs on {fmtCpu(project?.liveLimits?.cpu) || 'no CPU limit'}
+                    {project?.liveLimits?.memory ? ` / ${fmtMem(project.liveLimits.memory)}` : ' / no memory limit'}. Recreate to apply.
+                  </div>
+                )}
+                <div class="ov-row-actions">
+                  <button class="btn-ghost sm" onClick={() => setEditSection('limits')}>Edit</button>
+                </div>
+              </>
+            )}
+          </div>
+
+          {project && project.ports && project.ports.length > 0 && (
+            <div class="ov-section">
+              <div class="ov-section-label">Static site</div>
+              <div class="ov-field">
+                <select
+                  class="modern-input mono"
+                  style="max-width:120px"
+                  aria-label="Static site port"
+                  value={project.serve?.enabled ? project.serve.port : servePort ?? project.serve?.port ?? project.ports[0]}
+                  disabled={project.serve?.enabled}
+                  onChange={(e: any) => setServePort(Number(e.target.value))}
+                >
+                  {project.ports.map((p) => (
+                    <option key={p} value={p}>:{p}</option>
+                  ))}
+                </select>
+                <span
+                  class={`serve-dot ${project.serve?.active ? 'on' : project.serve?.enabled && project.serve?.error ? 'err' : ''}`}
+                  title={project.serve?.enabled ? (project.serve?.active ? 'Serving' : project.serve?.error ? 'Serve error' : 'Enabled') : 'Not serving'}
+                />
+                {project.serve?.enabled && serveUrl && (
+                  <a class="port-link" style="flex:1; min-width:0" href={serveUrl} target="_blank" rel="noreferrer">
+                    <span class="p-val">{serveUrl}</span>
+                  </a>
+                )}
+                {project.serve?.enabled && (
                   <button class="btn-ghost sm" title="Copy URL" onClick={copyServeUrl}>
                     <Copy width={12} height={12} class="icon" />{serveCopied ? 'Copied' : 'Copy'}
                   </button>
-                </>
-              )}
-            </div>
-            {readOnly ? (
-              project.serve?.enabled && (
-                <div class="dim" style="font-size:0.74rem; margin-top:6px">Serving on :{project.serve.port}</div>
-              )
-            ) : (
-              <div style="display:flex; gap:8px; margin-top:10px; align-items:center">
-                <button class="btn-ghost sm" onClick={toggleServe} disabled={serving || project.status !== 'running'}>
-                  {serving
-                    ? <Loader2 width={12} height={12} class="icon spin" />
-                    : project.serve?.enabled
-                      ? 'Stop serving'
-                      : 'Serve static site'}
-                </button>
-                {project.status !== 'running' && (
-                  <span class="dim" style="color: var(--text-3); font-size:0.74rem">Start the project first.</span>
                 )}
               </div>
-            )}
-            </>
+              {readOnly ? (
+                project.serve?.enabled && <div class="dim" style="font-size:0.74rem">Serving on :{project.serve.port}</div>
+              ) : (
+                <div class="ov-row-actions">
+                  <button class="btn-ghost sm" onClick={toggleServe} disabled={serving || project.status !== 'running'}>
+                    {serving
+                      ? <Loader2 width={12} height={12} class="icon spin" />
+                      : project.serve?.enabled
+                        ? 'Stop serving'
+                        : 'Serve static site'}
+                  </button>
+                  {project.status !== 'running' && (
+                    <span class="dim" style="color: var(--text-3)">Start the project first.</span>
+                  )}
+                </div>
+              )}
+            </div>
           )}
-          <div style="display:flex; gap:8px; margin-top:10px; align-items:center">
-            <button class="btn-primary sm" onClick={saveEnv}>Save env</button>
-            <button class="btn-ghost sm" onClick={requestRecreate} disabled={recreating}>
-              {recreating ? 'Recreating…' : 'Recreate container'}
-            </button>
-            {envMsg && <span class="dim" style="color: var(--text-3); font-size:0.74rem">{envMsg}</span>}
+
+          <div class="ov-section">
+            <div class="ov-section-label">Container actions</div>
+            <div class="ov-row-actions">
+              <button class="btn-ghost sm" onClick={requestRecreate} disabled={recreating}>
+                {recreating ? 'Recreating…' : 'Recreate container'}
+              </button>
+              {envMsg && <span class="dim" style="color: var(--text-3)">{envMsg}</span>}
+            </div>
           </div>
         </div>
 

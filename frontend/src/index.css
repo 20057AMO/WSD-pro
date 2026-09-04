@@ -1058,6 +1058,16 @@ textarea.agent-prompt-input {
   /* Prevent iOS input zoom and improve touch targets */
   input, textarea, select { font-size: 16px !important; }
   button, .btn-ghost, .btn-primary, .btn-danger, .btn-secondary { min-height: 44px; }
+
+  /* Overview: collapse to a clean single column on phones */
+  .ov-stack { grid-template-columns: 1fr; gap: 14px; }
+  .ov-field { flex-direction: column; align-items: stretch; }
+  .ov-field .modern-input { width: 100%; }
+  .ov-stat-grid { grid-template-columns: 1fr 1fr; }
+  .btn-row > .btn-primary, .btn-row > .btn-ghost, .btn-row > .btn-danger { flex: 1 1 100%; }
+  .detail-topbar { flex-wrap: wrap; }
+  .detail-actions { width: 100%; }
+  .detail-actions .btn-ghost, .detail-actions .btn-primary, .detail-actions .btn-danger { flex: 1 1 auto; }
 }
 
 
@@ -1145,6 +1155,71 @@ textarea.agent-prompt-input {
 .activity-at { color: var(--text-3); flex-shrink: 0; margin-left: 10px; }
 
 .danger-zone { border-color: rgba(248,81,73,0.3); }
+
+/* ── Overview (refined, mobile-first) ─────────────────────── */
+.ov-stack { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.ov-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-bottom: 12px;
+}
+.ov-head .panel-title { margin-bottom: 0; }
+.ov-head-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ov-kindshelf { display: flex; flex-direction: column; gap: 0; }
+/* sub-section divider: a labeled block inside one config surface, not a nested card */
+.ov-section { display: flex; flex-direction: column; gap: 8px; padding-top: 14px; }
+.ov-section + .ov-section { border-top: 1px solid var(--border); margin-top: 4px; }
+.ov-section-label {
+  font-size: 0.76rem; font-weight: 600; letter-spacing: 0.02em;
+  color: var(--text); display: flex; align-items: center; gap: 6px;
+}
+.ov-section-label .dim { color: var(--text-3); font-weight: 400; }
+.ov-section-desc { font-size: 0.72rem; color: var(--text-3); line-height: 1.45; }
+.ov-field { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ov-field .modern-input { flex: 1; min-width: 0; }
+.ov-value {
+  font-family: var(--mono); font-size: 0.8rem; color: var(--text-2);
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 7px 10px;
+  min-height: 34px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  word-break: break-word;
+}
+.ov-value-empty { color: var(--text-3); font-style: italic; }
+.ov-env-view { display: flex; flex-wrap: wrap; gap: 6px; }
+.ov-env-chip {
+  font-family: var(--mono); font-size: 0.7rem; color: var(--text-2);
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px 8px; word-break: break-all;
+}
+.ov-row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ov-pending {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.72rem; color: var(--amber, #eab308); font-weight: 500;
+}
+.ov-pending .icon { width: 13px; height: 13px; }
+/* stat card */
+.ov-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ov-stat {
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 12px;
+}
+.ov-stat-label { font-size: 0.66rem; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.ov-stat-value { font-size: 1.05rem; font-weight: 700; color: var(--text); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.ov-stat-sub { font-size: 0.7rem; color: var(--text-2); margin-top: 2px; }
+/* action buttons cluster */
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-row > .btn-primary, .btn-row > .btn-ghost, .btn-row > .btn-danger { margin: 0; }
+
+/* touch-friendly controls everywhere on the overview (also applies on phones) */
+.overview .modern-input, .overview textarea, .overview select { font-size: 0.85rem; }
+
+/* browser-surface dressing: focus rings + scrollbar, themed from the palette */
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 4px; }
+* { scrollbar-width: thin; scrollbar-color: var(--border-2) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-track { background: transparent; }
+::selection { background: rgba(88,166,255,0.3); }
+
 
 /* Files tab */
 .files-panel { display: flex; flex-direction: column; gap: 10px; }
