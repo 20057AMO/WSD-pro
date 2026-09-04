@@ -128,11 +128,17 @@ export function Planner() {
                 </div>
                 <div class="project-desc">{p.description || `Workspace ${p.slug}`}</div>
                 <div class="project-meta">
-                  <span class="meta-chip">{p.slug}</span>
-                  {p.hostPorts && Object.entries(p.hostPorts).map(([priv, pub]) => (
-                    <span class="meta-chip port" key={priv}>:{pub}</span>
-                  ))}
-                  {p.limits?.cpu && <span class="meta-chip" title="CPU limit">CPU {fmtCpu(p.limits.cpu)}</span>}
+                  {p.hostPorts && Object.keys(p.hostPorts).length > 0
+                    ? Object.entries(p.hostPorts).map(([priv, pub]) => (
+                      <span class="meta-chip port" key={priv}>:{pub}</span>
+                    ))
+                    : p.ports && p.ports.length > 0
+                      ? p.ports.map(port => (
+                        <span class="meta-chip port" key={String(port)}>:{port}</span>
+                      ))
+                      : <span class="meta-chip">{p.slug}</span>
+                  }
+                  {p.limits?.cpu && <span class="meta-chip" title="CPU limit">{fmtCpu(p.limits.cpu)}</span>}
                   {p.limits?.memory && <span class="meta-chip" title="Memory limit">RAM {fmtMem(p.limits.memory)}</span>}
                 </div>
                 <div class="card-footer planner-footer">

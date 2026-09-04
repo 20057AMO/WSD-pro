@@ -705,10 +705,15 @@ export function Projects() {
                     <Clock width={11} height={11} class="icon" /> {lastTouchedLabel(p)}
                   </span>
                 )}
-                {p.hostPorts && Object.entries(p.hostPorts).map(([priv, pub]) => (
-                  <span class="meta-chip port" key={priv}>:{pub}</span>
-                ))}
-                {p.limits?.cpu && <span class="meta-chip" title="CPU limit">CPU {fmtCpu(p.limits.cpu)}</span>}
+                {p.hostPorts && Object.keys(p.hostPorts).length > 0
+                  ? Object.entries(p.hostPorts).map(([priv, pub]) => (
+                    <span class="meta-chip port" key={priv}>:{pub}</span>
+                  ))
+                  : p.ports && p.ports.length > 0 && p.ports.map(port => (
+                    <span class="meta-chip port" key={String(port)}>:{port}</span>
+                  ))
+                }
+                {p.limits?.cpu && <span class="meta-chip" title="CPU limit">{fmtCpu(p.limits.cpu)}</span>}
                 {p.limits?.memory && <span class="meta-chip" title="Memory limit">RAM {fmtMem(p.limits.memory)}</span>}
                 {p.serve?.enabled && p.serve.port && (
                   <span class="meta-chip serve" title="Static site"><Globe width={11} height={11} class="icon" /> site :{p.serve.port}</span>
@@ -756,10 +761,15 @@ export function Projects() {
                   <td class="proj-td-name">{p.name}</td>
                   <td><span class={`status-badge ${p.status}`}>{p.status}</span>{p.crash && <CrashBadge crash={p.crash} />}</td>
                   <td class="proj-td-desc">{p.description || '—'}</td>
-                  <td>{p.hostPorts && Object.values(p.hostPorts).map((pub) => (
-                    <span class="meta-chip port" key={pub}>:{pub}</span>
-                  ))}
-                  {p.limits?.cpu && <span class="meta-chip" title="CPU limit">CPU {fmtCpu(p.limits.cpu)}</span>}
+                  <td>{p.hostPorts && Object.keys(p.hostPorts).length > 0
+                    ? Object.values(p.hostPorts).map((pub) => (
+                      <span class="meta-chip port" key={pub}>:{pub}</span>
+                    ))
+                    : p.ports && p.ports.length > 0 && p.ports.map(port => (
+                      <span class="meta-chip port" key={String(port)}>:{port}</span>
+                    ))
+                  }
+                  {p.limits?.cpu && <span class="meta-chip" title="CPU limit">{fmtCpu(p.limits.cpu)}</span>}
                   {p.limits?.memory && <span class="meta-chip" title="Memory limit">RAM {fmtMem(p.limits.memory)}</span>}
                   {p.serve?.enabled && p.serve.port && (
                     <span class="meta-chip serve" title="Static site"><Globe width={11} height={11} class="icon" /> site :{p.serve.port}</span>

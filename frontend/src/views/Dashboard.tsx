@@ -238,9 +238,6 @@ export function Dashboard() {
     e.stopPropagation();
     if (p.status === 'running' && p.serve?.enabled && p.serve.hostPort) {
       window.open(`http://${window.location.hostname}:${p.serve.hostPort}`, '_blank', 'noopener,noreferrer');
-    } else if (p.status === 'running' && p.hostPorts && Object.keys(p.hostPorts).length > 0) {
-      const hostPort = Object.values(p.hostPorts)[0];
-      window.open(`http://${window.location.hostname}:${hostPort}`, '_blank', 'noopener,noreferrer');
     } else {
       setLocation(`/project/${p.slug}`);
     }
@@ -267,6 +264,8 @@ export function Dashboard() {
   }
 
   const previewProjects = projects.slice(0, PROJECT_PREVIEW_LIMIT);
+  const runningCount = projects.filter(p => p.status === 'running').length;
+  const stoppedCount = projects.filter(p => p.status !== 'running').length;
 
   return (
     <div class="view">
@@ -299,11 +298,11 @@ export function Dashboard() {
             class="dash-restore-input"
             onChange={handleRestoreFile}
           />
-          <button class="qa-tile" onClick={handleStartAll} disabled={!!qaBusy}>
+          <button class="qa-tile" onClick={handleStartAll} disabled={!!qaBusy || stoppedCount === 0}>
             <Play width={18} height={18} class="icon" />
             <span>Start All</span>
           </button>
-          <button class="qa-tile" onClick={handleStopAll} disabled={!!qaBusy}>
+          <button class="qa-tile" onClick={handleStopAll} disabled={!!qaBusy || runningCount === 0}>
             <Square width={18} height={18} class="icon" />
             <span>Stop All</span>
           </button>
@@ -420,15 +419,20 @@ export function Dashboard() {
                 ))}
               </div>
               <div class="project-meta">
-                {p.hostPorts && Object.entries(p.hostPorts).map(([priv, pub]) => (
-                  <span class="meta-chip port" key={priv}>:{pub}</span>
-                ))}
-                {p.limits?.cpu && <span class="meta-chip" title="CPU limit">CPU {fmtCpu(p.limits.cpu)}</span>}
+                {p.hostPorts && Object.keys(p.hostPorts).length > 0
+                  ? Object.entries(p.hostPorts).map(([priv, pub]) => (
+                    <span class="meta-chip port" key={priv}>:{pub}</span>
+                  ))
+                  : p.ports && p.ports.length > 0 && p.ports.map(port => (
+                    <span class="meta-chip port" key={String(port)}>:{port}</span>
+                  ))
+                }
+                {p.limits?.cpu && <span class="meta-chip" title="CPU limit">{fmtCpu(p.limits.cpu)}</span>}
                 {p.limits?.memory && <span class="meta-chip" title="Memory limit">RAM {fmtMem(p.limits.memory)}</span>}
                 {p.serve?.enabled && p.serve.port && (
                   <span class="meta-chip serve" title="Static site"><Globe width={11} height={11} class="icon" /> site :{p.serve.port}</span>
                 )}
-                {(!p.hostPorts || Object.keys(p.hostPorts).length === 0) && !p.limits?.cpu && !p.limits?.memory && !p.serve?.enabled && <span class="meta-chip">{p.slug}</span>}
+                {(!p.hostPorts || Object.keys(p.hostPorts).length === 0) && (!p.ports || p.ports.length === 0) && !p.limits?.cpu && !p.limits?.memory && !p.serve?.enabled && <span class="meta-chip">{p.slug}</span>}
               </div>
               <div class="card-footer">
                 <button class="btn-ghost sm" disabled={acting === p.slug} onClick={(e) => handleAction(e, p.slug, p.status === 'running' ? 'stop' : 'start')}>
