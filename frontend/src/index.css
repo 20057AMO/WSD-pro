@@ -1033,8 +1033,9 @@ textarea.agent-prompt-input {
   .proj-search-row { width: 100%; }
   .proj-search { flex: 1; min-width: 0; max-width: none; }
   .detail-topbar { gap: 8px; }
-  .detail-tabs { overflow-x: auto; scrollbar-width: none; }
+  .detail-tabs { overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 18px), transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 10px, #000 calc(100% - 18px), transparent 100%); }
   .detail-tabs::-webkit-scrollbar { display: none; }
+  .detail-tabs .tab-btn { min-height: 44px; scroll-snap-align: start; padding: 12px 14px; -webkit-tap-highlight-color: transparent; }
   .presets-modal { min-width: 0; max-width: calc(100vw - 24px); }
   .modal-card, .unlock-card, .reauth-card { padding: 18px; }
   .modal-overlay { padding: 12px; }

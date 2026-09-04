@@ -232,6 +232,14 @@ export function Project({ params }: { params: { slug: string } }) {
       .catch(() => {});
   }, [slug]);
 
+  const tabsRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const bar = tabsRef.current;
+    if (!bar || window.innerWidth > 700) return;
+    const active = bar.querySelector<HTMLElement>('.tab-btn.active');
+    if (active) active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [tab]);
+
   useEffect(() => {
     getIdeStatus()
       .then(({ ide }) => setIdeRunning(ide.running))
@@ -420,7 +428,7 @@ export function Project({ params }: { params: { slug: string } }) {
         </div>
       )}
 
-      <div class="detail-tabs">
+      <div class="detail-tabs" ref={tabsRef}>
         {((['overview', 'chat', 'files', 'logs', 'notes', 'scripts', 'team', 'snapshots', 'canvas'] as Tab[])).map((t) => (
           <button class={`tab-btn ${tab === t ? 'active' : ''}`} key={t} onClick={() => setTab(t)}>
             {t === 'chat' ? 'AI Chat' : t === 'notes' ? 'Notes' : t === 'team' ? 'Team' : t === 'snapshots' ? 'Snapshots' : t === 'canvas' ? 'Canvas' : t.charAt(0).toUpperCase() + t.slice(1)}
