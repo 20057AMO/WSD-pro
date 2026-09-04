@@ -322,15 +322,18 @@ export function Project({ params }: { params: { slug: string } }) {
   const host = window.location.hostname;
   const portLinks = project?.hostPorts
     ? Object.entries(project.hostPorts).map(([priv, pub]) => {
-        const served = project?.serve?.enabled && Number(project.serve.port) === Number(priv);
+        const served = project?.serve?.enabled && project.serve?.hostPort && Number(project.serve.port) === Number(priv);
+        const url = served ? `http://${host}:${project.serve!.hostPort}` : `http://${host}:${pub}`;
         return (
-          <div key={priv} class="port-link-row">
-            <a class="port-link" href={`http://${host}:${pub}`} target="_blank" rel="noreferrer">
-              <span class="p-label">container {priv}</span>
-              <span class="p-val">{host}:{pub}</span>
+          <div key={priv} class={`port-link-row${served ? ' served' : ''}`}>
+            <a class="port-link" href={url} target="_blank" rel="noreferrer">
+              <span class="p-label">{served ? 'Served site' : `Port ${priv}`}</span>
+              <span class="p-val">{host}:{served ? project.serve?.hostPort : pub}</span>
             </a>
-            {served && <span class="served-badge"><Globe width={11} height={11} class="icon" /> Served</span>}
-            <button class="btn-ghost sm" title="Copy URL" onClick={() => copy(`http://${host}:${pub}`)}>Copy</button>
+            {served && <span class="served-badge"><Globe width={11} height={11} class="icon" /> Live</span>}
+            <button class="btn-ghost sm icon-only" aria-label="Copy URL" title="Copy URL" onClick={() => copy(url)}>
+              <Copy width={12} height={12} class="icon" />
+            </button>
           </div>
         );
       })
@@ -1159,9 +1162,7 @@ function OverviewPanel({
                   </button>
                 )}
               </div>
-              {readOnly ? (
-                project.serve?.enabled && <div class="dim" style="font-size:0.74rem">Serving on :{project.serve.port}</div>
-              ) : (
+              {!readOnly && (
                 <div class="ov-row-actions">
                   <button class="btn-ghost sm" onClick={toggleServe} disabled={serving || project.status !== 'running'}>
                     {serving
@@ -1172,6 +1173,15 @@ function OverviewPanel({
                   </button>
                   {project.status !== 'running' && (
                     <span class="dim" style="color: var(--text-3)">Start the project first.</span>
+                  )}
+                </div>
+              )}
+              {project.serve?.enabled && (
+                <div class="serve-status" style="margin-top:6px">
+                  {project.serve?.error ? (
+                    <span class="serve-msg err">Serve error — {project.serve.error}</span>
+                  ) : (
+                    <span class="serve-msg ok">Serving on port {project.serve.port}</span>
                   )}
                 </div>
               )}
