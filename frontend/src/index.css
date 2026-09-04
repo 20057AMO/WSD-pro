@@ -1065,9 +1065,12 @@ textarea.agent-prompt-input {
   .ov-field .modern-input { width: 100%; }
   .ov-stat-grid { grid-template-columns: 1fr 1fr; }
   .btn-row > .btn-primary, .btn-row > .btn-ghost, .btn-row > .btn-danger { flex: 1 1 100%; }
-  .detail-topbar { flex-wrap: wrap; }
-  .detail-actions { width: 100%; }
-  .detail-actions .btn-ghost, .detail-actions .btn-primary, .detail-actions .btn-danger { flex: 1 1 auto; }
+  .detail-topbar { flex-direction: column; align-items: stretch; gap: 12px; }
+  .detail-topbar > .btn-ghost { align-self: flex-start; }
+  .detail-title-wrap { width: 100%; }
+  .detail-avatar { width: 40px; height: 40px; border-radius: 10px; font-size: 1.05rem; }
+  .detail-actions { width: 100%; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .detail-actions .btn-ghost, .detail-actions .btn-primary, .detail-actions .btn-danger { width: 100%; justify-content: center; padding: 10px 8px; }
 }
 
 
