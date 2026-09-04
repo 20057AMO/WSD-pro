@@ -515,10 +515,7 @@ export function Projects() {
   const openProjectCard = (e: MouseEvent, p: Project) => {
     e.stopPropagation();
     if (p.status === 'running' && p.serve?.enabled && p.serve.hostPort) {
-      window.open(`http://${window.location.hostname}:${p.serve.hostPort}`, '_blank');
-    } else if (p.status === 'running' && p.hostPorts && Object.keys(p.hostPorts).length > 0) {
-      const hostPort = Object.values(p.hostPorts)[0];
-      window.open(`http://${window.location.hostname}:${hostPort}`, '_blank');
+      window.open(`http://${window.location.hostname}:${p.serve.hostPort}`, '_blank', 'noopener,noreferrer');
     } else {
       setLocation(`/project/${p.slug}`);
     }
@@ -649,9 +646,9 @@ export function Projects() {
       {selected.size > 0 && (
         <div class="proj-bulk-bar">
           <span>{selected.size} selected</span>
-          <button class="btn-ghost sm" onClick={() => bulkAction('start')}>▶ Start All</button>
-          <button class="btn-ghost sm" onClick={() => bulkAction('stop')}>⏹ Stop All</button>
-          <button class="btn-danger sm" onClick={() => bulkAction('delete')}>✕ Delete All</button>
+          <button class="btn-ghost sm" onClick={() => bulkAction('start')}>▶ Start Selected</button>
+          <button class="btn-ghost sm" onClick={() => bulkAction('stop')}>⏹ Stop Selected</button>
+          <button class="btn-danger sm" onClick={() => bulkAction('delete')}>✕ Delete Selected</button>
           <button class="btn-ghost sm" onClick={() => setSelected(new Set())}>Clear</button>
         </div>
       )}
