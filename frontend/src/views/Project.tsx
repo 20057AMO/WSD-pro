@@ -103,16 +103,6 @@ function fmtAction(action: string): string {
   }
 }
 
-const OV_SECTIONS = [
-  { key: 'info', label: 'Project info', id: 'ov-info' },
-  { key: 'runtime', label: 'Runtime', id: 'ov-runtime' },
-  { key: 'ctx', label: 'AI context', id: 'ov-ctx' },
-  { key: 'health', label: 'Port health', id: 'ov-health' },
-  { key: 'config', label: 'Configuration', id: 'ov-config' },
-  { key: 'activity', label: 'Activity', id: 'ov-activity' },
-  { key: 'danger', label: 'Danger zone', id: 'ov-danger' },
-] as const;
-
 export function Project({ params }: { params: { slug: string } }) {
   // wouter's :slug captures query strings too (hash routing), so strip `?tab=…`.
   const slug = (params.slug || '').split('?')[0];
@@ -337,26 +327,6 @@ export function Project({ params }: { params: { slug: string } }) {
     }
   };
 
-  const host = window.location.hostname;
-  const portLinks = project?.hostPorts
-    ? Object.entries(project.hostPorts).map(([priv, pub]) => {
-        const served = project?.serve?.active && project.serve?.hostPort && Number(project.serve.port) === Number(priv);
-        const url = served ? `http://${host}:${project.serve!.hostPort}` : `http://${host}:${pub}`;
-        return (
-          <div key={priv} class={`port-link-row${served ? ' served' : ''}`}>
-            <a class="port-link" href={url} target="_blank" rel="noreferrer">
-              <span class="p-label">{served ? 'Served site' : `Port ${priv}`}</span>
-              <span class="p-val">{host}:{served ? project.serve?.hostPort : pub}</span>
-            </a>
-            {served && <span class="served-badge"><Globe width={11} height={11} class="icon" /> Live</span>}
-            <button class="btn-ghost sm icon-only" aria-label="Copy URL" title="Copy URL" onClick={() => copy(url)}>
-              <Copy width={12} height={12} class="icon" />
-            </button>
-          </div>
-        );
-      })
-    : [];
-
   return (
     <div class="view">
       {error && <div class="login-error" style="margin-bottom: 12px">{error}</div>}
@@ -367,17 +337,17 @@ export function Project({ params }: { params: { slug: string } }) {
         <div class="detail-title-wrap">
           <div class="detail-avatar">{(project?.name || '?').charAt(0).toUpperCase()}</div>
           <div>
-            <div class="detail-title">
+            <h1 class="detail-title">
               {project?.name || 'Loading…'}
-            </div>
+            </h1>
             <div class="detail-meta-line">
               <span class="detail-slug">{slug}</span>
               <button class="btn-ghost sm" style="padding: 1px 8px" onClick={() => copy(slug)}>copy</button>
               <span class={`status-badge ${project?.status || 'missing'}`}>{project?.status || '…'}</span>
               {project?.crash && <CrashBadge crash={project.crash} />}
-              {wsConnected && <span class="ws-live-dot" title="Live updates active" />}
+              {wsConnected && <span class="ws-live-dot" title="Live updates active" aria-label="Live updates active" />}
               {onlineUsers.length > 0 && (
-                <span class="presence-indicator" title={onlineUsers.map(u => u.username).join(', ')}>
+                <span class="presence-indicator" role="status" title={onlineUsers.map(u => u.username).join(', ')}>
                   {onlineUsers.map(u => (
                     <span class="presence-dot" key={u.id}>
                       <span class="presence-avatar">{u.username.charAt(0).toUpperCase()}</span>
@@ -392,13 +362,14 @@ export function Project({ params }: { params: { slug: string } }) {
         </div>
         <div class="detail-actions">
           <button class="btn-ghost sm" onClick={() => setTab('chat')}>Ask AI</button>
+          <button class="btn-ghost sm" onClick={() => setLocation(`/terminals/${slug}`)}>Terminals</button>
+          <button class="btn-ghost sm" onClick={openIde}><ExternalLink width={13} height={13} class="icon" /> Open IDE</button>
+          <span class="detail-action-sep" aria-hidden="true" />
           <button class="btn-ghost sm" onClick={handleExport} disabled={exporting || readOnly} title={readOnly ? 'Viewer — export requires editor access' : undefined}>
             <Download width={13} height={13} class="icon" /> {exporting ? 'Exporting…' : 'Export'}
           </button>
-          <button class="btn-ghost sm" onClick={() => setLocation(`/terminals/${slug}`)}>Terminals</button>
-          <button class="btn-ghost sm" onClick={openIde}><ExternalLink width={13} height={13} class="icon" /> Open IDE</button>
           <button
-            class="btn-ghost sm"
+            class={project?.status === 'running' ? 'btn-danger sm' : 'btn-primary sm'}
             onClick={() => (project?.status === 'running' ? handleStop() : handleStart())}
             disabled={readOnly}
             title={readOnly ? 'Viewer — start/stop requires editor access' : undefined}
@@ -435,22 +406,15 @@ export function Project({ params }: { params: { slug: string } }) {
         </div>
       )}
 
-      {portLinks.length > 0 && (
-        <div class="panel" style="margin-bottom: 16px">
-          <div class="panel-title">Previews</div>
-          <div class="port-grid">{portLinks}</div>
-        </div>
-      )}
-
-      <div class="detail-tabs" ref={tabsRef}>
+      <nav class="detail-tabs" ref={tabsRef} aria-label="Project sections">
         {((['overview', 'chat', 'files', 'logs', 'notes', 'scripts', 'team', 'snapshots', 'canvas'] as Tab[])).map((t) => (
-          <button class={`tab-btn ${tab === t ? 'active' : ''}`} key={t} onClick={() => setTab(t)}>
+          <button class={`tab-btn ${tab === t ? 'active' : ''}`} key={t} onClick={() => setTab(t)} aria-current={tab === t ? 'page' : undefined}>
             {t === 'chat' ? 'AI Chat' : t === 'notes' ? 'Notes' : t === 'team' ? 'Team' : t === 'snapshots' ? 'Snapshots' : t === 'canvas' ? 'Canvas' : t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
-      </div>
+      </nav>
 
-      {tab === 'overview' && <OverviewPanel slug={slug} project={project} liveStats={liveStats} readOnly={readOnly} onChanged={load} onError={setError} onAskAi={() => setTab('chat')} />}
+      {tab === 'overview' && <OverviewPanel slug={slug} project={project} liveStats={liveStats} readOnly={readOnly} onChanged={load} onError={setError} />}
       {tab === 'chat' && <ProjectChat slug={slug} />}
       {tab === 'files' && <FilesPanel slug={slug} />}
       {tab === 'logs' && <LogsPanel slug={slug} />}
@@ -481,7 +445,6 @@ function OverviewPanel({
   readOnly,
   onChanged,
   onError,
-  onAskAi,
 }: {
   slug: string;
   project: Project | null;
@@ -489,14 +452,13 @@ function OverviewPanel({
   readOnly: boolean;
   onChanged: () => void;
   onError: (msg: string) => void;
-  onAskAi: () => void;
 }) {
   const [, setLocation] = useHashLocation();
   const [stats, setStats] = useState<ProjectStats | null>(null);
   const [checks, setChecks] = useState<PortHealth[] | null>(null);
   const [ctx, setCtx] = useState<ChatContext | null>(null);
   const [ctxOpen, setCtxOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState<string>('info');
+  const [copiedPort, setCopiedPort] = useState<string | null>(null);
 
   const [editDesc, setEditDesc] = useState(false);
   const [descText, setDescText] = useState('');
@@ -880,30 +842,141 @@ function OverviewPanel({
     }
   };
 
-  const selectSection = (key: string) => {
-    setActiveSection(key);
-    const scroller = document.querySelector('.main');
-    scroller?.scrollTo({ top: 0, behavior: 'auto' });
+  const copyPortUrl = async (url: string, priv: string) => {
+    await copy(url);
+    setCopiedPort(priv);
+    setTimeout(() => setCopiedPort((p) => (p === priv ? null : p)), 2000);
   };
 
+  const host = window.location.hostname;
+
+  const msgRole = (m: string | null): 'alert' | 'status' | undefined =>
+    m && /^(Failed|No valid|Invalid|Save failed|Clone failed|Error|In use|Ports already)/i.test(m) ? 'alert' : m ? 'status' : undefined;
+
   return (
-<div class="overview-stack overview">
-      <nav class="subnav" aria-label="Overview sections">
-        {OV_SECTIONS.map((s) => (
-          <button
-            key={s.key}
-            class={`subnav-btn${activeSection === s.key ? ' active' : ''}`}
-            aria-current={activeSection === s.key ? 'true' : undefined}
-            onClick={() => selectSection(s.key)}
-          >
-            {s.label}
-          </button>
-        ))}
-      </nav>
-      <div class="ov-view" key={activeSection}>
-        {activeSection === 'info' && (
-          <div class="panel" id="ov-info">
-            <div class="panel-title">Project info</div>
+    <div class="overview-stack overview">
+      {/* ── Links & health ── */}
+      <div class="panel" id="ov-links">
+        <h2 class="panel-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>Links &amp; health</span>
+          {checks && checks.length > 0 && (
+            <span class="health-summary">
+              {checks.filter((k) => k.status === 'open').length}/{checks.length} open
+            </span>
+          )}
+        </h2>
+        {project?.ports && project.ports.length > 0 ? (
+          <>
+            {(() => {
+              const hostEntries = Object.entries(project.hostPorts || {});
+              return hostEntries.length > 0 ? (
+                <div class="port-grid">
+                  {hostEntries.map(([priv, pub]) => {
+                    const served = project.serve?.active && project.serve.hostPort && Number(project.serve.port) === Number(priv);
+                    const url = served ? `http://${host}:${project.serve!.hostPort}` : `http://${host}:${pub}`;
+                    const check = checks?.find((c) => c.port === priv);
+                    const copied = copiedPort === priv;
+                    return (
+                      <div key={priv} class={`port-link-row${served ? ' served' : ''}`}>
+                        <a class="port-link" href={url} target="_blank" rel="noreferrer">
+                          <span class="p-label">{served ? 'Served site' : `Port ${priv}`}</span>
+                          <span class="p-val">{host}:{served ? project.serve?.hostPort : pub}</span>
+                        </a>
+                        {served && <span class="served-badge"><Globe width={11} height={11} class="icon" /> Live</span>}
+                        {check && (
+                          <span class={`health-chip ${check.status}`}>
+                            {check.status === 'open' ? `HTTP ${check.httpCode} · ${check.ms}ms` : check.status}
+                          </span>
+                        )}
+                        <button class="btn-ghost sm icon-only" aria-label={`Copy URL for port ${priv}`} title="Copy URL" onClick={() => copyPortUrl(url, priv)}>
+                          {copied ? <Check width={12} height={12} class="icon" /> : <Copy width={12} height={12} class="icon" />}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div class="empty-state" style="padding: 16px">
+                  {project.hostPorts ? 'Checking port bindings…' : 'No live port bindings yet. Start the project to open its links.'}
+                </div>
+              );
+            })()}
+
+            {project && project.ports && project.ports.length > 0 && (
+              <div class="serve-box" style="margin-top: 16px">
+                <div class="serve-head">
+                  <span class="serve-label">
+                    <span class={`serve-dot ${project.serve?.active ? 'on' : project.serve?.enabled && project.serve?.error ? 'err' : ''}`} />
+                    Static site
+                  </span>
+                  {!readOnly && (
+                    <>
+                      <select
+                        class="modern-input mono"
+                        style="max-width:110px"
+                        aria-label="Static site port"
+                        value={project.serve?.enabled ? project.serve.port : servePort ?? project.serve?.port ?? project.ports[0]}
+                        disabled={project.serve?.enabled || project.status !== 'running'}
+                        title={project.serve?.enabled ? 'Port fixed while serving' : 'Pick the published port to serve on'}
+                        onChange={(e: any) => setServePort(Number(e.target.value))}
+                      >
+                        {project.ports.map((p) => (
+                          <option key={p} value={p}>:{p}</option>
+                        ))}
+                      </select>
+                      <button
+                        class="btn-primary sm serve-toggle"
+                        onClick={toggleServe}
+                        disabled={serving || project.status !== 'running'}
+                      >
+                        {serving ? (
+                          <Loader2 width={12} height={12} class="icon spin" />
+                        ) : project.serve?.enabled ? (
+                          'Stop server'
+                        ) : (
+                          'Start server'
+                        )}
+                      </button>
+                      {project.serve?.enabled && (
+                        <button class="btn-ghost sm" title="Copy URL" onClick={copyServeUrl}>
+                          <Copy width={12} height={12} class="icon" />{serveCopied ? 'Copied' : 'Copy'}
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+                {project.serve?.enabled && (
+                  <div class="serve-status" aria-live="polite">
+                    {project.serve?.active ? (
+                      <span class="serve-msg ok">Serving on port {project.serve.port}</span>
+                    ) : project.serve?.error ? (
+                      <span class="serve-msg err">Serve error — {project.serve.error}</span>
+                    ) : (
+                      <span class="serve-msg">Configured — serving resumes on the next container start.</span>
+                    )}
+                  </div>
+                )}
+                {project.serve?.active && serveUrl && (
+                  <div class="serve-url-row">
+                    <a class="port-link" style="flex:1; min-width:0" href={serveUrl} target="_blank" rel="noreferrer">
+                      <span class="p-val">{serveUrl}</span>
+                    </a>
+                  </div>
+                )}
+                {project.status !== 'running' && !project.serve?.enabled && (
+                  <div class="ov-section-desc" style="margin-top: 8px">Start the project first — serving needs a running container.</div>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <div class="empty-state" style="padding: 16px">No published ports. Add one in Config to open this project in the browser.</div>
+        )}
+      </div>
+
+      {/* ── Project info ── */}
+      <div class="panel" id="ov-info">
+        <h2 class="panel-title">Project info</h2>
           <div class="kv-list">
             <div class="kv">
               <span>Description</span>
@@ -988,43 +1061,27 @@ function OverviewPanel({
                         <button class="btn-ghost sm" onClick={saveTags} disabled={savingTags}>
                           {savingTags ? 'Saving…' : 'Save tags'}
                         </button>
-                        {tagsMsg && <span class="dim">{tagsMsg}</span>}
+                        {tagsMsg && <span class="dim" role={msgRole(tagsMsg)}>{tagsMsg}</span>}
                       </div>
                     )}
                   </div>
                 </div>
-                <div class="kv" style="flex-direction:column; align-items:flex-start; gap:6px">
-                  <span class="kv-label">Ports</span>
-                  {project?.ports && project.ports.length > 0 ? (
-                    <div class="port-chips">
-                      {project.ports.map((p) => (
-                        <button class="port-chip" key={p} title={`Copy port ${p}`} onClick={() => copy(String(p))}>
-                          <span class="mono">{p}</span>
-                          <Copy width={10} height={10} class="icon" />
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <span class="dim" style="color: var(--text-3); font-style: italic">No published ports.</span>
-                  )}
                 </div>
-          </div>
         </div>
-        )}
 
-        {activeSection === 'runtime' && (
-          <div class="panel" id="ov-runtime">
-            <div class="panel-title">Runtime</div>
+        {/* ── Runtime ── */}
+        <div class="panel" id="ov-runtime">
+          <h2 class="panel-title">Runtime</h2>
           {effectiveStats?.running ? (
             <div class="ov-stat-grid">
               <div class="ov-stat">
                 <div class="ov-stat-label">CPU</div>
-                <div class="ov-stat-value">{effectiveStats.cpuPct}%</div>
+                <div class="ov-stat-value" aria-live="polite">{effectiveStats.cpuPct}%</div>
                 <div class="stat-bar" style="margin-top:8px"><div class="stat-fill" style={`width: ${Math.min(100, effectiveStats.cpuPct)}%`} /></div>
               </div>
               <div class="ov-stat">
                 <div class="ov-stat-label">Memory</div>
-                <div class="ov-stat-value">{fmtBytes(effectiveStats.memBytes)}</div>
+                <div class="ov-stat-value" aria-live="polite">{fmtBytes(effectiveStats.memBytes)}</div>
                 <div class="ov-stat-sub">of {fmtBytes(effectiveStats.memLimit)} · {effectiveStats.memPct}%</div>
                 <div class="stat-bar" style="margin-top:8px"><div class="stat-fill" style={`width: ${Math.min(100, effectiveStats.memPct)}%`} /></div>
               </div>
@@ -1033,78 +1090,11 @@ function OverviewPanel({
             <div class="empty-state" style="padding: 24px">Project is {project?.status || 'unknown'}. Start it to see runtime stats.</div>
           )}
 
-          {project && project.ports && project.ports.length > 0 && (
-            <div class="serve-box" style="margin-top: 16px">
-              <div class="serve-head">
-                <span class="serve-label">
-                  <span class={`serve-dot ${project.serve?.active ? 'on' : project.serve?.enabled && project.serve?.error ? 'err' : ''}`} />
-                  Static site
-                </span>
-                {!readOnly && (
-                  <>
-                    <select
-                      class="modern-input mono"
-                      style="max-width:110px"
-                      aria-label="Static site port"
-                      value={project.serve?.enabled ? project.serve.port : servePort ?? project.serve?.port ?? project.ports[0]}
-                      disabled={project.serve?.enabled || project.status !== 'running'}
-                      title={project.serve?.enabled ? 'Port fixed while serving' : 'Pick the published port to serve on'}
-                      onChange={(e: any) => setServePort(Number(e.target.value))}
-                    >
-                      {project.ports.map((p) => (
-                        <option key={p} value={p}>:{p}</option>
-                      ))}
-                    </select>
-                    <button
-                      class="btn-primary sm serve-toggle"
-                      onClick={toggleServe}
-                      disabled={serving || project.status !== 'running'}
-                    >
-                      {serving ? (
-                        <Loader2 width={12} height={12} class="icon spin" />
-                      ) : project.serve?.enabled ? (
-                        'Stop server'
-                      ) : (
-                        'Start server'
-                      )}
-                    </button>
-                    {project.serve?.enabled && (
-                      <button class="btn-ghost sm" title="Copy URL" onClick={copyServeUrl}>
-                        <Copy width={12} height={12} class="icon" />{serveCopied ? 'Copied' : 'Copy'}
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-              {project.serve?.enabled && (
-                <div class="serve-status">
-                  {project.serve?.active ? (
-                    <span class="serve-msg ok">Serving on port {project.serve.port}</span>
-                  ) : project.serve?.error ? (
-                    <span class="serve-msg err">Serve error — {project.serve.error}</span>
-                  ) : (
-                    <span class="serve-msg">Configured — serving resumes on the next container start.</span>
-                  )}
-                </div>
-              )}
-              {project.serve?.active && serveUrl && (
-                <div class="serve-url-row">
-                  <a class="port-link" style="flex:1; min-width:0" href={serveUrl} target="_blank" rel="noreferrer">
-                    <span class="p-val">{serveUrl}</span>
-                  </a>
-                </div>
-              )}
-              {project.status !== 'running' && !project.serve?.enabled && (
-                <div class="ov-section-desc" style="margin-top: 8px">Start the project first — serving needs a running container.</div>
-              )}
-            </div>
-          )}
-        </div>
-        )}
+          </div>
 
-        {activeSection === 'ctx' && (
-          <div class="panel" id="ov-ctx">
-            <div class="panel-title">AI context</div>
+        {/* ── AI context ── */}
+        <div class="panel" id="ov-ctx">
+          <h2 class="panel-title">AI context</h2>
           <div class="kv-list">
             <div class="kv">
               <span>Index</span>
@@ -1120,56 +1110,19 @@ function OverviewPanel({
             </div>
           </div>
           <div class="kv" style="gap:10px; margin-top:10px">
-            <button class="btn-primary sm" onClick={onAskAi}>Ask AI about this project</button>
-            <button class="btn-ghost sm" onClick={() => setLocation(`/terminals/${slug}`)}>Open terminal</button>
             <button class="btn-ghost sm" onClick={() => setCtxOpen(!ctxOpen)}>{ctxOpen ? 'Hide preview ▴' : 'Preview ▾'}</button>
           </div>
           {ctxOpen && (
             <div class="ctx-preview mono scrollbar" style="margin-top:10px">{ctx?.text || 'Loading context…'}</div>
           )}
         </div>
-        )}
 
-        {activeSection === 'health' && (
-          <div class="panel" id="ov-health">
-            <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between">
-              <span>Port health</span>
-            {checks && checks.length > 0 && (
-              <span class="health-summary">
-                {checks.filter((k) => k.status === 'open').length}/{checks.length} open
-              </span>
-            )}
-          </div>
-          {checks && checks.length > 0 ? (
-            <div class="kv-list">
-              {checks.map((c) => (
-                <div class="health-row" key={c.port}>
-                  <span class="health-row-port">
-                    <span class={`health-dot ${c.status}`} />
-                    <span class="mono">port {c.port}</span>
-                    <span class="health-arrow">→</span>
-                    <span class="mono host">{c.hostPort}</span>
-                  </span>
-                  <span class={`health-chip ${c.status}`}>
-                    {c.status === 'open' ? `HTTP ${c.httpCode} · ${c.ms}ms` : c.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div class="empty-state" style="padding: 24px">
-              {project?.hostPorts ? 'Checking…' : 'No published ports.'}
-            </div>
-          )}
-        </div>
-        )}
-
-        {activeSection === 'config' && (
-          <div class="panel" id="ov-config">
-            <div class="panel-title">Configuration</div>
+        {/* ── Configuration ── */}
+        <div class="panel" id="ov-config">
+          <h2 class="panel-title">Configuration</h2>
 
           <div class="ov-section">
-            <div class="ov-section-label">Clone from git</div>
+            <h3 class="ov-section-label">Clone from git</h3>
             <div class="ov-section-desc">Pull an existing repository into the workspace.</div>
             {readOnly ? (
               <div class="ov-value ov-value-empty">Viewer — read-only. Ask an editor to clone a repository.</div>
@@ -1193,7 +1146,7 @@ function OverviewPanel({
           </div>
 
           <div class="ov-section">
-            <div class="ov-section-label">Environment variables</div>
+            <h3 class="ov-section-label">Environment variables</h3>
             {editSection === 'env' ? (
               <>
                 <textarea
@@ -1202,9 +1155,11 @@ function OverviewPanel({
                   placeholder="KEY=VALUE (one per line)"
                   value={envText}
                   aria-label="Environment variables"
+                  aria-describedby="envFormatHint"
                   ref={envInputRef}
                   onInput={(e: any) => { envDirtyRef.current = true; setEnvText(e.target.value); }}
                 />
+                <span class="sr-only" id="envFormatHint">One KEY=VALUE pair per line. Save then recreate the container to apply.</span>
                 <div class="ov-row-actions">
                   <button class="btn-primary sm" onClick={saveEnv}>Save env</button>
                   <button class="btn-ghost sm" onClick={() => {
@@ -1212,7 +1167,7 @@ function OverviewPanel({
                     setEnvText(Object.entries(project?.env || {}).map(([k, v]) => `${k}=${v}`).join('\n'));
                     setEditSection(null);
                   }}>Cancel</button>
-                  {envMsg && <span class="dim" style="color: var(--text-3)">{envMsg}</span>}
+                  {envMsg && <span class="dim" style="color: var(--text-3)" role={msgRole(envMsg)}>{envMsg}</span>}
                 </div>
               </>
             ) : (
@@ -1234,7 +1189,7 @@ function OverviewPanel({
           </div>
 
           <div class="ov-section">
-            <div class="ov-section-label">Published ports</div>
+            <h3 class="ov-section-label">Published ports</h3>
             {editSection === 'ports' ? (
               <>
                 <div class="ov-field">
@@ -1242,19 +1197,21 @@ function OverviewPanel({
                     class="modern-input mono"
                     style="flex:1"
                     aria-label="Published ports"
+                    aria-describedby="portsFormatHint"
                     placeholder="e.g. 8000, 8080 — blank unpublishes all"
                     value={portsText}
                     ref={portsInputRef}
                     onInput={(e: any) => setPortsText(e.target.value)}
                     onKeyDown={(e: any) => e.key === 'Enter' && savePorts()}
                   />
+                  <span class="sr-only" id="portsFormatHint">Comma-separated host ports. Leave blank to unpublish all. Applies on the next container recreate.</span>
                 </div>
                 <div class="ov-row-actions">
                   <button class="btn-ghost sm" onClick={savePorts} disabled={savingPorts}>
                     {savingPorts ? 'Saving…' : 'Save ports'}
                   </button>
                   <button class="btn-ghost sm" onClick={() => setEditSection(null)}>Cancel</button>
-                  {portsMsg && <span class="dim" style="color: var(--text-3)">{portsMsg}</span>}
+                  {portsMsg && <span class="dim" style="color: var(--text-3)" role={msgRole(portsMsg)}>{portsMsg}</span>}
                 </div>
               </>
             ) : (
@@ -1270,7 +1227,7 @@ function OverviewPanel({
           </div>
 
           <div class="ov-section">
-            <div class="ov-section-label">Resource limits</div>
+            <h3 class="ov-section-label">Resource limits</h3>
             {editSection === 'limits' ? (
               <>
                 <div class="ov-field">
@@ -1300,7 +1257,7 @@ function OverviewPanel({
                     {savingLimits ? 'Saving…' : 'Save limits'}
                   </button>
                   <button class="btn-ghost sm" onClick={() => setEditSection(null)}>Cancel</button>
-                  {!limitsPending(project) && limitsMsg && <span class="dim" style="color: var(--text-3)">{limitsMsg}</span>}
+                  {!limitsPending(project) && limitsMsg && <span class="dim" style="color: var(--text-3)" role={msgRole(limitsMsg)}>{limitsMsg}</span>}
                 </div>
               </>
             ) : (
@@ -1325,20 +1282,19 @@ function OverviewPanel({
           </div>
 
           <div class="ov-section">
-            <div class="ov-section-label">Container actions</div>
+            <h3 class="ov-section-label">Container actions</h3>
             <div class="ov-row-actions">
               <button class="btn-ghost sm" onClick={requestRecreate} disabled={recreating}>
                 {recreating ? 'Recreating…' : 'Recreate container'}
               </button>
-              {envMsg && <span class="dim" style="color: var(--text-3)">{envMsg}</span>}
+              {envMsg && <span class="dim" style="color: var(--text-3)" role={msgRole(envMsg)}>{envMsg}</span>}
             </div>
           </div>
         </div>
-        )}
 
-        {activeSection === 'activity' && (
-          <div class="panel" id="ov-activity">
-            <div class="panel-title">Activity</div>
+        {/* ── Activity ── */}
+        <div class="panel" id="ov-activity">
+          <h2 class="panel-title">Activity</h2>
           {project?.activity && project.activity.length > 0 ? (
             <div class="activity-list">
               {project.activity.slice().reverse().slice(0, 15).map((a, i) => (
@@ -1355,11 +1311,10 @@ function OverviewPanel({
             <div class="empty-state" style="padding: 24px">No activity yet.</div>
           )}
         </div>
-        )}
 
-        {activeSection === 'danger' && (
-          <div class="panel danger-zone" id="ov-danger">
-            <div class="panel-title" style="color: var(--red)">Danger zone</div>
+        {/* ── Danger zone ── */}
+        <div class="panel danger-zone" id="ov-danger">
+          <h2 class="panel-title" style="color: var(--red)">Danger zone</h2>
         <div class="danger-desc">
           <TriangleAlert width={14} height={14} class="icon" />
           <span>Deletes the container and permanently removes its workspace files from disk on the server.</span>
@@ -1382,8 +1337,6 @@ function OverviewPanel({
           </div>
         )}
         </div>
-        )}
-      </div>
 
       <ConfirmModal
         open={confirmRecreate}

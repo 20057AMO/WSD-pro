@@ -14,7 +14,7 @@
   --border-2: #2e3138;
   --text: #e8e9ea;
   --text-2: #9ba0a8;
-  --text-3: #5c6068;
+  --text-3: #7d8289;
   --accent: #ffffff;
   --green: #3fb950;
   --yellow: #d29922;
@@ -116,6 +116,28 @@ select.modern-input { appearance: none; cursor: pointer; }
 }
 .btn-danger:hover { background: rgba(248,81,73,0.2); }
 .btn-danger.sm { padding: 6px 12px; font-size: 0.75rem; }
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* Skip link — visually hidden until focused (WCAG 2.4.1) */
+.skip-link {
+  position: absolute; left: -9999px; top: 0; z-index: 1000;
+  padding: 10px 16px; border-radius: 0 0 var(--radius-sm) 0;
+  background: var(--blue); color: #0b0e14; font-weight: 600; font-size: 0.8rem;
+}
+.skip-link:focus { left: 0; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 
 /* â”€â”€ App shell â”€â”€ */
 .app-view { display: flex; height: 100dvh; overflow: hidden; }
@@ -1119,7 +1141,7 @@ textarea.agent-prompt-input {
 }
 .port-link-row .port-link { flex: 1; }
 .port-link-row.served .port-link { border-color: rgba(63,185,80,0.45); background: color-mix(in srgb, var(--green) 6%, var(--bg-2)); }
-.btn-ghost.sm.icon-only { padding: 6px 7px; flex-shrink: 0; }
+.btn-ghost.sm.icon-only { padding: 6px 7px; flex-shrink: 0; min-width: 28px; min-height: 28px; }
 .btn-ghost.sm.icon-only .icon { margin: 0; }
 
 /* Static-site serve */
@@ -1144,30 +1166,7 @@ textarea.agent-prompt-input {
 /* -- Project page (new sections) -- */
 .overview-stack { display: flex; flex-direction: column; gap: 16px; }
 
-/* Overview sub-navbar (sticky section jumper + scroll-spy) */
-.subnav {
-  position: sticky; top: 8px; z-index: 20;
-  display: flex; gap: 4px; overflow-x: auto;
-  padding: 5px; border-radius: 10px; border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-2) 92%, transparent);
-  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-  scrollbar-width: none; flex-shrink: 0;
-}
-.subnav::-webkit-scrollbar { display: none; }
-.subnav-btn {
-  flex-shrink: 0; padding: 7px 13px; border-radius: 7px;
-  font-size: 0.74rem; font-weight: 500; letter-spacing: 0.01em;
-  color: var(--text-2); white-space: nowrap;
-  border: 1px solid transparent;
-  transition: color 0.12s, background 0.12s, border-color 0.12s;
-}
-.subnav-btn:hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
-.subnav-btn.active {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--text) 20%, transparent);
-  background: color-mix(in srgb, var(--text) 9%, transparent);
-}
-#ov-info, #ov-runtime, #ov-ctx, #ov-health, #ov-config, #ov-activity, #ov-danger { scroll-margin-top: 76px; }
+#ov-info, #ov-runtime, #ov-ctx, #ov-links, #ov-config, #ov-activity, #ov-danger { scroll-margin-top: 76px; }
 .ov-view { display: flex; flex-direction: column; gap: 16px; }
 .ov-view .panel { animation: ov-view-in 0.18s ease-out; }
 @keyframes ov-view-in {
@@ -1176,13 +1175,6 @@ textarea.agent-prompt-input {
 }
 @media (prefers-reduced-motion: reduce) {
   .ov-view .panel { animation: none; }
-}
-@media (max-width: 700px) {
-  .subnav {
-    -webkit-mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 12px), transparent);
-    mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 12px), transparent);
-  }
-  .subnav-btn { min-height: 38px; display: inline-flex; align-items: center; }
 }
 .stat-bar { height: 6px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
 .stat-fill { height: 100%; background: var(--blue); border-radius: 4px; transition: width 0.4s; }
@@ -1289,6 +1281,7 @@ textarea.agent-prompt-input {
 .port-chip {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 3px 8px; border-radius: 6px; cursor: pointer;
+  min-height: 26px;
   background: var(--bg-2); border: 1px solid var(--border);
   color: var(--text-2); font-size: 0.74rem;
   transition: border-color .15s, color .15s;
@@ -2145,7 +2138,7 @@ input[type="file"].modern-file::file-selector-button {
   height: 22px;
   border-radius: 50%;
   background: #2a2c33;
-  color: #8b8d94;
+  color: #9ba0a8;
   font-size: 0.7rem;
   font-weight: 600;
   display: flex;

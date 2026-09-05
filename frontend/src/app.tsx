@@ -258,6 +258,7 @@ function Shell() {
 
   return (
     <div class="app-view">
+      <a class="skip-link" href="#main">Skip to content</a>
       <div class={`sidebar-backdrop${sidebarOpen ? ' open' : ''}`} onClick={() => setSidebarOpen(false)} />
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div class="mobile-topbar">
@@ -266,7 +267,7 @@ function Shell() {
         </button>
         <span class="mobile-topbar-brand">Madar</span>
       </div>
-      <main class="main">
+      <main class="main" id="main" tabindex={-1}>
         <Suspense fallback={<div style="display:flex;align-items:center;justify-content:center;height:100%;"><div class="dim" style="font-size:0.85rem">Loading…</div></div>}>
           <Route path="/" component={Dashboard} />
           <Route path="/projects" component={Projects} />
