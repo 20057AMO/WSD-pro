@@ -1165,7 +1165,16 @@ textarea.agent-prompt-input {
   border-color: color-mix(in srgb, var(--text) 20%, transparent);
   background: color-mix(in srgb, var(--text) 9%, transparent);
 }
-#ov-info, #ov-runtime, #ov-config, #ov-activity, #ov-danger { scroll-margin-top: 76px; }
+#ov-info, #ov-runtime, #ov-ctx, #ov-health, #ov-config, #ov-activity, #ov-danger { scroll-margin-top: 76px; }
+.ov-view { display: flex; flex-direction: column; gap: 16px; }
+.ov-view .panel { animation: ov-view-in 0.18s ease-out; }
+@keyframes ov-view-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-view .panel { animation: none; }
+}
 @media (max-width: 700px) {
   .subnav {
     -webkit-mask-image: linear-gradient(90deg, transparent, #000 12px, #000 calc(100% - 12px), transparent);
