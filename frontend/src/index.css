@@ -964,7 +964,7 @@ textarea.agent-prompt-input {
 .advanced-box { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
 .advanced-box summary {
   cursor: pointer; font-size: 0.75rem; color: var(--text-2);
-  font-weight: 600; user-select: none; padding: 4px 0;
+  font-weight: 600; -webkit-user-select: none; padding: 4px 0;
 }
 
 /* -- Modal (password popup) -- */
@@ -1009,13 +1009,13 @@ textarea.agent-prompt-input {
   .sidebar-backdrop.open { opacity: 1; pointer-events: auto; }
   .mobile-topbar {
     display: flex; align-items: center; gap: 10px;
-    height: 48px; padding: 0 12px; flex-shrink: 0;
+    height: 55px; padding: 0 12px; flex-shrink: 0;
     background: var(--bg-2); border-bottom: 1px solid var(--border);
   }
   .mobile-topbar-brand { font-weight: 700; font-size: 0.95rem; }
   .menu-btn {
     display: flex; align-items: center; justify-content: center;
-    width: 34px; height: 34px; border-radius: 8px;
+    width: 45px;  border-radius: 8px;
     border: 1px solid var(--border); background: var(--panel);
     color: var(--text); cursor: pointer;
   }
@@ -1745,7 +1745,7 @@ span.tag-chip {
   font-size: 0.72rem; font-weight: 500;
   border: 1px solid color-mix(in srgb, var(--accent, #6ea8fe) 30%, transparent);
 }
-button.tag-chip { cursor: pointer; }
+button.tag-chip { cursor: pointer; padding: 10px 20px ; border-radius: 12px ; transition: all 0.3s ;  }
 button.tag-chip:hover { background: color-mix(in srgb, var(--accent, #6ea8fe) 28%, transparent); }
 button.tag-chip.active {
   background: var(--accent, #6ea8fe);
@@ -1754,6 +1754,9 @@ button.tag-chip.active {
 }
 .tag-remove {
   cursor: pointer; font-weight: 700; opacity: 0.6;
+  margin: -4px; padding: 4px; min-width: 24px; min-height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none;
 }
 .tag-remove:hover { opacity: 1; color: var(--red); }
 

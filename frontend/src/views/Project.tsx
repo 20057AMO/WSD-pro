@@ -340,7 +340,7 @@ export function Project({ params }: { params: { slug: string } }) {
   const host = window.location.hostname;
   const portLinks = project?.hostPorts
     ? Object.entries(project.hostPorts).map(([priv, pub]) => {
-        const served = project?.serve?.enabled && project.serve?.hostPort && Number(project.serve.port) === Number(priv);
+        const served = project?.serve?.active && project.serve?.hostPort && Number(project.serve.port) === Number(priv);
         const url = served ? `http://${host}:${project.serve!.hostPort}` : `http://${host}:${pub}`;
         return (
           <div key={priv} class={`port-link-row${served ? ' served' : ''}`}>
@@ -392,7 +392,7 @@ export function Project({ params }: { params: { slug: string } }) {
         </div>
         <div class="detail-actions">
           <button class="btn-ghost sm" onClick={() => setTab('chat')}>Ask AI</button>
-          <button class="btn-ghost sm" onClick={handleExport} disabled={exporting}>
+          <button class="btn-ghost sm" onClick={handleExport} disabled={exporting || readOnly} title={readOnly ? 'Viewer — export requires editor access' : undefined}>
             <Download width={13} height={13} class="icon" /> {exporting ? 'Exporting…' : 'Export'}
           </button>
           <button class="btn-ghost sm" onClick={() => setLocation(`/terminals/${slug}`)}>Terminals</button>
@@ -400,10 +400,12 @@ export function Project({ params }: { params: { slug: string } }) {
           <button
             class="btn-ghost sm"
             onClick={() => (project?.status === 'running' ? handleStop() : handleStart())}
+            disabled={readOnly}
+            title={readOnly ? 'Viewer — start/stop requires editor access' : undefined}
           >
             {project?.status === 'running' ? 'Stop' : 'Start'}
           </button>
-          <button class="btn-ghost sm" onClick={handleRestart} disabled={project?.status !== 'running'}>
+          <button class="btn-ghost sm" onClick={handleRestart} disabled={readOnly || project?.status !== 'running'} title={readOnly ? 'Viewer — restart requires editor access' : undefined}>
             Restart
           </button>
         </div>
@@ -417,9 +419,11 @@ export function Project({ params }: { params: { slug: string } }) {
               <span>This container crashed</span>
               <span class="dim" style="color:var(--text-2); font-weight:400">{crashTitle(project.crash)}</span>
             </span>
-            <button class="btn-ghost sm" style="white-space:nowrap" onClick={handleDismissCrash}>
-              <Check width={13} height={13} class="icon" /> Dismiss
-            </button>
+            {!readOnly && (
+              <button class="btn-ghost sm" style="white-space:nowrap" onClick={handleDismissCrash}>
+                <Check width={13} height={13} class="icon" /> Dismiss
+              </button>
+            )}
           </div>
           <p class="settings-hint" style="margin: 6px 0 0">
             {project.crash.reason === 'oom'
@@ -519,11 +523,15 @@ function OverviewPanel({
   const [savingLimits, setSavingLimits] = useState(false);
   const cpuInputRef = useRef<HTMLInputElement | null>(null);
   const memInputRef = useRef<HTMLInputElement | null>(null);
+  const envInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const envDirtyRef = useRef(false);
+  const tagsDirtyRef = useRef(false);
 
   const [tagInput, setTagInput] = useState('');
   const [currentTags, setCurrentTags] = useState<string[]>([]);
   const [tagsMsg, setTagsMsg] = useState<string | null>(null);
   const [savingTags, setSavingTags] = useState(false);
+  const tagInputRef = useRef<HTMLInputElement | null>(null);
 
   const [recreating, setRecreating] = useState(false);
   const [confirmText, setConfirmText] = useState('');
@@ -619,6 +627,7 @@ function OverviewPanel({
   }, [slug]);
 
   useEffect(() => {
+    if (document.activeElement === envInputRef.current || envDirtyRef.current) return;
     setEnvText(Object.entries(project?.env || {}).map(([k, v]) => `${k}=${v}`).join('\n'));
   }, [project?.env]);
 
@@ -633,22 +642,19 @@ function OverviewPanel({
   }, [project?.limits?.cpu]);
 
   useEffect(() => {
-    if (document.activeElement === cpuInputRef.current) return;
-    setCpuText(project?.limits?.cpu || '');
-  }, [project?.limits?.cpu]);
-
-  useEffect(() => {
     if (document.activeElement === memInputRef.current) return;
     setMemText(project?.limits?.memory || '');
   }, [project?.limits?.memory]);
 
   useEffect(() => {
-    if (project?.tags) {
-      setCurrentTags([...project.tags]);
-    } else {
-      setCurrentTags([]);
-    }
+    if (tagsDirtyRef.current) return;
+    setCurrentTags(project?.tags ? [...project.tags] : []);
   }, [project?.tags]);
+
+  useEffect(() => {
+    envDirtyRef.current = false;
+    tagsDirtyRef.current = false;
+  }, [slug]);
 
   const saveDescription = async () => {
     try {
@@ -696,6 +702,7 @@ function OverviewPanel({
       const r = await setProjectEnv(slug, env);
       const note = r.needsRecreate ? 'Saved. Recreate the container to apply.' : 'Saved. Applies on next start.';
       setEnvMsg(skipped.length ? `${note} Skipped: ${skipped.join(' · ')}` : note);
+      envDirtyRef.current = false;
       onChanged();
     } catch (err: any) {
       setEnvMsg(`Failed: ${err.message}`);
@@ -747,7 +754,7 @@ function OverviewPanel({
 
   // The backend serve.url embeds `localhost` — rebuild it from the real browser hostname so remote
   // deployments link the viewer's own host (hostPort is the published binding, port the fallback).
-  const serveUrl = project?.serve?.enabled
+  const serveUrl = project?.serve?.active
     ? `http://${window.location.hostname}:${project.serve.hostPort ?? project.serve.port ?? ''}`
     : '';
 
@@ -791,6 +798,7 @@ function OverviewPanel({
       await updateProjectTags(slug, currentTags);
       setTagsMsg('Saved ✓');
       setTimeout(() => setTagsMsg(null), 4000);
+      tagsDirtyRef.current = false;
       onChanged();
     } catch (err: any) {
       setTagsMsg(`Failed: ${err.message}`);
@@ -814,6 +822,7 @@ function OverviewPanel({
       setTimeout(() => setTagsMsg(null), 3000);
       return;
     }
+    tagsDirtyRef.current = true;
     setCurrentTags([...currentTags, val]);
     setTagInput('');
   };
@@ -828,7 +837,9 @@ function OverviewPanel({
   };
 
   const removeTag = (tag: string) => {
+    tagsDirtyRef.current = true;
     setCurrentTags(currentTags.filter((t) => t !== tag));
+    tagInputRef.current?.focus();
   };
 
   const doRecreate = async () => {
@@ -903,6 +914,7 @@ function OverviewPanel({
                       class="modern-input"
                       style="flex:1; resize:vertical; min-height:48px"
                       rows={3}
+                      aria-label="Project description"
                       value={descText}
                       onInput={(e: any) => setDescText(e.target.value)}
                       onKeyDown={(e: any) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveDescription(); if (e.key === 'Escape') { setEditDesc(false); setDescText(project?.description || ''); } }}
@@ -947,27 +959,38 @@ function OverviewPanel({
                     {currentTags.map((t) => (
                       <span class="tag-chip" key={t}>
                         {t}
-                        <span class="tag-remove" role="button" aria-label={`Remove tag ${t}`} onClick={() => removeTag(t)}>×</span>
+                        {!readOnly && (
+                          <button type="button" class="tag-remove" aria-label={`Remove tag ${t}`} onClick={() => removeTag(t)}>×</button>
+                        )}
                       </span>
                     ))}
-                    <input
-                      class="tag-input"
-                      placeholder="Add tag…"
-                      maxLength={30}
-                      value={tagInput}
-                      aria-label="Add tag"
-                      onInput={(e: any) => setTagInput(e.target.value)}
-                      onKeyDown={handleTagKeyDown}
-                    />
+                    {!readOnly && (
+                      <input
+                        class="tag-input"
+                        placeholder="Add tag…"
+                        maxLength={30}
+                        value={tagInput}
+                        aria-label="Add tag"
+                        ref={tagInputRef}
+                        onInput={(e: any) => setTagInput(e.target.value)}
+                        onKeyDown={handleTagKeyDown}
+                      />
+                    )}
                   </div>
                   <div class="kv-sub">
-                    <span class="dim">Enter to add · {currentTags.length}/20 · max 30 chars</span>
-                    <div class="kv-actions">
-                      <button class="btn-ghost sm" onClick={saveTags} disabled={savingTags}>
-                        {savingTags ? 'Saving…' : 'Save tags'}
-                      </button>
-                      {tagsMsg && <span class="dim">{tagsMsg}</span>}
-                    </div>
+                    {readOnly ? (
+                      <span class="dim">Viewer — read-only</span>
+                    ) : (
+                      <span class="dim">Enter to add · {currentTags.length}/20 · max 30 chars</span>
+                    )}
+                    {!readOnly && (
+                      <div class="kv-actions">
+                        <button class="btn-ghost sm" onClick={saveTags} disabled={savingTags}>
+                          {savingTags ? 'Saving…' : 'Save tags'}
+                        </button>
+                        {tagsMsg && <span class="dim">{tagsMsg}</span>}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div class="kv" style="flex-direction:column; align-items:flex-start; gap:6px">
@@ -1055,14 +1078,16 @@ function OverviewPanel({
               </div>
               {project.serve?.enabled && (
                 <div class="serve-status">
-                  {project.serve?.error ? (
+                  {project.serve?.active ? (
+                    <span class="serve-msg ok">Serving on port {project.serve.port}</span>
+                  ) : project.serve?.error ? (
                     <span class="serve-msg err">Serve error — {project.serve.error}</span>
                   ) : (
-                    <span class="serve-msg ok">Serving on port {project.serve.port}</span>
+                    <span class="serve-msg">Configured — serving resumes on the next container start.</span>
                   )}
                 </div>
               )}
-              {project.serve?.enabled && serveUrl && (
+              {project.serve?.active && serveUrl && (
                 <div class="serve-url-row">
                   <a class="port-link" style="flex:1; min-width:0" href={serveUrl} target="_blank" rel="noreferrer">
                     <span class="p-val">{serveUrl}</span>
@@ -1146,19 +1171,24 @@ function OverviewPanel({
           <div class="ov-section">
             <div class="ov-section-label">Clone from git</div>
             <div class="ov-section-desc">Pull an existing repository into the workspace.</div>
-            <div class="ov-field">
-              <input
-                class="modern-input"
-                style="flex:1"
-                placeholder="https://github.com/org/repo.git"
-                value={cloneUrl}
-                onInput={(e: any) => setCloneUrl(e.target.value)}
-                onKeyDown={(e: any) => e.key === 'Enter' && doClone()}
-              />
-              <button class="btn-primary sm" onClick={doClone} disabled={cloning || !cloneUrl.trim()}>
-                {cloning ? 'Cloning…' : 'Clone'}
-              </button>
-            </div>
+            {readOnly ? (
+              <div class="ov-value ov-value-empty">Viewer — read-only. Ask an editor to clone a repository.</div>
+            ) : (
+              <div class="ov-field">
+                <input
+                  class="modern-input"
+                  style="flex:1"
+                  aria-label="Git clone URL"
+                  placeholder="https://github.com/org/repo.git"
+                  value={cloneUrl}
+                  onInput={(e: any) => setCloneUrl(e.target.value)}
+                  onKeyDown={(e: any) => e.key === 'Enter' && doClone()}
+                />
+                <button class="btn-primary sm" onClick={doClone} disabled={cloning || !cloneUrl.trim()}>
+                  {cloning ? 'Cloning…' : 'Clone'}
+                </button>
+              </div>
+            )}
             {cloneMsg && <div class="terminal-line">{cloneMsg}</div>}
           </div>
 
@@ -1171,11 +1201,17 @@ function OverviewPanel({
                   style="width:100%; resize:vertical; min-height:96px"
                   placeholder="KEY=VALUE (one per line)"
                   value={envText}
-                  onInput={(e: any) => setEnvText(e.target.value)}
+                  aria-label="Environment variables"
+                  ref={envInputRef}
+                  onInput={(e: any) => { envDirtyRef.current = true; setEnvText(e.target.value); }}
                 />
                 <div class="ov-row-actions">
                   <button class="btn-primary sm" onClick={saveEnv}>Save env</button>
-                  <button class="btn-ghost sm" onClick={() => setEditSection(null)}>Cancel</button>
+                  <button class="btn-ghost sm" onClick={() => {
+                    envDirtyRef.current = false;
+                    setEnvText(Object.entries(project?.env || {}).map(([k, v]) => `${k}=${v}`).join('\n'));
+                    setEditSection(null);
+                  }}>Cancel</button>
                   {envMsg && <span class="dim" style="color: var(--text-3)">{envMsg}</span>}
                 </div>
               </>
@@ -1191,7 +1227,7 @@ function OverviewPanel({
                   <div class="ov-value ov-value-empty">No environment variables set.</div>
                 )}
                 <div class="ov-row-actions">
-                  <button class="btn-ghost sm" onClick={() => setEditSection('env')}>Edit</button>
+                  {!readOnly && <button class="btn-ghost sm" onClick={() => setEditSection('env')}>Edit</button>}
                 </div>
               </>
             )}
@@ -1205,6 +1241,7 @@ function OverviewPanel({
                   <input
                     class="modern-input mono"
                     style="flex:1"
+                    aria-label="Published ports"
                     placeholder="e.g. 8000, 8080 — blank unpublishes all"
                     value={portsText}
                     ref={portsInputRef}
@@ -1226,7 +1263,7 @@ function OverviewPanel({
                   {project?.ports && project.ports.length > 0 ? project.ports.join(', ') : <span class="ov-value-empty">No published ports.</span>}
                 </div>
                 <div class="ov-row-actions">
-                  <button class="btn-ghost sm" onClick={() => setEditSection('ports')}>Edit</button>
+                  {!readOnly && <button class="btn-ghost sm" onClick={() => setEditSection('ports')}>Edit</button>}
                 </div>
               </>
             )}
@@ -1240,6 +1277,7 @@ function OverviewPanel({
                   <input
                     class="modern-input mono"
                     style="flex:1; min-width:120px"
+                    aria-label="CPU limit"
                     placeholder="CPU e.g. 2 or 500m — blank = no limit"
                     value={cpuText}
                     ref={cpuInputRef}
@@ -1249,6 +1287,7 @@ function OverviewPanel({
                   <input
                     class="modern-input mono"
                     style="flex:1; min-width:120px"
+                    aria-label="Memory limit"
                     placeholder="Memory e.g. 512Mi or 1Gi — blank = no limit"
                     value={memText}
                     ref={memInputRef}
@@ -1279,7 +1318,7 @@ function OverviewPanel({
                   </div>
                 )}
                 <div class="ov-row-actions">
-                  <button class="btn-ghost sm" onClick={() => setEditSection('limits')}>Edit</button>
+                  {!readOnly && <button class="btn-ghost sm" onClick={() => setEditSection('limits')}>Edit</button>}
                 </div>
               </>
             )}
@@ -1325,18 +1364,23 @@ function OverviewPanel({
           <TriangleAlert width={14} height={14} class="icon" />
           <span>Deletes the container and permanently removes its workspace files from disk on the server.</span>
         </div>
-        <div class="danger-confirm">
-          <input
-            class="modern-input"
-            placeholder={`type '${slug}' to confirm`}
-            value={confirmText}
-            onInput={(e: any) => setConfirmText(e.target.value)}
-          />
-          <button class="btn-danger sm" onClick={doDelete} disabled={confirmText !== slug || deleting}>
-            {deleting ? <Loader2 width={12} height={12} class="icon spin" /> : null}
-            {deleting ? 'Deleting…' : 'Delete project'}
-          </button>
-        </div>
+        {readOnly ? (
+          <div class="ov-value ov-value-empty">Viewer — read-only. Ask an editor or the owner to delete.</div>
+        ) : (
+          <div class="danger-confirm">
+            <input
+              class="modern-input"
+              aria-label={`Type the project slug ${slug} to confirm deletion`}
+              placeholder={`type '${slug}' to confirm`}
+              value={confirmText}
+              onInput={(e: any) => setConfirmText(e.target.value)}
+            />
+            <button class="btn-danger sm" onClick={doDelete} disabled={confirmText !== slug || deleting}>
+              {deleting ? <Loader2 width={12} height={12} class="icon spin" /> : null}
+              {deleting ? 'Deleting…' : 'Delete project'}
+            </button>
+          </div>
+        )}
         </div>
         )}
       </div>
