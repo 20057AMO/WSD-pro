@@ -859,6 +859,14 @@ function OverviewPanel({
     const probe = Math.max(160, Math.round(window.innerHeight * 0.42));
     const compute = () => {
       raf = 0;
+      const atBottom =
+        scroller === window
+          ? window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4
+          : (scroller as HTMLElement).scrollTop + (scroller as HTMLElement).clientHeight >= (scroller as HTMLElement).scrollHeight - 4;
+      if (atBottom) {
+        setActiveSection(OV_SECTIONS[OV_SECTIONS.length - 1].key);
+        return;
+      }
       let best: string = OV_SECTIONS[0].key;
       let bestDist = Infinity;
       for (const s of OV_SECTIONS) {
