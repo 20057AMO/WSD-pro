@@ -1,7 +1,7 @@
 #!/bin/bash
 # Madar backend launcher
 # Restart-proof: keeps the Node server alive with auto-restart
-cd /home/ahmedali/wsd-pro/backend
+cd "$(dirname "$(readlink -f "$0")")"
 export PATH="$PATH:/usr/local/bin:/usr/bin:/bin"
 
 # Wait for docker socket if not ready

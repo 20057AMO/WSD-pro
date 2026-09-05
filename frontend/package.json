@@ -3,10 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
+    "typecheck:e2e": "tsc --noEmit -p tsconfig.e2e.json",
     "preview": "vite preview",
     "test:e2e": "playwright test"
   },
@@ -23,6 +27,7 @@
     "@playwright/test": "^1.62.1",
     "@preact/preset-vite": "^2.9.0",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.9.0",
     "@types/qrcode": "^1.5.6",
     "jsonwebtoken": "^9.0.3",
     "typescript": "^5.2.2",

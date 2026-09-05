@@ -153,6 +153,27 @@ describe('Project team & access control (real Docker container)', () => {
     assert.strictEqual(res.status, 403, `viewer duplicate should be denied: ${res.status}`);
   });
 
+  test('viewer CANNOT edit project metadata (403 — PATCH is a write)', async () => {
+    const res = await req('PATCH', `/projects/${slug}`, { name: 'renamed-by-viewer' }, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 403, `viewer PATCH should be denied: ${res.status}`);
+  });
+
+  // ── Newly-guarded read routes must still work for members (not over-blocked)
+  test('viewer can read the member list (200)', async () => {
+    const res = await req('GET', `/projects/${slug}/members`, undefined, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 200, `viewer members GET: ${res.status}`);
+  });
+
+  test('viewer can read npm scripts (200)', async () => {
+    const res = await req('GET', `/projects/${slug}/scripts`, undefined, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 200, `viewer scripts GET: ${res.status}`);
+  });
+
+  test('viewer can read subdir info (200)', async () => {
+    const res = await req('GET', `/projects/${slug}/subdir`, undefined, runAs(viewerToken).headers);
+    assert.strictEqual(res.status, 200, `viewer subdir GET: ${res.status}`);
+  });
+
   // ── Editor: read + write ────────────────────────────────────
   test('editor can read the project (200)', async () => {
     const res = await req('GET', `/projects/${slug}`, undefined, runAs(editorToken).headers);
@@ -162,6 +183,11 @@ describe('Project team & access control (real Docker container)', () => {
   test('editor can write a file (200)', async () => {
     const res = await req('PUT', `/projects/${slug}/file?path=todo.txt`, { content: 'team test' }, runAs(editorToken).headers);
     assert.strictEqual(res.status, 200, `editor write: ${res.status}`);
+  });
+
+  test('editor can edit project metadata (200 — PATCH still works for writers)', async () => {
+    const res = await req('PATCH', `/projects/${slug}`, { name: 'Team Access Test', description: 'Temporary project for team/access testing' }, runAs(editorToken).headers);
+    assert.strictEqual(res.status, 200, `editor PATCH: ${res.status} -> ${JSON.stringify(await res.json())}`);
   });
 
   test('editor can stop the project (200 -> stopped)', async () => {
@@ -194,6 +220,30 @@ describe('Project team & access control (real Docker container)', () => {
     const outsider = jwt.sign({ id: 'outsider-user', username: 'outsider', role: 'viewer', tv: 0 }, JWT_SECRET, { expiresIn: '24h' });
     const res = await req('GET', `/projects/${slug}`, undefined, runAs(outsider).headers);
     assert.strictEqual(res.status, 403);
+  });
+
+  test('non-member cannot list members of another project (403)', async () => {
+    const outsider = jwt.sign({ id: 'outsider-user-2', username: 'outsider2', role: 'viewer', tv: 0 }, JWT_SECRET, { expiresIn: '24h' });
+    const res = await req('GET', `/projects/${slug}/members`, undefined, runAs(outsider).headers);
+    assert.strictEqual(res.status, 403, `outsider members GET: ${res.status}`);
+  });
+
+  test('non-member cannot read scripts of another project (403)', async () => {
+    const outsider = jwt.sign({ id: 'outsider-user-3', username: 'outsider3', role: 'viewer', tv: 0 }, JWT_SECRET, { expiresIn: '24h' });
+    const res = await req('GET', `/projects/${slug}/scripts`, undefined, runAs(outsider).headers);
+    assert.strictEqual(res.status, 403, `outsider scripts GET: ${res.status}`);
+  });
+
+  test('non-member cannot read subdir info of another project (403)', async () => {
+    const outsider = jwt.sign({ id: 'outsider-user-4', username: 'outsider4', role: 'viewer', tv: 0 }, JWT_SECRET, { expiresIn: '24h' });
+    const res = await req('GET', `/projects/${slug}/subdir`, undefined, runAs(outsider).headers);
+    assert.strictEqual(res.status, 403, `outsider subdir GET: ${res.status}`);
+  });
+
+  test('non-member cannot edit project metadata (403)', async () => {
+    const outsider = jwt.sign({ id: 'outsider-user-5', username: 'outsider5', role: 'viewer', tv: 0 }, JWT_SECRET, { expiresIn: '24h' });
+    const res = await req('PATCH', `/projects/${slug}`, { name: 'outsider-rename' }, runAs(outsider).headers);
+    assert.strictEqual(res.status, 403, `outsider PATCH: ${res.status}`);
   });
 
   test('owner can remove the editor member (200)', async () => {

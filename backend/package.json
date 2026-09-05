@@ -18,6 +18,9 @@
   ],
   "author": "Ahmed Ali",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
@@ -30,7 +33,6 @@
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.1",
     "node-pty": "^1.1.0",
-    "playwright": "^1.62.1",
     "ws": "^8.21.3"
   },
   "devDependencies": {
@@ -43,6 +45,7 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^26.2.0",
     "@types/ws": "^8.18.1",
+    "playwright": "^1.62.1",
     "typescript": "^7.0.2"
   }
 }

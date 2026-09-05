@@ -366,10 +366,18 @@ export async function createProject(spec: ProjectSpec): Promise<ProjectInfo> {
       );
     }
   }
-  const workDir = ensureWorkspaceDir(slug);
-  const bindSource = WORKSPACES_HOST_DIR
-    ? `${WORKSPACES_HOST_DIR.replace(/\\/g, '/')}/${slug}`
-    : workDir;
+  ensureWorkspaceDir(slug);
+  // A bind source missing is a silent-wrong-mount trap: dockerode passes the
+  // string to the daemon, which resolves it on the daemon host (Docker Desktop
+  // VM), not inside this container. Require the host-side path explicitly.
+  if (!WORKSPACES_HOST_DIR) {
+    throw new HttpError(
+      500,
+      'WSD_WORKSPACES_HOST_DIR is not set — project containers would mount the wrong directory. ' +
+        'Set it to the host-side absolute path of ./workspaces in the environment.',
+    );
+  }
+  const bindSource = `${WORKSPACES_HOST_DIR.replace(/\\/g, '/')}/${slug}`;
   const containerName = `wsd-${slug}`;
   const image = clean.image || BASE_IMAGE;
   await ensureImage(image);

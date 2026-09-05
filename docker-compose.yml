@@ -12,9 +12,11 @@ services:
       # Host-side absolute path of ./workspaces, used as the bind source when
       # launching project containers so their /workspace sees the same files
       # (bind sources resolve on the Docker Desktop VM, not inside this container).
-      WSD_WORKSPACES_HOST_DIR: ${WSD_WORKSPACES_HOST_DIR:-./workspaces}
+      # REQUIRED — a relative path would resolve against the daemon host's CWD and
+      # silently mount the wrong directory, so compose fails fast when it is unset.
+      WSD_WORKSPACES_HOST_DIR: "${WSD_WORKSPACES_HOST_DIR:?Set WSD_WORKSPACES_HOST_DIR in .env to the host-side absolute path of ./workspaces}"
       WSD_WORKSPACE_IMAGE: wsd/workspace:latest
-      WSD_IDE_PORT: 8100
+      WSD_IDE_PORT: ${WSD_IDE_PORT:-8100}
       WSD_CHAT_MODEL: ${WSD_CHAT_MODEL:-qwen3:30b}
       WSD_DATA_DIR: /app/data
       # JWT signing secret — set JWT_SECRET in .env (see .env.example) or tokens
@@ -24,7 +26,7 @@ services:
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
       WSD_OPENCODE_PORT: ${WSD_OPENCODE_PORT:-4096}
-      WSD_TESTING: ${WSD_TESTING:-1}
+      WSD_TESTING: ${WSD_TESTING:-0}
       WSD_ENCRYPTION_KEY: ${WSD_ENCRYPTION_KEY:-}
       WSD_TRUST_PROXY: ${WSD_TRUST_PROXY:-}
       # Crash-detector sweep cadence (min 5s; lower = faster detection, more
@@ -40,8 +42,13 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "3000:3000"
-      - "8100:8080"
-      - "${WSD_OPENCODE_PORT:-4096}:4096"
+      # code-server binds a fixed port (8080) inside this container; the host
+      # side honors WSD_IDE_PORT so an override keeps the browser link working.
+      - "${WSD_IDE_PORT:-8100}:8080"
+      # opencode binds the SAME port inside and out (host var passes through to
+      # the entrypoint, so the two sides always agree — a fixed internal port
+      # plus a different host variable would silently map to a dead container port).
+      - "${WSD_OPENCODE_PORT:-4096}:${WSD_OPENCODE_PORT:-4096}"
     depends_on:
       - workspace
 

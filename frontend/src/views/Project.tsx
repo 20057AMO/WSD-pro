@@ -103,6 +103,14 @@ function fmtAction(action: string): string {
   }
 }
 
+const OV_SECTIONS = [
+  { key: 'info', label: 'Project info', id: 'ov-info' },
+  { key: 'runtime', label: 'Runtime', id: 'ov-runtime' },
+  { key: 'config', label: 'Configuration', id: 'ov-config' },
+  { key: 'activity', label: 'Activity', id: 'ov-activity' },
+  { key: 'danger', label: 'Danger zone', id: 'ov-danger' },
+] as const;
+
 export function Project({ params }: { params: { slug: string } }) {
   // wouter's :slug captures query strings too (hash routing), so strip `?tab=…`.
   const slug = (params.slug || '').split('?')[0];
@@ -482,6 +490,7 @@ function OverviewPanel({
   const [checks, setChecks] = useState<PortHealth[] | null>(null);
   const [ctx, setCtx] = useState<ChatContext | null>(null);
   const [ctxOpen, setCtxOpen] = useState(false);
+  const [activeSection, setActiveSection] = useState<string>('info');
 
   const [editDesc, setEditDesc] = useState(false);
   const [descText, setDescText] = useState('');
@@ -833,9 +842,67 @@ function OverviewPanel({
     }
   };
 
+  const scrollToSection = (key: string) => {
+    const target = OV_SECTIONS.find((s) => s.key === key);
+    const el = target ? document.getElementById(target.id) : null;
+    if (!el) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    setActiveSection(key);
+  };
+
+  // Scroll-spy for the Overview sub-navbar. Sections overlap vertically (two
+  // columns per row), so the active section is the one whose vertical center is
+  // closest to the probe line — this lights info, then runtime, then config…
+  useEffect(() => {
+    let raf = 0;
+    const probe = Math.max(160, Math.round(window.innerHeight * 0.42));
+    const compute = () => {
+      raf = 0;
+      let best: string = OV_SECTIONS[0].key;
+      let bestDist = Infinity;
+      for (const s of OV_SECTIONS) {
+        const el = document.getElementById(s.id);
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (r.bottom < -40 || r.top > probe + 60) continue;
+        const center = (r.top + r.bottom) / 2;
+        const dist = Math.abs(center - probe);
+        if (dist < bestDist - 1) {
+          best = s.key;
+          bestDist = dist;
+        }
+      }
+      setActiveSection(best);
+    };
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(compute);
+    };
+    const scroller = document.querySelector('.main') || window;
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    compute();
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      scroller.removeEventListener('scroll', onScroll);
+    };
+  }, []);
+
   return (
     <div class="overview-stack overview">
-      <div class="overview-grid">
+      <nav class="subnav" aria-label="Overview sections">
+        {OV_SECTIONS.map((s) => (
+          <button
+            key={s.key}
+            class={`subnav-btn${activeSection === s.key ? ' active' : ''}`}
+            aria-current={activeSection === s.key ? 'true' : undefined}
+            onClick={() => scrollToSection(s.key)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </nav>
+      <div class="overview-grid" id="ov-info">
         <div class="panel">
           <div class="panel-title">Project info</div>
           <div class="kv-list">
@@ -911,7 +978,7 @@ function OverviewPanel({
           </div>
         </div>
 
-        <div class="panel">
+        <div class="panel" id="ov-runtime">
           <div class="panel-title">Runtime</div>
           {effectiveStats?.running ? (
             <div class="ov-stat-grid">
@@ -994,7 +1061,7 @@ function OverviewPanel({
       </div>
 
       <div class="ov-stack">
-        <div class="panel">
+        <div class="panel" id="ov-config">
           <div class="panel-title">Configuration</div>
 
           <div class="ov-section">
@@ -1207,7 +1274,7 @@ function OverviewPanel({
           </div>
         </div>
 
-        <div class="panel">
+        <div class="panel" id="ov-activity">
           <div class="panel-title">Activity</div>
           {project?.activity && project.activity.length > 0 ? (
             <div class="activity-list">
@@ -1227,7 +1294,7 @@ function OverviewPanel({
         </div>
       </div>
 
-      <div class="panel danger-zone">
+      <div class="panel danger-zone" id="ov-danger">
         <div class="panel-title" style="color: var(--red)">Danger zone</div>
         <div class="danger-desc">
           <TriangleAlert width={14} height={14} class="icon" />

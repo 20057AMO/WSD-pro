@@ -41,6 +41,11 @@ jobs:
       - name: Point workspace binds at the checkout
         run: echo "WSD_WORKSPACES_HOST_DIR=${{ github.workspace }}/workspaces" >> "$GITHUB_ENV"
 
+      # The compose default is production (0); the suite container needs the
+      # relaxed budgets so multi-suite teardown never trips the rate limiters.
+      - name: Enable relaxed rate budgets for the test suite
+        run: echo "WSD_TESTING=1" >> "$GITHUB_ENV"
+
       - name: Build and launch the stack
         run: docker compose up -d --build
 

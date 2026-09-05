@@ -155,6 +155,9 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 // Helmet (CSP off — the UI is served from the same origin)
 app.use(helmet({ contentSecurityPolicy: false }));
+// Compression — registered BEFORE routes so gzip applies to API JSON too,
+// not just the static/SPA fallback (Express runs middleware in order).
+app.use(compression());
 // CORS is opt-in via WSD_CORS_ORIGINS (comma-separated). The UI is always
 // same-origin (served by this server; vite dev proxies /api and /ws), so the
 // wildcard default of `cors()` would hand every website read access to the
@@ -1345,7 +1348,7 @@ app.post('/api/projects/:slug/snapshots/:file/restore', requireProjectAccess('ed
 // ── Project membership ────────────────────────────────────────
 
 // List members
-app.get('/api/projects/:slug/members', async (req: any, res) => {
+app.get('/api/projects/:slug/members', requireProjectAccess('viewer'), async (req: any, res) => {
   try {
     const meta = loadMeta(req.params.slug);
     if (!meta) return res.status(404).json({ error: 'Project not found' });
@@ -1786,7 +1789,7 @@ app.post('/api/projects/:slug/upload', requireProjectAccess('editor'), (req, res
 });
 
 // Edit project metadata (name / description)
-app.patch('/api/projects/:slug', async (req, res) => {
+app.patch('/api/projects/:slug', requireProjectAccess('editor'), async (req, res) => {
   try {
     const project = await getProject(req.params.slug);
     if (!project) return res.status(404).json({ error: 'Project not found' });
@@ -2005,7 +2008,7 @@ app.post('/api/projects/:slug/file/rename', requireProjectAccess('editor'), (req
 });
 
 // ── npm scripts ───────────────────────────────────────────────
-app.get('/api/projects/:slug/scripts', (req, res) => {
+app.get('/api/projects/:slug/scripts', requireProjectAccess('viewer'), (req, res) => {
   try {
     const base = path.resolve(WORKSPACES_ROOT, String(req.params.slug || '').trim());
     const pkgPath = path.join(base, 'package.json');
@@ -2034,7 +2037,7 @@ app.post('/api/projects/:slug/scripts/run', requireProjectAccess('editor'), rate
   }
 });
 
-app.get('/api/projects/:slug/subdir', (req, res) => {
+app.get('/api/projects/:slug/subdir', requireProjectAccess('viewer'), (req, res) => {
   try {
     const info = resolveProjectSubdir(req.params.slug);
     res.json(info);
@@ -2072,9 +2075,6 @@ function normalizeUploadPath(raw: string): string | null {
   if (clean.startsWith('..') || clean.includes('/../') || clean.endsWith('/..')) return null;
   return clean.slice(0, 1024);
 }
-
-// ── Compression (gzip/deflate for all responses) ─────────────
-app.use(compression());
 
 // ── Serve frontend static build if present ───────────────────
 const frontendDist = path.join(__dirname, '..', '..', 'frontend', 'dist');
