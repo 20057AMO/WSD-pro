@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import { ExternalLink, Download, TriangleAlert, Globe, Copy, Loader2, Check } from 'lucide-preact';
+import { ExternalLink, Download, TriangleAlert, Globe, Copy, Loader2, Check, Ellipsis } from 'lucide-preact';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   getProject,
@@ -279,6 +279,22 @@ export function Project({ params }: { params: { slug: string } }) {
 
   const [exporting, setExporting] = useState(false);
 
+  const [moreOpen, setMoreOpen] = useState(false);
+  const headerMoreWrap = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (headerMoreWrap.current && !headerMoreWrap.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoreOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [moreOpen]);
+
   const handleExport = async () => {
     if (exporting) return;
     setExporting(true);
@@ -361,13 +377,37 @@ export function Project({ params }: { params: { slug: string } }) {
           </div>
         </div>
         <div class="detail-actions">
-          <button class="btn-ghost sm" onClick={() => setTab('chat')}>Ask AI</button>
-          <button class="btn-ghost sm" onClick={() => setLocation(`/terminals/${slug}`)}>Terminals</button>
-          <button class="btn-ghost sm" onClick={openIde}><ExternalLink width={13} height={13} class="icon" /> Open IDE</button>
-          <span class="detail-action-sep" aria-hidden="true" />
-          <button class="btn-ghost sm" onClick={handleExport} disabled={exporting || readOnly} title={readOnly ? 'Viewer — export requires editor access' : undefined}>
-            <Download width={13} height={13} class="icon" /> {exporting ? 'Exporting…' : 'Export'}
-          </button>
+          <div class="header-overflow">
+            <button class="btn-ghost sm" onClick={() => setTab('chat')}>Ask AI</button>
+            <button class="btn-ghost sm" onClick={() => setLocation(`/terminals/${slug}`)}>Terminals</button>
+            <button class="btn-ghost sm" onClick={openIde}><ExternalLink width={13} height={13} class="icon" /> Open IDE</button>
+            <span class="detail-action-sep" aria-hidden="true" />
+            <button class="btn-ghost sm" onClick={handleExport} disabled={exporting || readOnly} title={readOnly ? 'Viewer — export requires editor access' : undefined}>
+              <Download width={13} height={13} class="icon" /> {exporting ? 'Exporting…' : 'Export'}
+            </button>
+          </div>
+          <span class="header-more-wrap" ref={headerMoreWrap}>
+            <button
+              class="btn-ghost sm icon-only header-more"
+              aria-label="More actions"
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen(!moreOpen)}
+            >
+              <Ellipsis width={15} height={15} class="icon" />
+            </button>
+            {moreOpen && (
+              <div class="header-menu" role="menu">
+                <button role="menuitem" onClick={() => { setMoreOpen(false); setTab('chat'); }}>Ask AI</button>
+                <button role="menuitem" onClick={() => { setMoreOpen(false); setLocation(`/terminals/${slug}`); }}>Terminals</button>
+                <button role="menuitem" onClick={() => { setMoreOpen(false); openIde(); }}><ExternalLink width={13} height={13} class="icon" /> Open IDE</button>
+                <div class="header-menu-sep" role="separator" />
+                <button role="menuitem" onClick={() => { setMoreOpen(false); handleExport(); }} disabled={exporting || readOnly} title="Export snapshot">
+                  <Download width={13} height={13} class="icon" /> {exporting ? 'Exporting…' : 'Export'}
+                </button>
+              </div>
+            )}
+          </span>
           <button
             class={project?.status === 'running' ? 'btn-danger sm' : 'btn-primary sm'}
             onClick={() => (project?.status === 'running' ? handleStop() : handleStart())}
@@ -376,7 +416,7 @@ export function Project({ params }: { params: { slug: string } }) {
           >
             {project?.status === 'running' ? 'Stop' : 'Start'}
           </button>
-          <button class="btn-ghost sm" onClick={handleRestart} disabled={readOnly || project?.status !== 'running'} title={readOnly ? 'Viewer — restart requires editor access' : undefined}>
+          <button class="btn-ghost sm restart-btn" onClick={handleRestart} disabled={readOnly || project?.status !== 'running'} title={readOnly ? 'Viewer — restart requires editor access' : undefined}>
             Restart
           </button>
         </div>
