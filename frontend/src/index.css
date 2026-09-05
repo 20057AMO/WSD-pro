@@ -1040,6 +1040,8 @@ textarea.agent-prompt-input {
   .modal-card, .unlock-card, .reauth-card { padding: 18px; }
   .modal-overlay { padding: 12px; }
   .proj-header { flex-direction: column; gap: 12px; }
+  .serve-head .serve-label { flex: 1 1 100%; margin-right: 0; }
+  .serve-head .serve-toggle { flex: 1 1 45%; justify-content: center; }
   .agents-topbar { flex-wrap: wrap; }
   .agents-topbar-right { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-start; }
   .agents-agent-desc { flex-basis: 100%; }
@@ -1260,6 +1262,58 @@ textarea.agent-prompt-input {
   word-break: break-word;
 }
 .ov-value-empty { color: var(--text-3); font-style: italic; }
+/* field label inside a kv row (tags/ports) */
+.kv-label {
+  font-size: 0.66rem; font-weight: 600; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.kv-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.kv-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* tag editor — one bordered region with chips + inline input */
+.tag-editor {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 7px 9px;
+  transition: border-color .15s;
+}
+.tag-editor:focus-within { border-color: color-mix(in srgb, var(--accent, #6ea8fe) 45%, var(--border)); }
+.tag-editor .tag-chip { font-size: 0.72rem; }
+.tag-input {
+  flex: 1; min-width: 130px; height: 24px;
+  background: transparent; border: none; outline: none;
+  color: var(--text); font-size: 0.74rem; padding: 0 2px;
+}
+.tag-input::placeholder { color: var(--text-3); font-style: italic; }
+/* clickable port chips */
+.port-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.port-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border-radius: 6px; cursor: pointer;
+  background: var(--bg-2); border: 1px solid var(--border);
+  color: var(--text-2); font-size: 0.74rem;
+  transition: border-color .15s, color .15s;
+}
+.port-chip:hover { border-color: var(--blue); color: var(--blue); }
+.port-chip .icon { width: 10px; height: 10px; opacity: .55; }
+/* static-site serve control (runtime card) */
+.serve-box {
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px;
+}
+.serve-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.serve-label {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 0.78rem; font-weight: 600; color: var(--text);
+  margin-right: auto; flex-wrap: wrap;
+}
+.serve-dot-wrap { display: inline-flex; margin-left: auto; padding: 6px; }
+.serve-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; display: inline-block; }
+.serve-dot.on { background: var(--green); box-shadow: 0 0 6px rgba(63,185,80,0.6); }
+.serve-dot.err { background: var(--red); }
+.serve-toggle { white-space: nowrap; }
+.serve-url-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.serve-status { display: flex; }
 .ov-env-view { display: flex; flex-wrap: wrap; gap: 6px; }
 .ov-env-chip {
   font-family: var(--mono); font-size: 0.7rem; color: var(--text-2);

@@ -678,16 +678,24 @@ function OverviewPanel({
 
   const saveEnv = async () => {
     const env: Record<string, string> = {};
-    for (const line of envText.split('\n')) {
+    const skipped: string[] = [];
+    for (const raw of envText.split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
       const eq = line.indexOf('=');
-      if (eq <= 0) continue;
-      const k = line.slice(0, eq).trim();
-      const v = line.slice(eq + 1).trim();
+      const k = eq > 0 ? line.slice(0, eq).trim() : '';
+      const v = eq > 0 ? line.slice(eq + 1).trim() : '';
       if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) env[k] = v;
+      else if (raw.trim()) skipped.push(line);
+    }
+    if (Object.keys(env).length === 0 && skipped.length > 0) {
+      setEnvMsg(`No valid KEY=VALUE lines — fix or remove: ${skipped.join(' · ')}`);
+      return;
     }
     try {
       const r = await setProjectEnv(slug, env);
-      setEnvMsg(r.needsRecreate ? 'Saved. Recreate the container to apply.' : 'Saved. Applies on next start.');
+      const note = r.needsRecreate ? 'Saved. Recreate the container to apply.' : 'Saved. Applies on next start.';
+      setEnvMsg(skipped.length ? `${note} Skipped: ${skipped.join(' · ')}` : note);
       onChanged();
     } catch (err: any) {
       setEnvMsg(`Failed: ${err.message}`);
@@ -791,14 +799,31 @@ function OverviewPanel({
     }
   };
 
+  const addTag = (raw: string) => {
+    const val = raw.trim().slice(0, 30);
+    if (!val) {
+      setTagInput('');
+      return;
+    }
+    if (currentTags.some((t) => t.toLowerCase() === val.toLowerCase())) {
+      setTagInput('');
+      return;
+    }
+    if (currentTags.length >= 20) {
+      setTagsMsg('Max 20 tags');
+      setTimeout(() => setTagsMsg(null), 3000);
+      return;
+    }
+    setCurrentTags([...currentTags, val]);
+    setTagInput('');
+  };
+
   const handleTagKeyDown = (e: any) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' || e.key === ',' || e.key === ';') {
       e.preventDefault();
-      const val = tagInput.trim();
-      if (val && !currentTags.includes(val)) {
-        setCurrentTags([...currentTags, val]);
-        setTagInput('');
-      }
+      addTag(tagInput);
+    } else if (e.key === 'Backspace' && tagInput === '' && currentTags.length > 0) {
+      removeTag(currentTags[currentTags.length - 1]);
     }
   };
 
@@ -880,8 +905,12 @@ function OverviewPanel({
                       rows={3}
                       value={descText}
                       onInput={(e: any) => setDescText(e.target.value)}
+                      onKeyDown={(e: any) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveDescription(); if (e.key === 'Escape') { setEditDesc(false); setDescText(project?.description || ''); } }}
                     />
-                    <button class="btn-primary sm" onClick={saveDescription}>Save</button>
+                    <div style="display:flex; gap:6px">
+                      <button class="btn-primary sm" onClick={saveDescription}>Save</button>
+                      <button class="btn-ghost sm" onClick={() => { setEditDesc(false); setDescText(project?.description || ''); }}>Cancel</button>
+                    </div>
                   </>
                 ) : (
                   <>
@@ -912,31 +941,49 @@ function OverviewPanel({
                   <span>Uptime</span>
                   <b>{effectiveStats?.running ? fmtUptime(effectiveStats.startedAt) : project?.status === 'running' ? '…' : 'stopped'}</b>
                 </div>
-                <div class="kv" style="flex-direction:column; align-items:flex-start; gap:6px">
-                  <span class="dim" style="font-size:0.72rem">Tags</span>
-                  <div style="display:flex; flex-wrap:wrap; gap:4px">
+                <div class="kv" style="flex-direction:column; align-items:stretch; gap:6px">
+                  <span class="kv-label">Tags</span>
+                  <div class="tag-editor">
                     {currentTags.map((t) => (
                       <span class="tag-chip" key={t}>
-                        {t} <span class="tag-remove" onClick={() => removeTag(t)}>×</span>
+                        {t}
+                        <span class="tag-remove" role="button" aria-label={`Remove tag ${t}`} onClick={() => removeTag(t)}>×</span>
                       </span>
                     ))}
                     <input
-                      class="modern-input"
-                      style="width:80px; height:20px; font-size:0.7rem; padding:2px 4px"
-                      placeholder="Add..."
+                      class="tag-input"
+                      placeholder="Add tag…"
+                      maxLength={30}
                       value={tagInput}
+                      aria-label="Add tag"
                       onInput={(e: any) => setTagInput(e.target.value)}
                       onKeyDown={handleTagKeyDown}
                     />
                   </div>
-                  <button class="btn-ghost sm" style="margin-top:4px; width:fit-content" onClick={saveTags} disabled={savingTags}>
-                    {savingTags ? 'Saving…' : 'Save tags'}
-                  </button>
-                  {tagsMsg && <span class="dim" style="color: var(--text-3); font-size:0.7rem">{tagsMsg}</span>}
+                  <div class="kv-sub">
+                    <span class="dim">Enter to add · {currentTags.length}/20 · max 30 chars</span>
+                    <div class="kv-actions">
+                      <button class="btn-ghost sm" onClick={saveTags} disabled={savingTags}>
+                        {savingTags ? 'Saving…' : 'Save tags'}
+                      </button>
+                      {tagsMsg && <span class="dim">{tagsMsg}</span>}
+                    </div>
+                  </div>
                 </div>
-                <div class="kv">
-                  <span>Ports</span>
-                  <b>{project?.ports && project.ports.length > 0 ? project.ports.join(', ') : 'none'}</b>
+                <div class="kv" style="flex-direction:column; align-items:flex-start; gap:6px">
+                  <span class="kv-label">Ports</span>
+                  {project?.ports && project.ports.length > 0 ? (
+                    <div class="port-chips">
+                      {project.ports.map((p) => (
+                        <button class="port-chip" key={p} title={`Copy port ${p}`} onClick={() => copy(String(p))}>
+                          <span class="mono">{p}</span>
+                          <Copy width={10} height={10} class="icon" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <span class="dim" style="color: var(--text-3); font-style: italic">No published ports.</span>
+                  )}
                 </div>
           </div>
         </div>
@@ -962,6 +1009,71 @@ function OverviewPanel({
           ) : (
             <div class="empty-state" style="padding: 24px">Project is {project?.status || 'unknown'}. Start it to see runtime stats.</div>
           )}
+
+          {project && project.ports && project.ports.length > 0 && (
+            <div class="serve-box" style="margin-top: 16px">
+              <div class="serve-head">
+                <span class="serve-label">
+                  <span class={`serve-dot ${project.serve?.active ? 'on' : project.serve?.enabled && project.serve?.error ? 'err' : ''}`} />
+                  Static site
+                </span>
+                {!readOnly && (
+                  <>
+                    <select
+                      class="modern-input mono"
+                      style="max-width:110px"
+                      aria-label="Static site port"
+                      value={project.serve?.enabled ? project.serve.port : servePort ?? project.serve?.port ?? project.ports[0]}
+                      disabled={project.serve?.enabled || project.status !== 'running'}
+                      title={project.serve?.enabled ? 'Port fixed while serving' : 'Pick the published port to serve on'}
+                      onChange={(e: any) => setServePort(Number(e.target.value))}
+                    >
+                      {project.ports.map((p) => (
+                        <option key={p} value={p}>:{p}</option>
+                      ))}
+                    </select>
+                    <button
+                      class="btn-primary sm serve-toggle"
+                      onClick={toggleServe}
+                      disabled={serving || project.status !== 'running'}
+                    >
+                      {serving ? (
+                        <Loader2 width={12} height={12} class="icon spin" />
+                      ) : project.serve?.enabled ? (
+                        'Stop server'
+                      ) : (
+                        'Start server'
+                      )}
+                    </button>
+                    {project.serve?.enabled && (
+                      <button class="btn-ghost sm" title="Copy URL" onClick={copyServeUrl}>
+                        <Copy width={12} height={12} class="icon" />{serveCopied ? 'Copied' : 'Copy'}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+              {project.serve?.enabled && (
+                <div class="serve-status">
+                  {project.serve?.error ? (
+                    <span class="serve-msg err">Serve error — {project.serve.error}</span>
+                  ) : (
+                    <span class="serve-msg ok">Serving on port {project.serve.port}</span>
+                  )}
+                </div>
+              )}
+              {project.serve?.enabled && serveUrl && (
+                <div class="serve-url-row">
+                  <a class="port-link" style="flex:1; min-width:0" href={serveUrl} target="_blank" rel="noreferrer">
+                    <span class="p-val">{serveUrl}</span>
+                  </a>
+                </div>
+              )}
+              {project.status !== 'running' && !project.serve?.enabled && (
+                <div class="ov-section-desc" style="margin-top: 8px">Start the project first — serving needs a running container.</div>
+              )}
+            </div>
+          )}
         </div>
         )}
 
@@ -979,7 +1091,7 @@ function OverviewPanel({
             </div>
             <div class="kv">
               <span>Budget</span>
-              <b>~24 KB injected</b>
+              <b>~24 KB</b>
             </div>
           </div>
           <div class="kv" style="gap:10px; margin-top:10px">
@@ -1172,63 +1284,6 @@ function OverviewPanel({
               </>
             )}
           </div>
-
-          {project && project.ports && project.ports.length > 0 && (
-            <div class="ov-section">
-              <div class="ov-section-label">Static site</div>
-              <div class="ov-field">
-                <select
-                  class="modern-input mono"
-                  style="max-width:120px"
-                  aria-label="Static site port"
-                  value={project.serve?.enabled ? project.serve.port : servePort ?? project.serve?.port ?? project.ports[0]}
-                  disabled={project.serve?.enabled}
-                  onChange={(e: any) => setServePort(Number(e.target.value))}
-                >
-                  {project.ports.map((p) => (
-                    <option key={p} value={p}>:{p}</option>
-                  ))}
-                </select>
-                <span
-                  class={`serve-dot ${project.serve?.active ? 'on' : project.serve?.enabled && project.serve?.error ? 'err' : ''}`}
-                  title={project.serve?.enabled ? (project.serve?.active ? 'Serving' : project.serve?.error ? 'Serve error' : 'Enabled') : 'Not serving'}
-                />
-                {project.serve?.enabled && serveUrl && (
-                  <a class="port-link" style="flex:1; min-width:0" href={serveUrl} target="_blank" rel="noreferrer">
-                    <span class="p-val">{serveUrl}</span>
-                  </a>
-                )}
-                {project.serve?.enabled && (
-                  <button class="btn-ghost sm" title="Copy URL" onClick={copyServeUrl}>
-                    <Copy width={12} height={12} class="icon" />{serveCopied ? 'Copied' : 'Copy'}
-                  </button>
-                )}
-              </div>
-              {!readOnly && (
-                <div class="ov-row-actions">
-                  <button class="btn-ghost sm" onClick={toggleServe} disabled={serving || project.status !== 'running'}>
-                    {serving
-                      ? <Loader2 width={12} height={12} class="icon spin" />
-                      : project.serve?.enabled
-                        ? 'Stop serving'
-                        : 'Serve static site'}
-                  </button>
-                  {project.status !== 'running' && (
-                    <span class="dim" style="color: var(--text-3)">Start the project first.</span>
-                  )}
-                </div>
-              )}
-              {project.serve?.enabled && (
-                <div class="serve-status" style="margin-top:6px">
-                  {project.serve?.error ? (
-                    <span class="serve-msg err">Serve error — {project.serve.error}</span>
-                  ) : (
-                    <span class="serve-msg ok">Serving on port {project.serve.port}</span>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
 
           <div class="ov-section">
             <div class="ov-section-label">Container actions</div>
